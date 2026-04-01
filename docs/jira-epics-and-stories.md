@@ -50,7 +50,7 @@
 - **Description**: Create `shared/` package with `config.py` (pydantic-settings), `database.py` (SQLAlchemy engine + session), `models.py` (all ORM models), `auth.py` (JWT create/decode, password hash/verify), `schemas.py` (shared Pydantic models: CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse).
 - **Acceptance criteria**:
   - [ ] `shared/shared/config.py` reads all env vars from `.env`
-  - [ ] `shared/shared/models.py` has all 7 tables: courses, sections, programs, requirements, users, completed_courses, student_decisions, tool_audit_log
+  - [ ] `shared/shared/models.py` has all 8 tables: courses, sections, programs, requirements, users, completed_courses, student_decisions, tool_audit_log
   - [ ] `shared/shared/auth.py` can create and decode JWTs, hash and verify passwords
   - [ ] `shared/shared/schemas.py` has CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse
   - [ ] `from shared.config import settings` works from any workspace member
@@ -176,6 +176,7 @@
   - [ ] All 3,735 Course nodes have non-null `embedding` property
   - [ ] Vector index `course-embeddings` exists in Neo4j
   - [ ] `CALL db.index.vector.queryNodes('course-embeddings', 5, $embedding)` returns results
+  - [ ] Vector index uses 768 dimensions with cosine similarity
   - [ ] Script is idempotent (skips courses that already have embeddings)
 
 ### DATA-005: run_all.py orchestrator + validation
@@ -193,7 +194,7 @@
 - **Points**: 3
 - **Phase**: 1 (Day 4-5)
 - **Blocked by**: INFRA-003 (Ollama running)
-- **Assignee**: Person C
+- **Assignee**: Person B
 - **Labels**: `critical-path`
 - **Description**: Write `scripts/test_tool_calling.py`. Define 6 tool schemas matching the architecture. Write 20+ representative student questions with expected tool names. Test the chosen Ollama model. Report pass rate. If < 80%, test alternative models and document recommendation.
 - **Acceptance criteria**:
@@ -263,7 +264,7 @@
 - **Phase**: 2-3 (Day 8-9)
 - **Blocked by**: INFRA-002 (User model)
 - **Assignee**: Person A
-- **Description**: `GET /api/students/me` (returns profile, completed courses with grades, decisions). `PUT /api/students/me/completed-courses` (update completed course list with optional grades). All endpoints require JWT auth.
+- **Description**: `GET /api/students/me` (returns profile, completed courses with grades, decisions). `PUT /api/students/me/completed-courses` (update completed course list with optional grades). All endpoints require JWT auth. Use test JWTs from `shared/auth.py` for development and testing; real login/register flow comes in Phase 3 (AUTH-001/002).
 - **Acceptance criteria**:
   - [ ] Endpoints require valid JWT (401 without)
   - [ ] `GET /api/students/me` returns program, completed courses (with grades), decisions
@@ -286,6 +287,18 @@
 ## Epic 4: Chat Engine (AI + LangGraph)
 
 > Owner: Person C | Phase: 2 | Priority: High
+
+### CHAT-000: LangGraph spike (timeboxed research)
+- **Points**: 2
+- **Phase**: 1 (Day 5-6)
+- **Blocked by**: INFRA-005
+- **Assignee**: Person C
+- **Description**: Timeboxed spike to de-risk the 8-point CHAT-008. Research LangGraph StateGraph, ReAct pattern, and tool binding. Build a minimal working prototype: single tool (e.g., echo tool), no real data, hardcoded Ollama connection. Document patterns and gotchas for the team.
+- **Acceptance criteria**:
+  - [ ] Minimal LangGraph StateGraph with one tool runs end-to-end
+  - [ ] Tool binding and tool-calling loop demonstrated
+  - [ ] Key patterns documented (state management, tool loop, error handling)
+  - [ ] Timeboxed to 1 day — findings shared regardless of completion
 
 ### CHAT-001: Stub WebSocket endpoint (echo)
 - **Points**: 2
@@ -316,7 +329,7 @@
 - **Points**: 2
 - **Phase**: 2 (Day 7-8)
 - **Blocked by**: INFRA-003 (Ollama running)
-- **Assignee**: Person C
+- **Assignee**: Person A
 - **Description**: Create `services/ollama_service.py`. Async HTTP client (`httpx.AsyncClient`) to Ollama API. Functions: `get_embedding(text)`, `chat_completion(messages, tools)`. 120s timeout with graceful error handling.
 - **Acceptance criteria**:
   - [ ] `get_embedding("data science")` returns 768-dim vector
@@ -380,7 +393,7 @@
 ### CHAT-008: LangGraph conversation engine
 - **Points**: 8
 - **Phase**: 2 (Day 10-12)
-- **Blocked by**: CHAT-005, CHAT-006, CHAT-007
+- **Blocked by**: CHAT-005, CHAT-006, CHAT-007, CHAT-010
 - **Assignee**: Person C
 - **Labels**: `critical-path`
 - **Description**: Create `core/llm_engine.py`. LangGraph StateGraph with nodes: classify_intent → build_context → call_llm → maybe_call_tools (loop) → validate_output → respond. Bind tools to the LLM. Handle the tool-calling loop (LLM generates tool calls → executor runs them → results fed back → LLM generates final response). Wire into the WebSocket endpoint (replace echo stub).
@@ -393,10 +406,10 @@
   - [ ] End-to-end: WebSocket message → LangGraph → tool calls → LLM response → WebSocket response
 
 ### CHAT-009: PostgreSQL service (student data + audit)
-- **Points**: 2
+- **Points**: 3
 - **Phase**: 2 (Day 8)
 - **Blocked by**: INFRA-002
-- **Assignee**: Person C
+- **Assignee**: Person A
 - **Description**: Create `services/postgres_service.py`. Functions: `get_student_data(user_id)` — returns profile + completed courses with grades + prior decisions. `save_student_decision(user_id, course_code, decision_type, notes)`. `get_schedule_conflicts(course_codes)` — join sections, parse meeting times, find overlaps.
 - **Acceptance criteria**:
   - [ ] `get_student_data` returns program, completed courses (with grades), decisions
@@ -406,7 +419,7 @@
 
 ### CHAT-010: Context builder
 - **Points**: 3
-- **Phase**: 2 (Day 11)
+- **Phase**: 2 (Day 9-10)
 - **Blocked by**: CHAT-002, CHAT-009
 - **Assignee**: Person C
 - **Description**: Create `core/context_builder.py`. Assembles context for the LLM prompt from: student profile, conversation summary, retrieved graph/vector data, intent classification. Formats using delimiter tags (`<retrieved_context>`, `<user_profile>`, `<conversation_summary>`).
@@ -415,6 +428,19 @@
   - [ ] Context includes conversation summary when available
   - [ ] Retrieved data is wrapped in `<retrieved_context>` tags
   - [ ] Context fits within model's context window (track token count)
+
+### CHAT-011: Chat Service test suite
+- **Points**: 5
+- **Phase**: 2-3 (Day 12-13)
+- **Blocked by**: CHAT-008
+- **Assignee**: Person B
+- **Description**: Write pytest tests for the chat service. Test: tool executor auth enforcement (user_id override), tool calling with mock LLM responses, Neo4j service queries, Redis session storage, WebSocket connect/disconnect, intent classification accuracy. Mock Ollama responses so tests run without GPU.
+- **Acceptance criteria**:
+  - [ ] `uv run pytest services/chat-service/tests/ -v` passes
+  - [ ] Tests cover: tool executor user_id override, rate limiting, session persistence, intent classification
+  - [ ] Test fixtures mock Ollama responses (no GPU needed in CI)
+  - [ ] WebSocket connect with valid JWT and reject with invalid JWT tested
+  - [ ] At least 80% coverage on `core/` modules
 
 ---
 
@@ -663,7 +689,7 @@
 - **Points**: 2
 - **Phase**: 3 (Day 16)
 - **Blocked by**: CHAT-008
-- **Assignee**: Person C
+- **Assignee**: Person B
 - **Labels**: `security`
 - **Description**: Create `core/input_sanitizer.py`. Max 2000 characters. Strip zero-width characters and control characters. Flag known injection patterns ("ignore previous", "system:", "you are now") — don't block, but add internal warning to LLM context.
 - **Acceptance criteria**:
@@ -676,7 +702,7 @@
 - **Points**: 2
 - **Phase**: 3 (Day 16-17)
 - **Blocked by**: CHAT-008
-- **Assignee**: Person C
+- **Assignee**: Person B
 - **Labels**: `security`
 - **Description**: Create `core/output_validator.py`. Validate `structured_data` and `suggested_actions` against Pydantic schemas before sending to frontend. Strip if invalid. PII pattern scan (email addresses, student IDs). Scope check (filter non-academic content).
 - **Acceptance criteria**:
@@ -685,7 +711,7 @@
   - [ ] Response always matches ChatResponse schema
 
 ### SEC-004: Security test suite
-- **Points**: 3
+- **Points**: 5
 - **Phase**: 3 (Day 17-18)
 - **Blocked by**: SEC-001, SEC-002, SEC-003, CHAT-006
 - **Assignee**: Person C
@@ -769,7 +795,7 @@
 ### DEPLOY-006: Data ingestion on GCP
 - **Points**: 2
 - **Phase**: 4 (Day 22)
-- **Blocked by**: DEPLOY-002
+- **Blocked by**: DEPLOY-002, DATA-005
 - **Assignee**: Person A
 - **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Pull Ollama models. Verify data counts.
 - **Acceptance criteria**:
@@ -903,11 +929,15 @@ FE-001 ──→ FE-002 ──→ FE-003 ──→ FE-004
     │
     └──→ FE-005
 
-CHAT-002 + CHAT-003 ──→ CHAT-005 ──→ CHAT-006 ──→ CHAT-008
-                              │              │
-                     CHAT-007 ┘              └──→ SEC-001 ──→ SEC-004
-                                                  SEC-002 ──→ SEC-004
-                                                  SEC-003 ──→ SEC-004
+INFRA-005 ──→ CHAT-000 (LangGraph spike)
+
+CHAT-002 + CHAT-003 ──→ CHAT-005 ──→ CHAT-006 ──┐
+                              │                   ├──→ CHAT-008 ──→ CHAT-011
+                     CHAT-007 ┘                   │
+                     CHAT-010 ────────────────────┘
+                                                  CHAT-008 ──→ SEC-001 ──→ SEC-004
+                                                               SEC-002 ──→ SEC-004
+                                                               SEC-003 ──→ SEC-004
 
 CHAT-004 ──→ MEM-001 ──→ MEM-002
 
@@ -917,7 +947,7 @@ AUTH-002 ──→ AUTH-004
 
 DEPLOY-001 ──→ DEPLOY-002 ──→ DEPLOY-003
     │                  │
-    │                  └──→ DEPLOY-006 ──→ DEPLOY-007
+    │                  └──→ DEPLOY-006 (+ DATA-005) ──→ DEPLOY-007
     │
     ├──→ DEPLOY-005 ──→ DEPLOY-004 ──→ DEPLOY-007
     │
@@ -954,10 +984,11 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | DATA-003 | 5 | Person C | 2-4 |
 | DATA-004 | 3 | Person C | 4-5 |
 | DATA-005 | 2 | Person C | 5 |
-| DATA-006 | 3 | Person C | 4-5 |
-| **Total** | **55** | | |
+| DATA-006 | 3 | Person B | 4-5 |
+| CHAT-000 | 2 | Person C | 5-6 |
+| **Total** | **57** | | |
 
-**Velocity needed**: ~18 pts/person over 5 days.
+**Per-person**: A=16, B=19, C=22. CHAT-000 spans into Day 6 (Sprint 2) but is timeboxed to 1 day.
 
 ### Sprint 2: Core Features (Days 6-12, Mar 30 - Apr 5)
 **Goal**: Course search end-to-end. Chat with tool calling.
@@ -974,17 +1005,18 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | FE-008 | 5 | Person B | 8-12 |
 | CHAT-001 | 2 | Person C | 6-7 |
 | CHAT-002 | 5 | Person C | 7-9 |
-| CHAT-003 | 2 | Person C | 7-8 |
+| CHAT-003 | 2 | Person A | 7-8 |
 | CHAT-004 | 3 | Person C | 8-9 |
 | CHAT-005 | 3 | Person C | 9-10 |
 | CHAT-006 | 3 | Person C | 10 |
 | CHAT-007 | 3 | Person C | 10-11 |
 | CHAT-008 | 8 | Person C | 10-12 |
-| CHAT-009 | 2 | Person C | 8 |
-| CHAT-010 | 3 | Person C | 11 |
-| **Total** | **58** | | |
+| CHAT-009 | 3 | Person A | 8 |
+| CHAT-010 | 3 | Person C | 9-10 |
+| CHAT-011 | 5 | Person B | 12-13 |
+| **Total** | **64** | | |
 
-**Velocity needed**: ~19 pts/person over 7 days. Person C has the heaviest load (~34 pts). Consider Person A helping with CHAT-009 or CHAT-004 if ahead on API work.
+**Per-person**: A=24, B=10, C=30. Person C has the heaviest load (chat core chain). CHAT-011 may spill into Sprint 3.
 
 ### Sprint 3: Integration + Polish (Days 13-19, Apr 6-12)
 **Goal**: Full local demo with auth, memory, security.
@@ -999,12 +1031,12 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | MEM-002 | 5 | Person C | 14-15 |
 | MEM-003 | 3 | Person C | 15-16 |
 | SEC-001 | 3 | Person C | 15 |
-| SEC-002 | 2 | Person C | 16 |
-| SEC-003 | 2 | Person C | 16-17 |
-| SEC-004 | 3 | Person C | 17-18 |
-| **Total** | **34** | | |
+| SEC-002 | 2 | Person B | 16 |
+| SEC-003 | 2 | Person B | 16-17 |
+| SEC-004 | 5 | Person C | 17-18 |
+| **Total** | **36** | | |
 
-**Velocity needed**: ~11 pts/person over 7 days. Lighter sprint — buffer for bug fixes and integration issues from Sprint 2.
+**Per-person**: A=5, B=12, C=19. Lighter sprint — buffer for bug fixes and integration issues from Sprint 2.
 
 ### Sprint 4: Deploy + Demo (Days 20-24, Apr 13-15)
 **Goal**: Live on GCP, demo rehearsed.
@@ -1025,7 +1057,7 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | DEMO-003 | 3 | Everyone | 23-24 |
 | **Total** | **37** | | |
 
-**Velocity needed**: ~12 pts/person over 5 days. Person A heavy on Terraform. Person B lighter — can help with branding polish and bug fixes.
+**Per-person**: A=21, B=5, C=11. Person A heavy on Terraform. Person B lighter — can help with branding polish and bug fixes.
 
 ---
 
@@ -1033,9 +1065,14 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 
 | Metric | Value |
 |--------|-------|
-| **Total stories** | 60 |
-| **Total story points** | 184 |
+| **Total stories** | 63 |
+| **Total story points** | 194 |
 | **Sprints** | 4 (5 + 7 + 7 + 5 days) |
-| **Critical path stories** | INFRA-002, INFRA-003, INFRA-007, DATA-001, DATA-006, CHAT-001, CHAT-008 |
-| **Highest risk story** | CHAT-008 (LangGraph engine — 8 points, complex integration) |
+| **Person A (teammate)** | 66 pts, 25 stories — Infra, API, Auth backend, CHAT-003/009, Deploy |
+| **Person B (teammate)** | 46 pts, 16 stories — Frontend, Auth UI, CI/CD, CHAT-011, DATA-006, SEC-002/003 |
+| **Person C (Andrew)** | 76 pts, 20 stories — Data ingestion, Chat core, Memory, SEC-001/004, Demo |
+| **Shared** | 6 pts, 2 stories — DEMO-002 (3), DEMO-003 (3) |
+| **Cross-person blocks** | 4 (all cross-sprint — zero mid-sprint blocking) |
+| **Critical path stories** | INFRA-002, INFRA-003, INFRA-007, DATA-001, DATA-006, CHAT-001, CHAT-010, CHAT-008 |
+| **Highest risk story** | CHAT-008 (LangGraph engine — 8 points, complex integration; de-risked by CHAT-000 spike) |
 | **Security stories** | 5 (SEC-001 through SEC-004 + CHAT-006) |

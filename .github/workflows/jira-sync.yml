@@ -1,0 +1,165 @@
+name: Sync PR Status to Jira
+
+on:
+  pull_request:
+    types: [opened, review_requested, closed]
+    branches: [main]
+
+jobs:
+  extract-ticket:
+    runs-on: ubuntu-latest
+    outputs:
+      ticket: ${{ steps.extract.outputs.ticket }}
+      found: ${{ steps.extract.outputs.found }}
+    steps:
+      - name: Extract Jira ticket from branch name
+        id: extract
+        run: |
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          echo "Branch: $BRANCH"
+
+          # Extract CUAI-NNN from branch name (e.g., feat/CUAI-76-test-jira-integration)
+          TICKET=$(echo "$BRANCH" | grep -oE 'CUAI-[0-9]+')
+
+          if [ -z "$TICKET" ]; then
+            echo "No Jira ticket found in branch name: $BRANCH"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Found ticket: $TICKET"
+            echo "ticket=$TICKET" >> "$GITHUB_OUTPUT"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # PR opened → Jira "In Progress"
+  in-progress:
+    needs: extract-ticket
+    if: |
+      needs.extract-ticket.outputs.found == 'true' &&
+      github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Transition to In Progress
+        run: |
+          TICKET="${{ needs.extract-ticket.outputs.ticket }}"
+          echo "Transitioning $TICKET to In Progress"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -d '{"transition": {"id": "21"}}' \
+            "https://andrewcode8.atlassian.net/rest/api/3/issue/${TICKET}/transitions")
+
+          if [ "$STATUS" = "204" ]; then
+            echo "Successfully transitioned $TICKET to In Progress"
+          else
+            echo "Failed to transition $TICKET — HTTP $STATUS"
+            exit 1
+          fi
+
+      - name: Add PR opened comment
+        run: |
+          TICKET="${{ needs.extract-ticket.outputs.ticket }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+
+          curl -s -o /dev/null \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -d "{
+              \"body\": {
+                \"type\": \"doc\",
+                \"version\": 1,
+                \"content\": [{
+                  \"type\": \"paragraph\",
+                  \"content\": [{
+                    \"type\": \"text\",
+                    \"text\": \"PR opened: ${PR_TITLE} (${PR_URL}) by ${AUTHOR}\"
+                  }]
+                }]
+              }
+            }" \
+            "https://andrewcode8.atlassian.net/rest/api/3/issue/${TICKET}/comment"
+
+  # Review requested → Jira "In Review"
+  in-review:
+    needs: extract-ticket
+    if: |
+      needs.extract-ticket.outputs.found == 'true' &&
+      github.event.action == 'review_requested'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Transition to In Review
+        run: |
+          TICKET="${{ needs.extract-ticket.outputs.ticket }}"
+          echo "Transitioning $TICKET to In Review"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -d '{"transition": {"id": "31"}}' \
+            "https://andrewcode8.atlassian.net/rest/api/3/issue/${TICKET}/transitions")
+
+          if [ "$STATUS" = "204" ]; then
+            echo "Successfully transitioned $TICKET to In Review"
+          else
+            echo "Failed to transition $TICKET — HTTP $STATUS"
+            exit 1
+          fi
+
+  # PR merged → Jira "Done"
+  done:
+    needs: extract-ticket
+    if: |
+      needs.extract-ticket.outputs.found == 'true' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Transition to Done
+        run: |
+          TICKET="${{ needs.extract-ticket.outputs.ticket }}"
+          echo "Transitioning $TICKET to Done"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -d '{"transition": {"id": "41"}}' \
+            "https://andrewcode8.atlassian.net/rest/api/3/issue/${TICKET}/transitions")
+
+          if [ "$STATUS" = "204" ]; then
+            echo "Successfully transitioned $TICKET to Done"
+          else
+            echo "Failed to transition $TICKET — HTTP $STATUS"
+            exit 1
+          fi
+
+      - name: Add merge comment
+        run: |
+          TICKET="${{ needs.extract-ticket.outputs.ticket }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          MERGED_BY="${{ github.event.pull_request.merged_by.login }}"
+
+          curl -s -o /dev/null \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -d "{
+              \"body\": {
+                \"type\": \"doc\",
+                \"version\": 1,
+                \"content\": [{
+                  \"type\": \"paragraph\",
+                  \"content\": [{
+                    \"type\": \"text\",
+                    \"text\": \"Merged to main: ${PR_TITLE} (${PR_URL}) by ${MERGED_BY}\"
+                  }]
+                }]
+              }
+            }" \
+            "https://andrewcode8.atlassian.net/rest/api/3/issue/${TICKET}/comment"

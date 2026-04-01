@@ -6,6 +6,7 @@
 
 ## Table of Contents
 - [Branch Strategy](#branch-strategy)
+- [Jira Automation](#jira-automation)
 - [PR Workflow](#pr-workflow)
 - [Testing Strategy](#testing-strategy)
 - [Claude Code Setup — Shared](#claude-code-setup--shared)
@@ -22,27 +23,78 @@
 ```
 main (protected — CI must pass, requires 1 approval)
   │
-  ├── feat/INFRA-001-uv-workspace        (Person A)
-  ├── feat/INFRA-002-shared-package       (Person A)
-  ├── feat/DATA-001-course-ingestion      (Person C)
-  ├── feat/FE-001-vue-setup               (Person B)
-  ├── feat/API-001-course-listing         (Person A)
-  ├── feat/CHAT-008-langgraph-engine      (Person C)
+  ├── feat/CUAI-45-uv-workspace           (Person A — INFRA-001)
+  ├── feat/CUAI-46-shared-package          (Person A — INFRA-002)
+  ├── feat/CUAI-52-course-ingestion        (Person C — DATA-001)
+  ├── feat/CUAI-56-vue-setup               (Person B — FE-001)
+  ├── feat/CUAI-39-course-listing          (Person A — API-001)
+  ├── feat/CUAI-30-langgraph-engine        (Person C — CHAT-008)
   └── ...
 ```
 
 **Rules:**
 - Branch from `main`, PR back to `main`
-- One branch per Jira story (use the story ID in the branch name)
+- One branch per Jira story
+- **Branch name must include the Jira key** (`CUAI-XX`) — this drives the automated Jira transitions (see [Jira Automation](#jira-automation))
 - Keep branches short-lived (1-2 days max). Merge often.
 - Pull `main` into your branch daily to avoid drift
-- If two stories are tightly coupled (e.g., INFRA-002 + INFRA-003), they can share a branch
+- If two stories are tightly coupled (e.g., INFRA-002 + INFRA-003), they can share a branch — use the primary ticket's Jira key
 
-**Branch naming**: `feat/STORY-ID-short-description`
+**Branch naming**: `feat/CUAI-XX-short-description`
 ```bash
 git checkout main && git pull
-git checkout -b feat/API-001-course-listing
+git checkout -b feat/CUAI-39-course-listing
 ```
+
+> **Finding your Jira key**: Each story in Jira has a key like `CUAI-39`. The story ID from the docs (e.g., `API-001`) is in the ticket title. Use the `CUAI-XX` key in branch names, not the story ID.
+
+---
+
+## Jira Automation
+
+A GitHub Actions workflow (`.github/workflows/jira-sync.yml`) automatically syncs PR status to Jira. No manual Jira updates needed — just follow the branching convention.
+
+### How It Works
+
+| GitHub Event | Jira Transition | What Happens |
+|-------------|----------------|--------------|
+| PR **opened** targeting `main` | **To Do → In Progress** | Ticket moves to "In Progress", comment added with PR link |
+| **Reviewer manually added** to PR | **In Progress → In Review** | Ticket moves to "In Review" |
+| PR **merged** to `main` | **In Review → Done** | Ticket moves to "Done", comment added with merge details |
+
+> **Important**: The "In Review" transition requires you to **manually add a reviewer** to the PR (via GitHub UI or `gh pr edit --add-reviewer`). Branch protection rules that require reviews do NOT trigger this — they only block merging until someone approves. You must explicitly request a review.
+
+### Requirements
+
+1. **Branch name must contain `CUAI-XX`** — the workflow extracts this to find the Jira ticket
+2. **GitHub Secrets** must be configured (repo Settings → Secrets → Actions):
+
+| Secret | Value |
+|--------|-------|
+| `JIRA_USER_EMAIL` | Your Atlassian account email |
+| `JIRA_API_TOKEN` | Generate at https://id.atlassian.com/manage-profile/security/api-tokens |
+
+### Example Flow
+
+```
+1. git checkout -b feat/CUAI-39-course-listing    # Start work
+2. # ... write code, commit, push ...
+3. gh pr create --title "CUAI-39: Course listing"  # → Jira: In Progress
+4. gh pr edit --add-reviewer teammate              # → Jira: In Review (manual step!)
+5. # ... reviewer approves ...
+6. gh pr merge --squash                            # → Jira: Done
+```
+
+### What About CI Checks?
+
+The CI pipeline (lint, format, typecheck, tests) is **not implemented yet** — that's CUAI-71 in Sprint 4. Until then, run checks locally before pushing:
+```bash
+uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run pytest
+```
+
+### If a PR Has No Jira Key
+
+Branches without `CUAI-XX` in the name are silently skipped — no Jira transition, no error. Use this for non-ticket work like docs-only or config changes.
 
 ---
 
@@ -55,10 +107,11 @@ git checkout -b feat/API-001-course-listing
 git fetch origin && git rebase origin/main
 
 # Push
-git push -u origin feat/API-001-course-listing
+git push -u origin feat/CUAI-39-course-listing
 
 # Create PR (use gh CLI or GitHub UI)
-gh pr create --title "API-001: Course listing endpoint with filters" --body "..."
+# Include Jira key in title for traceability
+gh pr create --title "CUAI-39: Course listing endpoint with filters" --body "..."
 ```
 
 ### PR Requirements

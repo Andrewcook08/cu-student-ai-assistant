@@ -1593,6 +1593,49 @@ async def execute_tool_call(
     return result
 ```
 
+`services/chat-service/app/core/context_builder.py` — assembles context for the LLM prompt:
+
+```python
+"""Assembles context from graph/vector/structured retrieval for the LLM prompt."""
+
+from app.services.neo4j_service import vector_search, get_prerequisite_chain, get_degree_requirements
+from app.services.postgres_service import get_student_data
+
+
+async def build_context(
+    intent: str,
+    user_id: int,
+    query_embedding: list[float] | None = None,
+    conversation_summary: str | None = None,
+) -> str:
+    """Build delimited context string based on intent and available data."""
+    sections = []
+
+    # Student profile (if authenticated)
+    if user_id:
+        profile = await get_student_data(user_id)
+        if profile:
+            sections.append(f"<user_profile>\n{profile}\n</user_profile>")
+
+    # Conversation summary (if available from memory tier 2)
+    if conversation_summary:
+        sections.append(
+            f"<conversation_summary>\n{conversation_summary}\n</conversation_summary>"
+        )
+
+    # Intent-specific retrieval
+    if intent == "course_search" and query_embedding:
+        results = await vector_search(query_embedding)
+        sections.append(f"<retrieved_context>\n{results}\n</retrieved_context>")
+    elif intent == "degree_planning" and user_id:
+        profile = await get_student_data(user_id)
+        if profile and profile.get("program"):
+            reqs = await get_degree_requirements(profile["program"])
+            sections.append(f"<retrieved_context>\n{reqs}\n</retrieved_context>")
+
+    return "\n\n".join(sections)
+```
+
 `services/chat-service/app/core/llm_engine.py` — the LangGraph state machine:
 
 ```python
@@ -1601,6 +1644,7 @@ async def execute_tool_call(
 from langgraph.graph import StateGraph, MessagesState
 from langchain_ollama import ChatOllama
 from shared.config import settings
+from app.core.context_builder import build_context
 
 llm = ChatOllama(
     model=settings.ollama_model,
@@ -1618,12 +1662,14 @@ tools = [search_courses, check_prerequisites, get_degree_requirements_tool,
 llm_with_tools = llm.bind_tools(tools)
 
 # LangGraph state machine
-# Nodes: classify_intent → call_llm → maybe_call_tools → respond
+# Nodes: classify_intent → build_context → call_llm → maybe_call_tools → respond
+# The context_builder assembles delimited context (<retrieved_context>,
+# <user_profile>, <conversation_summary>) based on the classified intent.
 # The tool-calling loop: LLM generates tool calls → executor runs them →
 # results fed back → LLM generates final response
 ```
 
-The exact LangGraph wiring follows the standard ReAct pattern from LangGraph docs — the intent classifier node routes to different system prompts, then the LLM + tool loop runs.
+The exact LangGraph wiring follows the standard ReAct pattern from LangGraph docs — the intent classifier node routes to different system prompts, the context builder assembles retrieval results, then the LLM + tool loop runs.
 
 #### Day 12: Redis Queue Integration
 
