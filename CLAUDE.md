@@ -136,8 +136,10 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 
 ### Git
 - Branch from `main`, PR back to `main`
-- Branch naming: `feat/STORY-ID-short-description` (e.g., `feat/API-001-course-listing`)
-- Commit messages: imperative mood, reference story ID
+- Branch naming: `feat/CUAI-XX-short-description` (e.g., `feat/CUAI-39-course-listing`)
+- The `CUAI-XX` Jira key in the branch name drives automated status transitions (see `docs/development-workflow.md#jira-automation`)
+- Commit messages: imperative mood, reference Jira key (e.g., `CUAI-39: Add course listing endpoint`)
+- Squash merge PRs to keep `main` history clean
 - CI must pass before merge (ruff, mypy, pytest)
 - Never commit `.env`, `terraform.tfvars`, or `data/raw/*.json`
 

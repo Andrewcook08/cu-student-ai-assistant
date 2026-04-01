@@ -651,7 +651,6 @@ The Chat Service sets a **120-second timeout** on inference requests through the
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/chat` | Send message, get AI response |
 | `WS` | `/ws/chat/{session_id}` | Streaming chat via WebSocket |
 | `GET` | `/api/chat/health` | Chat service health check |
 
@@ -824,7 +823,7 @@ cu-student-ai-assistant/
 │       │   ├── dependencies.py     # FastAPI Depends: get_current_user, get_redis, get_neo4j
 │       │   ├── routes/
 │       │   │   ├── __init__.py
-│       │   │   ├── chat.py         # POST /api/chat, WS /ws/chat/{session_id}
+│       │   │   ├── chat.py         # WS /ws/chat/{session_id}
 │       │   │   └── health.py       # GET /api/chat/health (checks Ollama + Neo4j + Redis)
 │       │   ├── core/
 │       │   │   ├── __init__.py
@@ -934,7 +933,7 @@ cu-student-ai-assistant/
 │       ├── services/
 │       │   ├── courseApi.ts        # REST client → Course Search API (/api/courses, /api/programs)
 │       │   ├── studentApi.ts     # REST client → Student profile (/api/students/me)
-│       │   └── chatApi.ts         # WebSocket + REST client → Chat Service (/api/chat, /ws)
+│       │   └── chatApi.ts         # WebSocket client → Chat Service (/ws)
 │       ├── stores/                  # Pinia stores
 │       │   ├── chatStore.ts       # Pinia: messages, session_id, suggested_actions state
 │       │   ├── courseStore.ts     # Pinia: filters, search results, selected course
