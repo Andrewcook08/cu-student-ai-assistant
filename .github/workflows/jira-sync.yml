@@ -91,7 +91,25 @@ jobs:
       github.event.action == 'review_requested'
     runs-on: ubuntu-latest
     steps:
+      - name: Check current status
+        id: check
+        run: |
+          TICKET="${{ needs.extract-ticket.outputs.ticket }}"
+          CURRENT=$(curl -s \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            "https://andrewcode8.atlassian.net/rest/api/3/issue/${TICKET}?fields=status" \
+            | jq -r '.fields.status.name')
+
+          echo "Current status: $CURRENT"
+          if [ "$CURRENT" = "In Review" ]; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Transition to In Review
+        if: steps.check.outputs.already == 'false'
         run: |
           TICKET="${{ needs.extract-ticket.outputs.ticket }}"
           echo "Transitioning $TICKET to In Review"
