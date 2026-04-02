@@ -10,9 +10,9 @@
 - [PR Workflow](#pr-workflow)
 - [Testing Strategy](#testing-strategy)
 - [Claude Code Setup — Shared](#claude-code-setup--shared)
-- [Claude Code Setup — Person A (Infrastructure + Backend)](#claude-code-setup--person-a)
-- [Claude Code Setup — Person B (Frontend)](#claude-code-setup--person-b)
-- [Claude Code Setup — Person C (Data + AI)](#claude-code-setup--person-c)
+- [Claude Code Setup — Person A (Scott)](#claude-code-setup--person-a-scott)
+- [Claude Code Setup — Person B (Rohan)](#claude-code-setup--person-b-rohan)
+- [Claude Code Setup — Person C (Andrew)](#claude-code-setup--person-c-andrew)
 - [Daily Workflow](#daily-workflow)
 - [Handling Conflicts](#handling-conflicts)
 
@@ -23,11 +23,11 @@
 ```
 main (protected — CI must pass, requires 1 approval)
   │
-  ├── feat/CUAI-45-uv-workspace           (Person A — INFRA-001)
+  ├── feat/CUAI-45-uv-workspace           (Person C — INFRA-001)
   ├── feat/CUAI-46-shared-package          (Person A — INFRA-002)
   ├── feat/CUAI-52-course-ingestion        (Person C — DATA-001)
   ├── feat/CUAI-56-vue-setup               (Person B — FE-001)
-  ├── feat/CUAI-39-course-listing          (Person A — API-001)
+  ├── feat/CUAI-39-course-listing          (Person B — API-001)
   ├── feat/CUAI-30-langgraph-engine        (Person C — CHAT-008)
   └── ...
 ```
@@ -74,15 +74,24 @@ A GitHub Actions workflow (`.github/workflows/jira-sync.yml`) automatically sync
 | `JIRA_USER_EMAIL` | Your Atlassian account email |
 | `JIRA_API_TOKEN` | Generate at https://id.atlassian.com/manage-profile/security/api-tokens |
 
+### What You Do Manually
+
+The automation handles status transitions, but these things are still on you:
+
+1. **Assign yourself the ticket** when you pick it up — go to the ticket in Jira and set yourself as the assignee (or ask Claude Code to do it). Don't assign in advance; assign when you actually start work.
+2. **Add a reviewer** to the PR when it's ready — `gh pr edit --add-reviewer <username>`
+3. **Don't start a ticket that's blocked** — check the "Blocked by" field in the ticket description
+
 ### Example Flow
 
 ```
-1. git checkout -b feat/CUAI-39-course-listing    # Start work
-2. # ... write code, commit, push ...
-3. gh pr create --title "CUAI-39: Course listing"  # → Jira: In Progress
-4. gh pr edit --add-reviewer teammate              # → Jira: In Review (manual step!)
-5. # ... reviewer approves ...
-6. gh pr merge --squash                            # → Jira: Done
+1. Assign yourself CUAI-39 in Jira                 # Manual (or ask Claude Code)
+2. git checkout -b feat/CUAI-39-course-listing      # Start work
+3. # ... write code, commit, push ...
+4. gh pr create --title "CUAI-39: Course listing"   # → Jira: In Progress
+5. gh pr edit --add-reviewer teammate               # → Jira: In Review (manual step!)
+6. # ... reviewer approves ...
+7. gh pr merge --squash                             # → Jira: Done
 ```
 
 ### What About CI Checks?
@@ -91,6 +100,14 @@ The CI pipeline (lint, format, typecheck, tests) is **not implemented yet** — 
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run pytest
 ```
+
+### Rework on a Completed Ticket
+
+If you need to go back and change something from a ticket that's already "Done," **don't reopen the old ticket** — create a new story in the current sprint. The original ticket represents work that was delivered and accepted. New changes are new scope, even if they touch the same code.
+
+- Name it descriptively: e.g., "Refactor INFRA-002 config to support X"
+- Link it to the original ticket in the description if relevant
+- For trivial fixes (typo, config tweak, <15 min) that don't change behavior, a no-ticket branch is fine
 
 ### If a PR Has No Jira Key
 
@@ -243,10 +260,10 @@ On the first run, Claude Code will read `CLAUDE.md` and understand the project. 
 
 ---
 
-## Claude Code Setup — Person A
+## Claude Code Setup — Person A (Scott)
 
-> **Role**: Infrastructure, Backend (Course Search API), Docker, Terraform
-> **Works in**: `shared/`, `services/course-search-api/`, `docker-compose.yml`, `infra/`, `.github/`
+> **Role**: Infrastructure, Shared Package, Docker, Terraform, GCP Deploy, Conversation Memory
+> **Works in**: `shared/`, `docker-compose.yml`, `infra/`, `.github/`
 
 ### Recommended Workflow
 
@@ -272,26 +289,27 @@ You: Commit and push to feat/INFRA-002-shared-package.
 
 | Phase | Person A Focus | Key Prompt Patterns |
 |-------|---------------|-------------------|
-| 1 | Scaffolding, Docker, shared package | "Create [file] following the implementation guide" |
-| 2 | Course Search API endpoints | "Implement GET /api/courses with filters. Use SQLAlchemy queries against the Course model. Follow the pagination convention in the implementation guide." |
-| 3 | Auth endpoints, student profile, decisions | "Implement POST /api/auth/register. Hash password with shared/auth.py. Return JWT." |
+| 1 | Shared package (INFRA-002), wire services (INFRA-003) — Andrew handles the repo skeleton | "Create [file] following the implementation guide" |
+| 2 | Docker verification, support other team members | "Verify all Docker services start cleanly. Help teammates debug environment issues." |
+| 3 | Conversation memory (MEM-001/002/003), bug fixes | "Implement Redis message storage for chat sessions. Build running summary with LLM summarization." |
 | 4 | Terraform, GCP deployment | "Create infra/network.tf following the architecture doc Network Security section." |
 
 **Tips for Person A:**
-- When creating API endpoints, tell Claude Code to use `Depends(get_db)` and `Depends(get_current_user)` from `dependencies.py`
 - Always ask Claude Code to run `uv run ruff check . && uv run mypy .` after writing code — catches issues before PR
+- For the shared package, follow the exact code in `docs/implementation-guide.md` Phase 1
 - For Terraform: paste the relevant HCL snippets from `architecture.md` and say "implement this in infra/[file].tf"
+- For conversation memory: start with the Redis patterns in the implementation guide Phase 3
 
 ---
 
-## Claude Code Setup — Person B
+## Claude Code Setup — Person B (Rohan)
 
-> **Role**: Frontend (Vue + TypeScript)
-> **Works in**: `frontend/`
+> **Role**: Frontend (Vue + TypeScript), Course Search API, Auth Endpoints
+> **Works in**: `frontend/`, `services/course-search-api/`
 
 ### Recommended Workflow
 
-Person B works mostly independently in `frontend/`. Rarely touches Python.
+Person B owns both the frontend and the Course Search API endpoints, giving full control of the request/response contract.
 
 **Typical session:**
 ```
@@ -315,11 +333,12 @@ You: Implement FE-008: WebSocket integration with useChat composable.
 | Phase | Person B Focus | Key Prompt Patterns |
 |-------|---------------|-------------------|
 | 1 | Vue setup, layout, mock components | "Create [Component].vue with Tailwind styling. Use mock data." |
-| 2 | WebSocket integration, API wiring | "Create useChat.ts composable. Connect to ws://localhost:8001/ws/chat/{sessionId}." |
-| 3 | Auth UI, structured responses | "Create LoginModal.vue. On submit, POST to /api/auth/login, store JWT in localStorage." |
+| 2 | Course Search API endpoints, WebSocket integration, wire frontend to API | "Implement GET /api/courses with filters. Use SQLAlchemy queries against the Course model." |
+| 3 | Auth backend (register/login) + Auth UI, structured responses | "Implement POST /api/auth/register. Hash password with shared/auth.py. Return JWT." |
 | 4 | CI/CD, branding polish | "Create .github/workflows/ci.yml that runs lint, format, typecheck, and tests on PR." |
 
 **Tips for Person B:**
+- When creating API endpoints, tell Claude Code to use `Depends(get_db)` and `Depends(get_current_user)` from `dependencies.py`
 - Tell Claude Code the exact Tailwind colors: "Use bg-cu-black text-cu-gold for the header"
 - For composables, reference the WebSocket protocol types from `src/types/index.ts`
 - When wiring API calls, say "Use the Vite proxy — call /api/courses, not http://localhost:8000/api/courses"
@@ -337,7 +356,7 @@ npm run type-check       # TypeScript check
 
 ---
 
-## Claude Code Setup — Person C
+## Claude Code Setup — Person C (Andrew)
 
 > **Role**: Data Ingestion, AI/Chat Engine (LangGraph, tools, Neo4j, Redis)
 > **Works in**: `data/`, `services/chat-service/`
@@ -377,9 +396,9 @@ You: Implement CHAT-008: LangGraph conversation engine.
 
 | Phase | Person C Focus | Key Prompt Patterns |
 |-------|---------------|-------------------|
-| 1 | JSON parsing, DB writes, embeddings, model validation | "Parse cu_classes.json. The structure is {dept: {course_code: {fields}}}. Write to PostgreSQL and Neo4j." |
+| 1 | Repo skeleton + Docker Compose (INFRA-001), then JSON parsing, DB writes, embeddings, LangGraph spike | "Parse cu_classes.json. The structure is {dept: {course_code: {fields}}}. Write to PostgreSQL and Neo4j." |
 | 2 | Neo4j queries, tools, LangGraph engine, Redis queue | "Write a Cypher query that traverses the prerequisite chain for a course. Use variable-length paths." |
-| 3 | Memory, system prompt, security | "Implement two-tier memory. Store last 20 messages in Redis. When over 20, summarize with the LLM." |
+| 3 | System prompt, security hardening | "Write the production system prompt with behavioral boundaries and delimiter tags. Implement input sanitizer." |
 | 4 | Prompt tuning, demo prep | "Test these 10 conversation scenarios and tell me which ones fail. Adjust the system prompt." |
 
 **Tips for Person C:**
@@ -464,9 +483,10 @@ docker compose down
 ### When Multiple People Touch the Same File
 
 The most likely conflict zones:
-- `shared/shared/models.py` — Person A (schema) + Person C (new models)
-- `shared/shared/schemas.py` — Person A (API schemas) + Person C (chat schemas)
-- `docker-compose.yml` — Person A (services) + Person C (new containers)
+- `shared/shared/models.py` — Scott (schema) + Andrew (new models)
+- `shared/shared/schemas.py` — Rohan (API schemas) + Andrew (chat schemas)
+- `docker-compose.yml` — Scott (services) + Andrew (new containers)
+- `services/course-search-api/` — Rohan owns this, but Andrew scaffolds the skeleton (INFRA-001) and Scott wires the shared imports (INFRA-003)
 
 **Prevention**: Communicate when you're about to modify a shared file. Keep changes to shared files in small, focused PRs that merge fast.
 
@@ -474,13 +494,13 @@ The most likely conflict zones:
 ```
 You: I have a merge conflict in shared/shared/models.py after rebasing.
      Show me the conflict markers and help me resolve it.
-     Keep both sets of changes — Person A added the User model
+     Keep both sets of changes — Scott added the User model
      and I added the ToolAuditLog model.
 ```
 
-### When Person C Is Blocked on Person A
+### When Andrew (Person C) Is Blocked on Scott (Person A)
 
-If Person A's scaffolding isn't ready and Person C needs to start:
+If Scott's shared package (INFRA-002) isn't ready and Andrew needs to start writing DB code:
 ```bash
 # Person C: write parsing logic in pure Python (no DB needed)
 # Test with: python -c "from data.ingest.ingest_courses import parse_course; ..."

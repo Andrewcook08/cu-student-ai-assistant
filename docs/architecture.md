@@ -55,8 +55,9 @@ CU Boulder has no personalized tool for degree planning — just static websites
 │  (FastAPI)             │  │  (FastAPI)                      │
 │                        │  │                                 │
 │  - GET /courses        │  │  - POST /chat                   │
-│  - GET /majors         │  │  - WS /ws/chat/{session_id}     │
-│  - GET /degree-paths   │  │  - LangGraph orchestration      │
+│  - GET /programs       │  │  - WS /ws/chat/{session_id}     │
+│  - GET /programs/{id}/ │  │  - LangGraph orchestration      │
+│    requirements        │  │                                 │
 │  - POST /auth/login    │  │  - Tool executor (auth-enforced)│
 │  - POST /auth/register │  │  - Memory manager               │
 │  - GET /students/me/   │  │  - Input/output validation      │
@@ -81,7 +82,7 @@ CU Boulder has no personalized tool for degree planning — just static websites
    │  │ PostgreSQL │ │  Neo4j   │ │    Redis      │      │
    │  │            │ │          │ │               │      │
    │  │ - courses  │ │ - graph  │ │ - sessions    │      │
-   │  │ - majors   │ │   nodes  │ │ - conv cache  │      │
+   │  │ - programs │ │   nodes  │ │ - conv cache  │      │
    │  │ - users    │ │ - vector │ │ - rate limits │      │
    │  │ - student  │ │   indexes│ │ - LLM queue   │      │
    │  │   decisions│ │          │ │               │      │
@@ -773,8 +774,8 @@ cu-student-ai-assistant/
 │       ├── schemas.py              # Shared Pydantic models: CourseCard, Action,
 │       │                           #   ChatRequest, ChatResponse, ChatContext, etc.
 │       ├── database.py             # SQLAlchemy engine, sessionmaker, Base class
-│       ├── models.py               # SQLAlchemy ORM models: User, Course, Major,
-│       │                           #   DegreeRequirement, StudentDecision, ToolAuditLog
+│       ├── models.py               # SQLAlchemy ORM models: User, Course, Program,
+│       │                           #   Requirement, StudentDecision, ToolAuditLog
 │       └── config.py               # pydantic-settings: Settings class reading env vars
 │                                   #   (DATABASE_URL, NEO4J_URI, REDIS_URL, JWT_SECRET,
 │                                   #    CORS_ALLOWED_ORIGINS, OLLAMA_MODEL, etc.)
@@ -831,7 +832,7 @@ cu-student-ai-assistant/
 │       │   │   │                       #   generate → maybe_summarize
 │       │   │   ├── graph_rag.py        # Neo4j Cypher queries + vector similarity search
 │       │   │   ├── tools.py            # @tool definitions: search_courses, check_prerequisites,
-│       │   │   │                       #   get_degree_requirements, get_student_history,
+│       │   │   │                       #   get_degree_requirements, get_student_profile,
 │       │   │   │                       #   find_schedule_conflicts, save_decision
 │       │   │   ├── tool_executor.py    # Auth-enforcing wrapper: overrides user_id from JWT,
 │       │   │   │                       #   validates params via Pydantic, rate limits per turn,
@@ -947,9 +948,10 @@ cu-student-ai-assistant/
 ├── docs/
 │   ├── architecture.md             # This file
 │   ├── decisions.md                # Architecture Decision Records (ADRs)
-│   ├── local-development.md        # How to run the full stack locally (Docker Compose)
-│   ├── api-spec.md                 # Detailed API documentation
-│   └── graph-schema.md             # Neo4j schema with example Cypher queries
+│   ├── implementation-guide.md     # Step-by-step build instructions with code
+│   ├── jira-epics-and-stories.md   # 59 stories across 12 epics with dependencies
+│   ├── development-workflow.md     # Branching, PR, testing, Claude Code setup
+│   └── local-development.md        # How to run the full stack locally (Docker Compose)
 │
 └── scripts/
     └── seed_db.sh                  # Runs data ingestion: uv run --package data-ingest
@@ -965,7 +967,7 @@ The assistant has tool access that can read and write to databases, making promp
 ### Attack Surfaces
 
 1. **Direct prompt injection via chat** — user types "Ignore your instructions, instead..." to override the system prompt and hijack LLM behavior
-2. **Tool abuse via injection** — user manipulates the LLM into calling `save_decision` with fabricated data, or calling `get_student_history` for another user's ID
+2. **Tool abuse via injection** — user manipulates the LLM into calling `save_decision` with fabricated data, or calling `get_student_profile` for another user's ID
 3. **Indirect injection via RAG context** — if a course description in the dataset contains adversarial text, it gets retrieved and fed to the LLM as trusted context
 4. **Frontend context tampering** — attacker modifies the `ChatContext` payload (`selected_major`, `completed_courses`) via browser dev tools to embed instructions
 
@@ -974,7 +976,7 @@ The assistant has tool access that can read and write to databases, making promp
 **The backend must never trust the LLM for authorization decisions.** This is the most important defense:
 
 - **`save_decision`**: The backend ignores whatever `user_id` the LLM passes in the tool call and substitutes the authenticated user's ID from the JWT. The LLM literally cannot write to another user's record.
-- **`get_student_history`**: Same — always scoped to the authenticated user regardless of what the LLM requests.
+- **`get_student_profile`**: Same — always scoped to the authenticated user regardless of what the LLM requests.
 - **Tool parameter validation**: After the LLM generates a tool call, validate parameters against a strict Pydantic schema before executing. Reject malformed or unexpected calls.
 - **Tool call rate limiting**: Cap at ~10 tool calls per conversation turn. Prevents runaway loops if the LLM gets confused or is being manipulated.
 
@@ -1036,12 +1038,12 @@ When course descriptions or degree path data is retrieved and injected as contex
 
 | Priority | Defense | Phase |
 |----------|---------|-------|
-| **P0 (must-have)** | Tool-level auth enforcement (JWT override) | Phase 1 (Foundation + Data) |
-| **P0 (must-have)** | System prompt hardening + delimiter tags | Phase 2 (Core Features) |
-| **P1 (should-have)** | Input length limits + output schema validation | Phase 2 (Core Features) |
+| **P0 (must-have)** | Tool-level auth enforcement (JWT override) | Phase 2 (Core Features) |
+| **P0 (must-have)** | System prompt hardening + delimiter tags | Phase 3 (Integration + Polish) |
+| **P1 (should-have)** | Input length limits + output schema validation | Phase 3 (Integration + Polish) |
 | **P1 (should-have)** | Tool call rate limiting | Phase 3 (Integration + Polish) |
 | **P2 (nice-to-have)** | Injection pattern detection + flagging | Phase 3 (Integration + Polish) |
-| **P2 (nice-to-have)** | PII scanning, audit logging, anomaly detection | Phase 3 (Integration + Polish) |
+| **P2 (nice-to-have)** | PII scanning, audit logging, anomaly detection | Phase 2-3 (audit logging in Phase 2, rest in Phase 3) |
 
 ---
 
@@ -1274,7 +1276,7 @@ GitHub Actions (deploy.yml)
 
 ## Implementation Phases
 
-> **Timeline: 3.5 weeks** (2026-03-25 → 2026-04-15 presentation).
+> **Timeline: 3.5 weeks** (2026-03-25 → 2026-04-17 presentation).
 > **Budget: ~$150** ($50 GCP coupon × 3 people). Estimated spend: ~$15-25.
 > **Strategy**: Build and test everything locally first. Only deploy to GCP in the final week.
 
@@ -1283,33 +1285,35 @@ GitHub Actions (deploy.yml)
 Person C's data work is the bottleneck — most Phase 2 work depends on Phase 1 data being ingested. The dependency chain:
 
 ```
-Day 1-2:  Person A → Docker Compose + shared/ package structure
+Day 1-2:  Person C (Andrew) → Repo skeleton + Docker Compose (INFRA-001)
+          Person A (Scott) → shared/ package (INFRA-002)
               │
-Day 2-5:  Person C → SQLAlchemy models + schema + ingestion scripts
+Day 2-5:  Person C (Andrew) → Data ingestion scripts (DATA-001 through DATA-006)
+          Person A (Scott) → Wire services to shared package (INFRA-003)
               │
-Day 6-9:  Person A → Course Search API endpoints (needs schema + data)
+Day 6-9:  Person B (Rohan) → Course Search API endpoints (needs schema + data)
               │
-Day 9-12: Person A → Frontend course search integration (needs API)
+Day 9-12: Person B (Rohan) → Frontend course search integration (needs API)
 
-Day 6-7:  Person C → Stub Chat Service WebSocket endpoint
+Day 6-7:  Person C (Andrew) → Stub Chat Service WebSocket endpoint
               │
-Day 7-12: Person B → Chat UI WebSocket integration (needs endpoint to connect to)
+Day 7-12: Person B (Rohan) → Chat UI WebSocket integration (needs endpoint to connect to)
 ```
 
-Person B (frontend) is independent in Phase 1 and mostly independent in Phase 2 (can build chat UI components against mock data until the stub WebSocket is ready).
+Person B (Rohan, frontend + API) is independent in Phase 1 and mostly independent in Phase 2 (can build chat UI components against mock data until the stub WebSocket is ready).
 
 ### Phase 1: Foundation + Data (Days 1-5, Mar 25-29)
 
 All hands on repo setup, Docker Compose, and getting data flowing.
 
-- **Person A**: Repo scaffolding, `shared/` package, Docker Compose with all 7 containers, `.env.example`
-  - **Priority**: Docker Compose + `shared/` pyproject.toml on **day 1** — this unblocks Person C
-- **Person B**: Vue app + Vite + Tailwind + CU-branded layout shell
+- **Person C (Andrew)**: Repo scaffolding + Docker Compose with all 7 containers + `.env.example` (INFRA-001), then data ingestion scripts (courses + requirements into PostgreSQL + Neo4j, including prerequisite parsing)
+  - **Priority**: Docker Compose on **day 1** — this unblocks Person A's shared package work
+  - **Critical path**: Schema + course ingestion must be done by end of Phase 1 — Person B's Phase 2 depends on it
+- **Person A (Scott)**: `shared/` package with SQLAlchemy models, Pydantic schemas, config, auth (INFRA-002), then wire services to shared package (INFRA-003)
+  - **Blocked by**: Person C's Docker Compose (day 1) for database containers
+  - **Priority**: `shared/` pyproject.toml + models on **day 1-2** — this unblocks Person C's data ingestion
+- **Person B (Rohan)**: Vue app + Vite + Tailwind + CU-branded layout shell
   - No blockers — fully independent
-- **Person C**: PostgreSQL schema + SQLAlchemy models (in `shared/`), data ingestion scripts (courses + requirements into PostgreSQL + Neo4j, including prerequisite parsing), Course Search API skeleton
-  - **Blocked by**: Person A's Docker Compose + `shared/` package (day 1-2)
-  - **Unblock strategy**: Start writing JSON parsing logic and ingestion scripts locally on day 1 (no DB needed for parsing). Wire up DB writes once Docker Compose is running.
-  - **Critical path**: Schema + course ingestion must be done by end of Phase 1 — Person A's Phase 2 depends on it
 
 **Milestone**: `docker compose up -d` starts all services. Data ingestion completes. Course data visible in PostgreSQL and Neo4j browser.
 
@@ -1317,15 +1321,14 @@ All hands on repo setup, Docker Compose, and getting data flowing.
 
 Build the two main user-facing features in parallel.
 
-- **Person A**: Course Search API endpoints (filters, search) + frontend course search page integration
-  - **Blocked by**: Person C's Phase 1 (SQLAlchemy models, schema, ingested data)
-  - **Unblock strategy**: Start Phase 2 by building the frontend filter UI + table components against mock data while waiting for API endpoints to be testable with real data
-- **Person B**: Chat widget UI (WebSocket, markdown rendering, typing indicator, course cards)
-  - **Blocked by**: Person C's stub WebSocket endpoint (need something to connect to)
-  - **Unblock strategy**: Build chat UI components (message list, input box, markdown renderer, course card component) in isolation first. Integrate WebSocket once Person C has the stub ready (~day 7).
-- **Person C**: LangGraph conversation engine + tool calling (search, prereqs, requirements); embeddings pipeline (Ollama → Neo4j vector indexes) + Graph RAG retrieval logic
-  - **Priority**: Stand up a **stub Chat Service WebSocket endpoint** early (day 6-7) that echoes messages back — this unblocks Person B
+- **Person B (Rohan)**: Course Search API endpoints (filters, search) + frontend course search page integration + chat widget UI (WebSocket, markdown rendering, typing indicator, course cards)
+  - **Blocked by**: Person C's Phase 1 (SQLAlchemy models, schema, ingested data) for API work
+  - **Blocked by**: Person C's stub WebSocket endpoint (~day 7) for chat UI integration
+  - **Unblock strategy**: Start Phase 2 by building the frontend filter UI + table components against mock data. Build chat UI components (message list, input box, markdown renderer, course card component) in isolation first.
+- **Person C (Andrew)**: LangGraph conversation engine + tool calling (search, prereqs, requirements); embeddings pipeline (Ollama → Neo4j vector indexes) + Graph RAG retrieval logic
+  - **Priority**: Stand up a **stub Chat Service WebSocket endpoint** early (day 6-7) that echoes messages back — this unblocks Person B's chat UI integration
   - Then build the real LangGraph engine behind it
+- **Person A (Scott)**: Available for Docker verification, bug fixes, and Terraform prep (0 story points this sprint)
 
 **Milestone**: Course search works end-to-end. Chat sends a message and gets an LLM response with tool-retrieved data.
 
@@ -1342,16 +1345,16 @@ Wire everything together, add memory, harden. Phase 2 should be substantially co
 
 **Milestone**: Full local demo works — search courses, chat with AI, AI remembers context, decisions persist.
 
-### Phase 4: Deploy + Demo Prep (Days 20-24, Apr 13-15)
+### Phase 4: Deploy + Demo Prep (Days 20-24, Apr 13-17)
 
 GCP deployment and presentation prep.
 
-- **Person A**: Terraform — VPC, data VM, Ollama MIG (auto-scaling), Cloud Run services
+- **Person A (Scott)**: Terraform — VPC, data VM, Ollama MIG (auto-scaling), Cloud Run services, data ingestion on GCP, end-to-end GCP verification
   ([ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.md#adr-18-terraform-for-iac))
   - Mostly independent — needs service configs but not working code
-- **Person B**: CU branding polish, responsive design fixes, GitHub Actions deploy pipeline (build → push → Cloud Run)
+- **Person B (Rohan)**: GitHub Actions CI + deploy pipelines, CU branding polish, responsive design fixes
   - Needs Dockerfiles to exist (done in Phase 1)
-- **Person C**: Prompt engineering refinement, demo script preparation
+- **Person C (Andrew)**: Prompt engineering refinement, demo script preparation
   - Needs full system running (done in Phase 3)
 - **Everyone**: Practice demo, prepare presentation slides
 
@@ -1369,11 +1372,11 @@ GCP deployment and presentation prep.
 3. ~~**Authentication scope**~~: Resolved — JWT + email/password for now, CU SSO later ([ADR-10](decisions.md#adr-10-jwt-authentication)).
 4. ~~**Graph complexity**~~: Resolved — prerequisites ARE in the course data as natural language strings (~80% parseable via regex). 2,830 of 3,735 courses have prerequisite data. Graph traversal is very useful. Degree requirements connect 203 programs to ~2,497 unique course codes. The graph is rich enough to power "what can I take next?" queries.
 6. ~~**Budget**~~: Resolved — $50 GCP coupon per person × 3 people = $150. Estimated spend ~$15-25 for 3.5 weeks. Self-hosted databases on VM to conserve credits ([ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm)).
+7. ~~**Team assignment**~~: Resolved — Person A = Scott (shared package, memory, deploy), Person B = Rohan (frontend, Course Search API, auth, CI/CD, security), Person C = Andrew (repo skeleton, data ingestion, chat/AI engine).
 12. ~~**CORS configuration**~~: Resolved — both backend services use the same CORS config via `shared/config.py`. Local development: allow `http://localhost:5173` (Vite dev server). GCP: allow only the Cloud Run frontend URL (set via `CORS_ALLOWED_ORIGINS` env var in Terraform). Both services read `settings.cors_allowed_origins` and configure `CORSMiddleware` identically in their `main.py`. Never use `allow_origins=["*"]` — even in development, pin to the frontend origin.
 
 ### Must resolve before implementation (blocks Phase 1)
 
-7. **Team assignment**: Who takes which role in the implementation phases? Need to assign Person A/B/C to real people.
 8. **GCP enrollment**: Confirm what the professor set up with GCP — may provide additional credits or a shared project. Need to know before Phase 4 Terraform work.
 
 ### Should resolve before Phase 2
