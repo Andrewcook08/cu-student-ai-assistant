@@ -91,7 +91,7 @@ cd frontend && npm run dev
 
 ### Data ingestion
 ```bash
-docker compose exec ollama ollama pull llama3.1:8b        # Pull LLM model
+docker compose exec ollama ollama pull gpt-oss:20b         # Pull LLM model
 docker compose exec ollama ollama pull nomic-embed-text    # Pull embedding model
 uv run --package data-ingest python -m data.ingest.run_all # Run all ingestion
 ```
@@ -160,7 +160,7 @@ All config is via environment variables, read by `shared/config.py`:
 | `NEO4J_PASSWORD` | `development` | Neo4j auth |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API |
-| `OLLAMA_MODEL` | `llama3.1:8b` | LLM model name |
+| `OLLAMA_MODEL` | `gpt-oss:20b` | LLM model name |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 | `JWT_SECRET` | `change-me-in-production` | JWT signing secret |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | Allowed CORS origins |

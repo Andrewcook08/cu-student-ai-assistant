@@ -68,7 +68,7 @@ Full microservices would be overkill because:
 ## ADR-2: Self-Hosted LLM via Ollama
 
 ### Decision
-Run LLM inference on self-hosted Ollama instances (Llama 3.1 8B+) on GPU VMs, rather than using a hosted API (Claude, GPT).
+Run LLM inference on self-hosted Ollama instances (gpt-oss:20b) on GPU VMs, rather than using a hosted API (Claude, GPT).
 
 ### Alternatives Considered
 1. **Hosted API (Claude Sonnet, GPT-4)** — pay per request, no GPU management
@@ -91,7 +91,7 @@ Ollama is a hard requirement for this project (team/class decision). The trade-o
 
 **Cost at demo scale**: 1 GPU VM (GCP L4, ~$0.70/hour) supports ~50 concurrent users. Acceptable for a class project.
 
-**Minimum model size (validated by CUAI-32 spike):** 8B parameters is the practical minimum for reliable tool calling. Testing showed that 3B models (llama3.2:3b) exhibit poor tool-calling judgment: hallucinating tool arguments, over-triggering tools for non-tool queries, and failing fuzzy course name lookups. The 8B model (llama3.1:8b) correctly skipped tools for non-course questions and produced valid parameters. The Ollama container requires ~4.8GB for 8B Q4 quantized models, so the Docker memory limit is set to 8GB to provide headroom.
+**Minimum model size (validated by CUAI-32 spike):** 8B parameters is the practical minimum for reliable tool calling. Testing showed that 3B models (llama3.2:3b) exhibit poor tool-calling judgment: hallucinating tool arguments, over-triggering tools for non-tool queries, and failing fuzzy course name lookups. The 8B model (llama3.1:8b) correctly skipped tools for non-course questions and produced valid parameters. The CUAI-32 extended spike subsequently validated gpt-oss:20b as the production choice, delivering superior tool-calling accuracy across all 5 test queries, self-correcting search behavior, rich markdown responses, and no false tool triggers — including reliable fuzzy search via the two-tool pattern. The Ollama container requires ~13GB for gpt-oss:20b Q4 quantized models, so the Docker memory limit is set to 20GB to provide headroom.
 
 ---
 
@@ -215,7 +215,7 @@ Tool calling solves this by making data access **structured and verifiable**:
 
 This also means the LLM needs less context window for data (tool results are compact) and more is available for conversation history and reasoning.
 
-**We still use vector search** within the `search_courses` tool for fuzzy natural language queries. But the search is a tool the LLM calls explicitly, not a passive RAG injection. The CUAI-32 LangGraph spike validated that even 8B models can't reliably map course names to exact codes, so we use a two-tool pattern: `search_courses` for fuzzy/vector lookup by name or keyword, and `lookup_course` for exact code-based retrieval of full course details.
+**We still use vector search** within the `search_courses` tool for fuzzy natural language queries. But the search is a tool the LLM calls explicitly, not a passive RAG injection. The CUAI-32 LangGraph spike validated that even 8B models can't reliably map course names to exact codes, so we use a two-tool pattern: `search_courses` for fuzzy/vector lookup by name or keyword, and `lookup_course` for exact code-based retrieval of full course details. The CUAI-32 extended spike confirmed gpt-oss:20b resolves this with the two-tool pattern (search → lookup).
 
 ---
 
@@ -260,7 +260,7 @@ Use a two-tier memory system: recent messages in full (Redis) + a running summar
 ### Why
 Academic advising conversations are **context-heavy**. A student might say "I'm a CS major" in message 3, discuss electives in messages 5-15, then ask "does that fit with what I need?" in message 20. Losing message 3 would be catastrophic.
 
-**Sending all messages** doesn't work with Ollama's smaller context windows (8B models typically have 8K-32K token context, vs. 200K for Claude). A 30-message conversation with tool results could easily exceed this.
+**Sending all messages** doesn't work well even with larger context windows. The gpt-oss:20b model has a larger context window than 8B models, but the sliding-window design remains valuable for keeping context focused and costs manageable. A 30-message conversation with tool results could easily grow unwieldy.
 
 **A fixed sliding window** (last 20 messages) loses critical early context — the student's major, their completed courses, decisions they've already made.
 
@@ -719,3 +719,34 @@ Cloud Run services are the only internet-facing components. GCP manages TLS cert
 
 **Least-privilege service accounts:**
 Each Cloud Run service and VM has its own GCP service account with only the IAM permissions it needs. This limits blast radius — if the chat-service container were somehow compromised, it can't access Artifact Registry admin APIs or modify Terraform state, because its service account doesn't have those permissions.
+
+---
+
+## ADR-26: gpt-oss:20b as Default LLM
+
+### Decision
+Switch from `llama3.1:8b` to `gpt-oss:20b` as the default Ollama model (`OLLAMA_MODEL=gpt-oss:20b`).
+
+### Alternatives Considered
+1. **llama3.1:8b** — prior default; validated as minimum viable by CUAI-32 initial spike
+2. **gpt-oss:20b** (chosen) — larger model, extended spike shows superior tool calling and fuzzy search
+
+### Why
+The CUAI-32 extended spike tested gpt-oss:20b with the two-tool pattern (`search_courses` + `lookup_course`) against the same queries that exposed weaknesses in 3B and 8B models. Results:
+
+- All 5 test queries passed
+- Self-correcting search behavior: when a search returned no results, the model reformulated the query without prompting
+- Rich, well-structured markdown responses
+- No false tool triggers on non-course questions
+
+This performance profile makes gpt-oss:20b the clear production choice. The two-tool pattern (`search_courses` for fuzzy/vector lookup, `lookup_course` for exact retrieval) works reliably at this model size in a way it did not at 8B.
+
+**Infrastructure impact:**
+- Docker memory limit: 8g → 20g for CPU-only dev machines (model is ~13GB Q4 quantized)
+- GCP instance type: unchanged — `g2-standard-4` with L4 GPU has 24GB VRAM, which fits the 13GB Q4 model with headroom
+- Apple Silicon: runs natively via Metal acceleration, no GPU VM needed for local dev
+
+**Trade-offs:**
+- Slower CPU inference (~60s per response vs. ~20s for 8B) — acceptable given GPU inference is fast and local dev is for debugging, not benchmarking
+- Higher local RAM requirement (20GB vs. 8GB) — most modern dev machines (M-series Macs, 32GB Linux workstations) meet this bar
+- No code changes required — `OLLAMA_MODEL` is the only configuration that changes
