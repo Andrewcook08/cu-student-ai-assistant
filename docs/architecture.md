@@ -420,7 +420,7 @@ courses (
   code VARCHAR(10) UNIQUE NOT NULL,  -- e.g. "CSCI 1300"
   dept VARCHAR(4) NOT NULL,          -- e.g. "CSCI" (extracted from code)
   title TEXT NOT NULL,
-  credits VARCHAR(10),               -- "3", "1-3", "Varies by section"
+  credits VARCHAR(20),               -- "3", "1-3", "Varies by section"
   description TEXT,
   prerequisites_raw TEXT,            -- original natural language string
   attributes TEXT,                   -- e.g. "CMDI Core: Computing"
@@ -442,7 +442,8 @@ sections (
   instructor VARCHAR(200),           -- "F. Tice", "Shandilya/Hoenigman"
   status VARCHAR(20),                -- "Open", "Full", "Waitlisted"
   campus VARCHAR(10),                -- "Main", "CE"
-  dates VARCHAR(20)                  -- "01-08 to 04-24"
+  dates VARCHAR(20),                 -- "01-08 to 04-24"
+  UNIQUE(course_id, crn)             -- enables idempotent upserts during ingestion
 )
 
 -- ── Degree Requirements ──────────────────────────────────────────
