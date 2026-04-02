@@ -296,6 +296,7 @@ class Course(Base):
     description: Mapped[str | None] = mapped_column(Text)
     prerequisites_raw: Mapped[str | None] = mapped_column(Text)
     attributes: Mapped[str | None] = mapped_column(Text)
+    topic_titles: Mapped[str | None] = mapped_column(Text)  # pipe-delimited topic titles
     instruction_mode: Mapped[str | None] = mapped_column(String(50))
     campus: Mapped[str | None] = mapped_column(String(100))
     grading_mode: Mapped[str | None] = mapped_column(String(50))
@@ -451,6 +452,7 @@ class CourseCard(BaseModel):
     title: str
     credits: str | None = None
     description: str | None = None
+    topic_titles: str | None = None
     instruction_mode: str | None = None
     status: str | None = None
 
@@ -861,7 +863,7 @@ While waiting for Scott's shared package (INFRA-002), write the JSON parsing log
 
 `data/ingest/ingest_courses.py` — parse `cu_classes.json`:
 
-The JSON is structured as `{ "Department Name": { "COURSE CODE": { ...course_data... } } }`.
+The JSON is structured as `{ "DEPT_CODE": [ {course_object}, ... ] }` — department codes map to arrays of course objects.
 
 Key parsing logic:
 ```python
@@ -871,6 +873,9 @@ Key parsing logic:
 # 3. Preserve prerequisites_raw as-is (parsed in separate step)
 # 4. Handle credits as text (could be "3", "1-3", "Varies by section")
 # 5. Each course has a "sections" dict with section data
+# 6. Deduplicate courses by code (topics courses like CSCI 7000 appear multiple
+#    times with different titles). Collect all unique titles into a pipe-delimited
+#    topic_titles string; empty string for non-topics courses.
 ```
 
 `data/ingest/ingest_requirements.py` — parse `cu_degree_requirements.json`:
@@ -962,7 +967,9 @@ def create_course_node(tx, course: dict):
     tx.run("""
         MERGE (c:Course {code: $code})
         SET c.title = $title, c.credits = $credits,
-            c.description = $description, c.instruction_mode = $instruction_mode
+            c.description = $description, c.instruction_mode = $instruction_mode,
+            c.campus = $campus, c.attributes = $attributes,
+            c.topic_titles = $topic_titles
         MERGE (d:Department {code: $dept})
         MERGE (c)-[:IN_DEPARTMENT]->(d)
     """, **course)
@@ -999,11 +1006,11 @@ def build_all_embeddings(driver):
     with driver.session() as session:
         # Get all courses without embeddings
         courses = session.run(
-            "MATCH (c:Course) WHERE c.embedding IS NULL RETURN c.code, c.title, c.description"
+            "MATCH (c:Course) WHERE c.embedding IS NULL RETURN c.code, c.title, c.topic_titles, c.description"
         ).data()
 
         for course in courses:
-            text = f"{course['c.code']} {course['c.title']} {course.get('c.description', '')}"
+            text = f"{course['c.code']} {course['c.title']} {course.get('c.topic_titles', '')} {course.get('c.description', '')}"
             embedding = get_embedding(text)
             session.run(
                 "MATCH (c:Course {code: $code}) SET c.embedding = $embedding",
@@ -1057,7 +1064,7 @@ uv run --package data-ingest python -m data.ingest.run_all
 
 # Verify PostgreSQL
 docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*) FROM courses;"
-# Expected: 3735
+# Expected: 3410
 
 docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*) FROM sections;"
 # Expected: ~13223
@@ -1066,12 +1073,12 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 # Expected: 203
 
 # Verify Neo4j (open http://localhost:7474)
-# Run: MATCH (c:Course) RETURN count(c)        → 3735
+# Run: MATCH (c:Course) RETURN count(c)        → 3410
 # Run: MATCH ()-[r:HAS_PREREQUISITE]->() RETURN count(r)  → should be > 2000
 # Run: MATCH (p:Program) RETURN count(p)       → 203
 
 # Verify embeddings
-# Run: MATCH (c:Course) WHERE c.embedding IS NOT NULL RETURN count(c)  → 3735
+# Run: MATCH (c:Course) WHERE c.embedding IS NOT NULL RETURN count(c)  → 3410
 ```
 
 **Phase 1 deliverable**: All data is in both databases. Embeddings are generated. Vector index exists. All counts match expected values.

@@ -396,7 +396,7 @@ You: Implement CHAT-008: LangGraph conversation engine.
 
 | Phase | Person C Focus | Key Prompt Patterns |
 |-------|---------------|-------------------|
-| 1 | Repo skeleton + Docker Compose (INFRA-001), then JSON parsing, DB writes, embeddings, LangGraph spike | "Parse cu_classes.json. The structure is {dept: {course_code: {fields}}}. Write to PostgreSQL and Neo4j." |
+| 1 | Repo skeleton + Docker Compose (INFRA-001), then JSON parsing, DB writes, embeddings, LangGraph spike | "Parse cu_classes.json. The structure is {dept_code: [array_of_course_objects]}. Write to PostgreSQL and Neo4j." |
 | 2 | Neo4j queries, tools, LangGraph engine, Redis queue | "Write a Cypher query that traverses the prerequisite chain for a course. Use variable-length paths." |
 | 3 | System prompt, security hardening | "Write the production system prompt with behavioral boundaries and delimiter tags. Implement input sanitizer." |
 | 4 | Prompt tuning, demo prep | "Test these 10 conversation scenarios and tell me which ones fail. Adjust the system prompt." |
