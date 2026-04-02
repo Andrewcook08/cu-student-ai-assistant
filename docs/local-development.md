@@ -209,7 +209,7 @@ uv run --package data-ingest python -m data.ingest.run_all
 ```
 
 This runs in order:
-1. **ingest_courses.py** — Parse `cu_classes.json` → PostgreSQL `courses`/`sections` tables + Neo4j `Course`/`Section`/`Department` nodes (deduplicates topics courses by code, extracts pipe-delimited topic_titles)
+1. **ingest_courses.py** — Parse `cu_classes.json` → PostgreSQL `courses`/`sections`/`course_attributes` tables + Neo4j `Course`/`Section`/`Department`/`Attribute` nodes (deduplicates topics courses by code, extracts pipe-delimited topic_titles, normalizes newline-delimited gen-ed attributes into college/category pairs)
 2. **parse_prerequisites.py** — Parse natural language prerequisite strings → Neo4j `HAS_PREREQUISITE` edges (regex for common patterns, raw text preserved for LLM fallback)
 3. **ingest_requirements.py** — Parse `cu_degree_requirements.json` → PostgreSQL `programs`/`requirements` tables + Neo4j `Program`/`Requirement` nodes with relationships (handles or-groups, choose-N, section headers)
 4. **build_embeddings.py** — Generate embeddings via Ollama (`nomic-embed-text`) → store on Neo4j `Course` nodes + create vector index

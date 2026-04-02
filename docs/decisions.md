@@ -750,3 +750,24 @@ This performance profile makes gpt-oss:20b the clear production choice. The two-
 - Slower CPU inference (~60s per response vs. ~20s for 8B) — acceptable given GPU inference is fast and local dev is for debugging, not benchmarking
 - Higher local RAM requirement (20GB vs. 8GB) — most modern dev machines (M-series Macs, 32GB Linux workstations) meet this bar
 - No code changes required — `OLLAMA_MODEL` is the only configuration that changes
+
+---
+
+## ADR-27: Normalize Course Attributes into a Join Table
+
+### Decision
+Replace the `attributes TEXT` column on the `courses` table with a `course_attributes (course_code, college, category)` join table in PostgreSQL and `(:Attribute {college, category})` nodes with `[:HAS_ATTRIBUTE]` edges in Neo4j.
+
+### Context
+Course attributes encode gen-ed requirement satisfaction per college — the same course can satisfy different requirements for different colleges (e.g., a philosophy course might satisfy "Humanities & Social Science" for Engineering but "Arts & Humanities" for Business). The raw data stores these as newline-delimited strings with a consistent `"College: Category"` format, splittable on `: `.
+
+Storing as a TEXT blob requires `LIKE` scans to answer "what courses satisfy Engineering's Humanities requirement?" — slow and fragile. A normalized table enables exact SQL `WHERE college = X AND category = Y` queries and structured Neo4j `MATCH (c)-[:HAS_ATTRIBUTE]->(a:Attribute {college: $college, category: $category})` traversals.
+
+### Consequences
+- New `course_attributes` table in PostgreSQL (9 tables total, up from 8)
+- New `CourseAttribute` ORM model in shared package
+- `Attribute` node type + `HAS_ATTRIBUTE` edge type in Neo4j
+- Embedding text for vector search includes joined attribute strings so gen-ed queries surface via semantic search
+- `CourseCard` schema gains `attributes: list[str] | None` field
+- `lookup_course` tool returns attributes from the join table
+- ~105 distinct attribute values across ~1,358 courses
