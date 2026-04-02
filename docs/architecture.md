@@ -138,7 +138,7 @@ The backend is split into **two services** plus the Ollama inference cluster. Th
 | **Frontend** | Vue 3 + TypeScript + Vite | Composition API, strong typing, team familiarity |
 | **UI Components** | Tailwind CSS + shadcn-vue | Rapid styling, easy CU branding (black/gold) |
 | **Backend (both services)** | Python 3.12 + FastAPI | Best for AI backends — async, typed, auto-generated docs |
-| **LLM** | Ollama (Llama 3.1 8B / Mistral 7B / GPT-OSS 20B) | Self-hosted, supports tool/function calling, no API costs. Model is swappable via `OLLAMA_MODEL` env var — adjust GPU VM instance type for larger models. |
+| **LLM** | Ollama (Llama 3.1 8B+) | Self-hosted, 8B minimum for reliable tool calling (validated by CUAI-32 spike). Model is swappable via `OLLAMA_MODEL` env var — adjust GPU VM instance type for larger models. |
 | **LLM Orchestration** | LangChain + LangGraph | Conversation flows, tool calling, memory management ([ADR-5](decisions.md#adr-5-langchain--langgraph-for-orchestration)) |
 | **Graph DB + Vectors** | Neo4j (native vector indexes) | Graph RAG + vector search in one system |
 | **Relational DB** | PostgreSQL 16 | Structured queries, user accounts, persistent decision history |
@@ -539,7 +539,7 @@ For the POC, students create an account and **self-report their profile**:
 
 ## Tool Calling
 
-The LLM accesses databases via **tools** (LangChain tool calling with Ollama) rather than raw RAG context injection. The model decides when to call each tool based on the conversation. See [ADR-6](decisions.md#adr-6-tool-calling-over-raw-rag) for why tool calling over pure RAG.
+The LLM accesses databases via **tools** (LangChain tool calling with Ollama) rather than raw RAG context injection. The model decides when to call each tool based on the conversation. See [ADR-6](decisions.md#adr-6-tool-calling-over-raw-rag) for why tool calling over pure RAG. The first two tools implement the **two-tool pattern** (validated by CUAI-32 spike): `search_courses` handles fuzzy/vector search by name or keyword, while `lookup_course` handles exact code-based retrieval. This split is necessary because even 8B models can't reliably map course names to exact codes.
 
 ```python
 @tool
@@ -548,6 +548,13 @@ def search_courses(query: str, department: str = None,
     """Search for courses by keyword, department, or filters."""
     # Vector search in Neo4j (semantic) + optional structured filters in PostgreSQL
     # Returns: code, title, credits, description, instruction_mode, sections
+
+@tool
+def lookup_course(course_code: str) -> dict:
+    """Get full details for a specific course by its exact code (e.g. CSCI 2270)."""
+    # PostgreSQL: SELECT * FROM courses WHERE code = $code
+    # Also returns sections, prerequisite text, and topic_titles
+    # Use search_courses first if the student provides a name instead of a code
 
 @tool
 def check_prerequisites(course_code: str) -> dict:
@@ -593,15 +600,16 @@ The architecture includes several safeguards for reliable tool calling:
 
 4. **Model flexibility**: The architecture is model-agnostic via Ollama. If Llama 3.1 8B doesn't produce reliable tool calls, swap to a larger model (e.g., GPT-OSS 20B) by changing `OLLAMA_MODEL` in the environment config and adjusting the GPU VM instance type. No code changes required — only infrastructure sizing.
 
-5. **Phase 1 validation gate**: Before building the full chat engine, test raw Ollama tool calling with your 6 tool schemas against 20 representative student questions. Validate the chosen model can reliably pick the right tool and generate valid parameters. Adjust model choice or tool schemas before building anything on top.
+5. **Phase 1 validation gate**: Before building the full chat engine, test raw Ollama tool calling with your 7 tool schemas against 20 representative student questions. Validate the chosen model can reliably pick the right tool and generate valid parameters. Adjust model choice or tool schemas before building anything on top.
 
 ### Example Flow
 1. Student: *"What CS electives can I take?"*
 2. LLM calls `get_student_profile()` → sees declared program (CS BA) and completed courses
 3. LLM calls `get_degree_requirements("Computer Science - Bachelor of Arts (BA)")` → sees remaining requirements
-4. LLM calls `search_courses(department="CSCI")` → available courses this semester
-5. LLM calls `check_prerequisites()` for candidates → filters to ones the student is eligible for
-6. LLM responds with curated list + course cards in the chat
+4. LLM calls `search_courses(department="CSCI")` → gets matching course codes and summaries
+5. LLM calls `lookup_course()` for top candidates → gets full details (sections, times, prereqs)
+6. LLM calls `check_prerequisites()` for candidates → filters to ones the student is eligible for
+7. LLM responds with curated list + course cards in the chat
 
 ---
 
@@ -833,9 +841,9 @@ cu-student-ai-assistant/
 │       │   │   ├── llm_engine.py       # LangGraph StateGraph: classify → retrieve →
 │       │   │   │                       #   generate → maybe_summarize
 │       │   │   ├── graph_rag.py        # Neo4j Cypher queries + vector similarity search
-│       │   │   ├── tools.py            # @tool definitions: search_courses, check_prerequisites,
-│       │   │   │                       #   get_degree_requirements, get_student_profile,
-│       │   │   │                       #   find_schedule_conflicts, save_decision
+│       │   │   ├── tools.py            # @tool definitions: search_courses, lookup_course,
+│       │   │   │                       #   check_prerequisites, get_degree_requirements,
+│       │   │   │                       #   get_student_profile, find_schedule_conflicts, save_decision
 │       │   │   ├── tool_executor.py    # Auth-enforcing wrapper: overrides user_id from JWT,
 │       │   │   │                       #   validates params via Pydantic, rate limits per turn,
 │       │   │   │                       #   logs to tool_audit_log table.
@@ -1383,7 +1391,7 @@ GCP deployment and presentation prep.
 
 ### Should resolve before Phase 2
 
-2. **Ollama model choice**: Llama 3.1 8B vs Mistral 7B vs GPT-OSS 20B — which has the best tool calling support at acceptable inference speed? Need to benchmark during Phase 1 while data ingestion is being built. If a larger model is needed, adjust GPU VM instance type accordingly (g2-standard-4 → g2-standard-8).
+~~2. **Ollama model choice**: Resolved — CUAI-32 spike validated Llama 3.1 8B as the minimum for reliable tool calling. 3B models fail (hallucinated args, over-triggering). 8B is the default (`OLLAMA_MODEL=llama3.1:8b`). Larger models (13B+) can be swapped in by adjusting GPU VM instance type.~~
 5. **Embedding model**: nomic-embed-text (768 dims) via Ollama vs. other options — need to test quality on course descriptions. Affects vector index dimensions in Neo4j.
 9. **WebSocket message protocol**: Define the exact JSON format for WebSocket messages between frontend and Chat Service. Need request format (message, session_id, context), response format (streaming chunks vs. full response), and error format.
 10. **Error handling strategy**: How do errors surface to the frontend? Separate error response schema? Toast notifications? Inline error messages in chat? Needs agreement before frontend and backend are built in parallel.

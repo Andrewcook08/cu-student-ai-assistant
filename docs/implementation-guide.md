@@ -32,7 +32,7 @@ These should be answered by end of Phase 1:
 
 | # | Question | Decision Needed | Who Decides |
 |---|----------|----------------|-------------|
-| 2 | **LLM model choice** | Llama 3.1 8B vs Mistral 7B vs GPT-OSS 20B — benchmark tool calling | Person C |
+| 2 | ~~**LLM model choice**~~ | ~~Resolved: Llama 3.1 8B minimum (CUAI-32 spike). 3B fails tool calling.~~ | ~~Person C~~ |
 | 5 | **Embedding model** | nomic-embed-text (768 dims) — test on course descriptions | Person C |
 | 9 | **WebSocket protocol** | JSON format for WS messages (defined below in Phase 2) | Person B + C |
 | 10 | **Error handling** | Inline errors in chat, toast for API errors (defined below) | Person B + C |
@@ -1136,6 +1136,20 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "lookup_course",
+            "description": "Get full details for a specific course by its exact code (e.g. CSCI 2270). Use search_courses first if you only have a name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "course_code": {"type": "string", "description": "Exact course code like CSCI 2270"},
+                },
+                "required": ["course_code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_degree_requirements",
             "description": "Get all requirements for a degree program.",
             "parameters": {
@@ -1144,6 +1158,50 @@ TOOLS = [
                     "program": {"type": "string", "description": "Program name"},
                 },
                 "required": ["program"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_student_profile",
+            "description": "Get a student's declared program and completed courses with grades.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string", "description": "Student user ID"},
+                },
+                "required": ["user_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_schedule_conflicts",
+            "description": "Check for time conflicts between selected courses.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "course_codes": {"type": "array", "items": {"type": "string"}, "description": "List of course codes"},
+                },
+                "required": ["course_codes"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_decision",
+            "description": "Save a student's course planning decision for future reference.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string", "description": "Student user ID"},
+                    "course_code": {"type": "string", "description": "Course code"},
+                    "decision_type": {"type": "string", "description": "planned, interested, or not_interested"},
+                },
+                "required": ["user_id", "course_code", "decision_type"],
             },
         },
     },
@@ -1156,6 +1214,8 @@ TEST_QUERIES = [
     ("Show me data science classes", "search_courses"),
     ("Can I take algorithms?", "check_prerequisites"),
     ("What classes does the math department offer?", "search_courses"),
+    ("Tell me about CSCI 2270", "lookup_course"),
+    ("What's in PHYS 1110?", "lookup_course"),
     # Add 15+ more representative student questions
 ]
 
@@ -1202,7 +1262,7 @@ Run it:
 uv run python scripts/test_tool_calling.py
 ```
 
-**Decision point**: If < 80% pass rate, switch to GPT-OSS 20B or Mistral 7B. Update `OLLAMA_MODEL` in `.env` and re-test.
+**Decision point**: If < 80% pass rate, try a larger model (e.g., 13B+ or GPT-OSS 20B). Update `OLLAMA_MODEL` in `.env` and re-test. Note: CUAI-32 spike confirmed 8B is the minimum viable size for tool calling.
 
 ---
 
@@ -1534,16 +1594,21 @@ async def get_degree_requirements(program_name: str) -> dict:
 from langchain_core.tools import tool
 from app.services.neo4j_service import vector_search, get_prerequisite_chain, get_degree_requirements
 from app.services.ollama_service import get_embedding
-from app.services.postgres_service import get_student_data, save_student_decision, get_schedule_conflicts
+from app.services.postgres_service import get_student_data, get_course_by_code, save_student_decision, get_schedule_conflicts
 
 @tool
 async def search_courses(query: str, department: str | None = None) -> list[dict]:
-    """Search for courses by keyword or department. Use when a student asks about available courses."""
+    """Search for courses by keyword or department. Use when a student asks about available courses by name or topic."""
     embedding = await get_embedding(query)
     results = await vector_search(embedding)
     if department:
         results = [r for r in results if r["code"].startswith(department)]
     return results
+
+@tool
+async def lookup_course(course_code: str) -> dict:
+    """Get full details for a specific course by its exact code (e.g. CSCI 2270). Use search_courses first if you only have a name."""
+    return await get_course_by_code(course_code)
 
 @tool
 async def check_prerequisites(course_code: str) -> dict:
@@ -1670,11 +1735,11 @@ llm = ChatOllama(
 
 # Bind tools to the model
 from app.core.tools import (
-    search_courses, check_prerequisites, get_degree_requirements_tool,
+    search_courses, lookup_course, check_prerequisites, get_degree_requirements_tool,
     get_student_profile, find_schedule_conflicts, save_decision,
 )
 
-tools = [search_courses, check_prerequisites, get_degree_requirements_tool,
+tools = [search_courses, lookup_course, check_prerequisites, get_degree_requirements_tool,
          get_student_profile, find_schedule_conflicts, save_decision]
 llm_with_tools = llm.bind_tools(tools)
 
