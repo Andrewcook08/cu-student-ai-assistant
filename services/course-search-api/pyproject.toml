@@ -1,0 +1,12 @@
+[project]
+name = "course-search-api"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "shared",
+]
+
+[tool.uv.sources]
+shared = { workspace = true }

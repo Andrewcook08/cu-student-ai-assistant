@@ -1,0 +1,9 @@
+{
+  "name": "cu-student-ai-assistant-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'Frontend dev server placeholder'",
+    "build": "mkdir -p dist && cp index.html dist/"
+  }
+}
