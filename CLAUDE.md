@@ -40,12 +40,26 @@
 
 ## Task Management
 
-1. **Plan First**: Write plan to `tasks/todo.md` with checkable items
+Each in-progress ticket gets its own subfolder under `tasks/`:
+```
+tasks/
+├── CUAI-20/
+│   ├── todo.md             # Plan + checkable items + review
+│   └── notes.md            # Optional: scratch notes, data discoveries
+├── CUAI-42/
+│   └── todo.md
+└── ...
+```
+
+- **Create folder**: `tasks/<TICKET-KEY>/todo.md` when starting a ticket
+- **Remove folder**: Delete `tasks/<TICKET-KEY>/` when the ticket is resolved
+
+### Workflow
+1. **Plan First**: Write plan to `tasks/<TICKET-KEY>/todo.md` with checkable items
 2. **Verify Plan**: Check in before starting implementation
 3. **Track Progress**: Mark items complete as you go
 4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to `tasks/todo.md`
-6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
+5. **Document Results**: Add review section to `tasks/<TICKET-KEY>/todo.md`
 
 ## Core Principles
 
