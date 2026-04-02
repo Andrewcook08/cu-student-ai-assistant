@@ -405,7 +405,7 @@ You: Implement CHAT-008: LangGraph conversation engine.
 - For Neo4j Cypher queries, always tell Claude Code to use parameterized queries: "Use $code not f-strings"
 - For LangGraph, build incrementally: get one tool call working before adding all 7
 - Use manual `StateGraph` pattern (not `create_react_agent`) — gives full control over nodes, state, and error handling (validated by CUAI-32 spike)
-- Use llama3.1:8b minimum for tool calling — 3B models hallucinate tool args and over-trigger tools
+- Use gpt-oss:20b for tool calling — validated by CUAI-32 extended spike for reliable two-tool pattern. 3B models hallucinate tool args and over-trigger tools.
 - Add a max-iterations guard to the tool loop to prevent infinite cycles
 - The `search_courses` → `lookup_course` two-tool pattern is critical: fuzzy search resolves names to codes, then exact lookup gets full details
 - For the Redis queue, start with the simple pattern: LPUSH to enqueue, BRPOP to dequeue, pub/sub for results

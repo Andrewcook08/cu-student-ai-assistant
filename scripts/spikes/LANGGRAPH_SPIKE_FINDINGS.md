@@ -48,7 +48,7 @@ Tool schemas are auto-generated from the `@tool` decorator's type hints and docs
 ## What Didn't Work (or Needs Care)
 
 ### Ollama container memory matters
-The initial container had ~4.5GB memory — not enough for llama3.1:8b (~4.8GB required). After bumping to 8GB, the 8B model loaded fine. **Size the Ollama container for your target model + overhead.**
+The initial container had ~4.5GB memory — not enough for llama3.1:8b (~4.8GB required). After bumping to 8GB, the 8B model loaded fine. **Size the Ollama container for your target model + overhead.** For gpt-oss:20b (~13GB Q4), set `memory: 20g`.
 
 ### Fuzzy lookups remain hard even at 8B
 When asked "What are the prerequisites for Data Structures?", both models struggled:
@@ -147,7 +147,7 @@ Prepend the system prompt inside `llm_node` rather than storing it in state. Thi
 
 ## Gotchas for the Team
 
-1. **Memory sizing:** Ollama needs enough RAM for the full model. 8B Q4 ≈ 4.8GB, 3B Q4 ≈ 2GB. Budget accordingly in Docker/K8s.
+1. **Memory sizing:** Ollama needs enough RAM for the full model. 3B Q4 ≈ 2GB, 8B Q4 ≈ 4.8GB, 20B Q4 ≈ 13GB. Budget accordingly in Docker/K8s.
 
 2. **Tool call ID format:** Ollama generates short IDs like `call_dggbuw7q`. The `ToolMessage.tool_call_id` must match exactly or LangGraph will error.
 

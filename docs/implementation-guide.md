@@ -32,7 +32,7 @@ These should be answered by end of Phase 1:
 
 | # | Question | Decision Needed | Who Decides |
 |---|----------|----------------|-------------|
-| 2 | ~~**LLM model choice**~~ | ~~Resolved: Llama 3.1 8B minimum (CUAI-32 spike). 3B fails tool calling.~~ | ~~Person C~~ |
+| 2 | ~~**LLM model choice**~~ | ~~Resolved: Llama 3.1 8B minimum (CUAI-32 spike). 3B fails tool calling. Upgraded to gpt-oss:20b per extended spike.~~ | ~~Person C~~ |
 | 5 | **Embedding model** | nomic-embed-text (768 dims) — test on course descriptions | Person C |
 | 9 | **WebSocket protocol** | JSON format for WS messages (defined below in Phase 2) | Person B + C |
 | 10 | **Error handling** | Inline errors in chat, toast for API errors (defined below) | Person B + C |
@@ -217,7 +217,7 @@ class Settings(BaseSettings):
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1:8b"
+    ollama_model: str = "gpt-oss:20b"
     ollama_embed_model: str = "nomic-embed-text"
 
     # Auth
@@ -495,7 +495,7 @@ REDIS_URL=redis://redis:6379/0
 
 # Ollama
 OLLAMA_BASE_URL=http://ollama:11434
-OLLAMA_MODEL=llama3.1:8b
+OLLAMA_MODEL=gpt-oss:20b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 
 # Auth
@@ -1092,7 +1092,7 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 This is the Phase 1 validation gate from the Tool Calling Reliability section.
 
 ```bash
-docker compose exec ollama ollama pull llama3.1:8b
+docker compose exec ollama ollama pull gpt-oss:20b
 ```
 
 Create a test script `scripts/test_tool_calling.py`:
@@ -1221,7 +1221,7 @@ TEST_QUERIES = [
 
 def test_tool_call(query: str, expected_tool: str) -> bool:
     resp = httpx.post(f"{OLLAMA_URL}/api/chat", json={
-        "model": "llama3.1:8b",
+        "model": "gpt-oss:20b",
         "messages": [
             {"role": "system", "content": "You are an academic advisor. Use tools to answer questions."},
             {"role": "user", "content": query},
@@ -1262,7 +1262,7 @@ Run it:
 uv run python scripts/test_tool_calling.py
 ```
 
-**Decision point**: If < 80% pass rate, try a larger model (e.g., 13B+ or GPT-OSS 20B). Update `OLLAMA_MODEL` in `.env` and re-test. Note: CUAI-32 spike confirmed 8B is the minimum viable size for tool calling.
+**Decision point**: gpt-oss:20b is the validated model (CUAI-32 extended spike). If pass rate is still < 80%, investigate tool docstring clarity before considering model changes.
 
 ---
 

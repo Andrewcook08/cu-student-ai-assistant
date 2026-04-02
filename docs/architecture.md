@@ -138,7 +138,7 @@ The backend is split into **two services** plus the Ollama inference cluster. Th
 | **Frontend** | Vue 3 + TypeScript + Vite | Composition API, strong typing, team familiarity |
 | **UI Components** | Tailwind CSS + shadcn-vue | Rapid styling, easy CU branding (black/gold) |
 | **Backend (both services)** | Python 3.12 + FastAPI | Best for AI backends — async, typed, auto-generated docs |
-| **LLM** | Ollama (Llama 3.1 8B+) | Self-hosted, 8B minimum for reliable tool calling (validated by CUAI-32 spike). Model is swappable via `OLLAMA_MODEL` env var — adjust GPU VM instance type for larger models. |
+| **LLM** | Ollama (gpt-oss:20b) | Self-hosted, gpt-oss:20b validated by CUAI-32 extended spike for reliable tool calling with two-tool pattern. Model is swappable via `OLLAMA_MODEL` env var. |
 | **LLM Orchestration** | LangChain + LangGraph | Conversation flows, tool calling, memory management ([ADR-5](decisions.md#adr-5-langchain--langgraph-for-orchestration)) |
 | **Graph DB + Vectors** | Neo4j (native vector indexes) | Graph RAG + vector search in one system |
 | **Relational DB** | PostgreSQL 16 | Structured queries, user accounts, persistent decision history |
@@ -598,7 +598,7 @@ The architecture includes several safeguards for reliable tool calling:
 
 3. **Tool descriptions are the prompt**: Keep `@tool` docstrings short, concrete, and example-rich. The LLM picks tools based on the docstring, so clarity matters more than cleverness. Test tool descriptions against real student questions early (Phase 1).
 
-4. **Model flexibility**: The architecture is model-agnostic via Ollama. If Llama 3.1 8B doesn't produce reliable tool calls, swap to a larger model (e.g., GPT-OSS 20B) by changing `OLLAMA_MODEL` in the environment config and adjusting the GPU VM instance type. No code changes required — only infrastructure sizing.
+4. **Model flexibility**: The current model is gpt-oss:20b, configured via `OLLAMA_MODEL`. The architecture is model-agnostic — to swap models, update `OLLAMA_MODEL` and adjust the GPU VM instance type if needed. No code changes required.
 
 5. **Phase 1 validation gate**: Before building the full chat engine, test raw Ollama tool calling with your 7 tool schemas against 20 representative student questions. Validate the chosen model can reliably pick the right tool and generate valid parameters. Adjust model choice or tool schemas before building anything on top.
 
@@ -1391,7 +1391,7 @@ GCP deployment and presentation prep.
 
 ### Should resolve before Phase 2
 
-~~2. **Ollama model choice**: Resolved — CUAI-32 spike validated Llama 3.1 8B as the minimum for reliable tool calling. 3B models fail (hallucinated args, over-triggering). 8B is the default (`OLLAMA_MODEL=llama3.1:8b`). Larger models (13B+) can be swapped in by adjusting GPU VM instance type.~~
+~~2. **Ollama model choice**: Resolved — Extended spike validated gpt-oss:20b for superior tool calling and fuzzy search (`OLLAMA_MODEL=gpt-oss:20b`). Same GCP instance type (L4 24GB VRAM fits 13GB Q4 model).~~
 5. **Embedding model**: nomic-embed-text (768 dims) via Ollama vs. other options — need to test quality on course descriptions. Affects vector index dimensions in Neo4j.
 9. **WebSocket message protocol**: Define the exact JSON format for WebSocket messages between frontend and Chat Service. Need request format (message, session_id, context), response format (streaming chunks vs. full response), and error format.
 10. **Error handling strategy**: How do errors surface to the frontend? Separate error response schema? Toast notifications? Inline error messages in chat? Needs agreement before frontend and backend are built in parallel.

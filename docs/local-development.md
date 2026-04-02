@@ -30,9 +30,9 @@ Install these before starting:
 | **Git** | ≥ 2.x | Already installed on macOS/Linux | Version control |
 
 **Hardware recommendations:**
-- **RAM**: 8GB minimum, 16GB recommended (Neo4j and Ollama are memory-hungry)
-- **Disk**: ~10GB free (Docker images + database data + Ollama model)
-- **GPU**: Optional. Ollama runs on CPU locally (slower, ~30s per response vs ~3s with GPU). If you have an NVIDIA GPU or Apple Silicon Mac, Ollama will use it automatically.
+- **RAM**: 16GB minimum, 32GB recommended (Neo4j and Ollama are memory-hungry)
+- **Disk**: ~20GB free (Docker images + database data + Ollama model)
+- **GPU**: Optional. Ollama runs on CPU locally (slower, ~60-90s per response for gpt-oss:20b on CPU vs ~5-10s with GPU). If you have an NVIDIA GPU or Apple Silicon Mac, Ollama will use it automatically.
 
 ---
 
@@ -71,7 +71,7 @@ OLLAMA_BASE_URL=http://ollama:11434
 JWT_SECRET=local-development-secret-change-in-production
 
 # Ollama model (pulled on first startup)
-OLLAMA_MODEL=llama3.1:8b
+OLLAMA_MODEL=gpt-oss:20b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 
 # CORS (frontend origin — must match Vite dev server or Cloud Run URL)
@@ -96,10 +96,10 @@ This starts 7 containers:
 | `chat-service` | 8001 | http://localhost:8001/api/chat/health |
 | `frontend` | 5173 | http://localhost:5173 |
 
-### 4. Pull the Ollama model (first time only, ~4GB download)
+### 4. Pull the Ollama model (first time only, ~13GB download)
 
 ```bash
-docker compose exec ollama ollama pull llama3.1:8b
+docker compose exec ollama ollama pull gpt-oss:20b
 docker compose exec ollama ollama pull nomic-embed-text
 ```
 
@@ -445,7 +445,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 | Lint | `uv run ruff check .` |
 | Format | `uv run ruff format .` |
 | Type check | `uv run mypy .` |
-| Pull Ollama model | `docker compose exec ollama ollama pull llama3.1:8b` |
+| Pull Ollama model | `docker compose exec ollama ollama pull gpt-oss:20b` |
 | Open Neo4j browser | `open http://localhost:7474` |
 | API docs (Search API) | `open http://localhost:8000/docs` |
 | API docs (Chat Service) | `open http://localhost:8001/docs` |
@@ -456,7 +456,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 ## Troubleshooting
 
 ### Ollama is slow on CPU
-Expected. On CPU, an 8B model takes ~20-30 seconds per response. This is fine for development — you're testing the integration, not the inference speed. On GCP with an L4 GPU, it's ~2-3 seconds.
+Expected. On CPU, gpt-oss:20b takes ~60-90 seconds per response on CPU. This is fine for development — you're testing the integration, not the inference speed. On GCP with an L4 GPU, it's ~5-10 seconds.
 
 **Tip**: For faster local iteration on non-AI code (frontend, REST API, data ingestion), you don't need Ollama running. Only start it when testing the chat feature.
 
@@ -470,7 +470,7 @@ lsof -i :5432
 
 ### Neo4j won't start (memory)
 Neo4j needs ~1GB of heap memory. If Docker is constrained:
-- Docker Desktop → Settings → Resources → increase memory to at least 8GB
+- Docker Desktop → Settings → Resources → increase memory to at least 24GB
 
 ### Ollama model not found
 ```bash
@@ -478,7 +478,7 @@ Neo4j needs ~1GB of heap memory. If Docker is constrained:
 docker compose exec ollama ollama list
 
 # Pull the model
-docker compose exec ollama ollama pull llama3.1:8b
+docker compose exec ollama ollama pull gpt-oss:20b
 ```
 
 ### Database data is stale / want to start fresh
