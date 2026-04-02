@@ -94,13 +94,14 @@
 - **Blocked by**: INFRA-002 (for SQLAlchemy models)
 - **Assignee**: Person C
 - **Labels**: `critical-path`
-- **Description**: Write `data/ingest/ingest_courses.py`. Parse the nested JSON structure (department → course → sections). Extract dept code from course code. Strip "This section is closed" prefix from CRN. Handle credits as text. Write to PostgreSQL (courses + sections tables) and Neo4j (Course + Section + Department nodes). Must be idempotent (upsert).
+- **Description**: Write `data/ingest/ingest_courses.py`. Parse the JSON structure (department code → array of course objects). Extract dept code from course code. Strip "This section is closed" prefix from CRN. Handle credits as text. Deduplicate courses by code (topics courses appear multiple times with different titles) and extract pipe-delimited topic_titles. Write to PostgreSQL (courses + sections tables) and Neo4j (Course + Section + Department nodes). Must be idempotent (upsert).
 - **Acceptance criteria**:
-  - [ ] PostgreSQL `courses` table has 3,735 rows
+  - [ ] PostgreSQL `courses` table has 3,410 rows (deduplicated by course code)
   - [ ] PostgreSQL `sections` table has ~13,223 rows
-  - [ ] Neo4j has 3,735 Course nodes, 152 Department nodes
+  - [ ] Neo4j has 3,410 Course nodes, 152 Department nodes
   - [ ] Re-running does not create duplicates
   - [ ] CRN values are clean numeric strings
+  - [ ] topic_titles populated for courses with multiple topic variants
 
 ### DATA-002: Parse cu_degree_requirements.json into program + requirement records
 - **Points**: 5
@@ -136,9 +137,9 @@
 - **Phase**: 1 (Day 4-5)
 - **Blocked by**: DATA-001, INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person C
-- **Description**: Write `data/ingest/build_embeddings.py`. For each course, generate an embedding from `"{code} {title} {description}"` via Ollama's nomic-embed-text model. Store on Neo4j Course nodes. Create vector index (`course-embeddings`, 768 dims, cosine).
+- **Description**: Write `data/ingest/build_embeddings.py`. For each course, generate an embedding from `"{code} {title} {topic_titles} {description}"` via Ollama's nomic-embed-text model. Store on Neo4j Course nodes. Create vector index (`course-embeddings`, 768 dims, cosine).
 - **Acceptance criteria**:
-  - [ ] All 3,735 Course nodes have non-null `embedding` property
+  - [ ] All 3,410 Course nodes have non-null `embedding` property
   - [ ] Vector index `course-embeddings` exists in Neo4j
   - [ ] `CALL db.index.vector.queryNodes('course-embeddings', 5, $embedding)` returns results
   - [ ] Vector index uses 768 dimensions with cosine similarity
