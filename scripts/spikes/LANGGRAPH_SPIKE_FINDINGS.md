@@ -1,7 +1,7 @@
 # LangGraph + Ollama Spike Findings (CUAI-32)
 
 **Date:** 2026-04-02
-**Model tested:** llama3.2:3b (Q4_K_M, ~2GB) via Ollama in Docker
+**Models tested:** llama3.2:3b (Q4_K_M, ~2GB), llama3.1:8b (Q4_K_M, ~4.9GB) via Ollama in Docker
 **LangGraph version:** >=0.2 (from chat-service deps)
 
 ---
@@ -47,14 +47,31 @@ Tool schemas are auto-generated from the `@tool` decorator's type hints and docs
 
 ## What Didn't Work (or Needs Care)
 
-### llama3.1:8b was too large for the Docker container
-The 8B model required ~4.8GB but only 4.5GB was available. We dropped to llama3.2:3b (2GB). **For production, size the Ollama container with enough memory for the target model, or use a quantized variant.**
+### Ollama container memory matters
+The initial container had ~4.5GB memory — not enough for llama3.1:8b (~4.8GB required). After bumping to 8GB, the 8B model loaded fine. **Size the Ollama container for your target model + overhead.**
 
-### Small models hallucinate tool arguments
-When asked "What are the prerequisites for Data Structures?", llama3.2:3b invented `CSCI 3145` as the course code instead of looking up the correct one (`CSCI 2270`). A larger model (8B+) or better prompting (e.g., asking the user to provide the course code) would help.
+### Fuzzy lookups remain hard even at 8B
+When asked "What are the prerequisites for Data Structures?", both models struggled:
+- **3B** hallucinated a non-existent course code (`CSCI 3145`)
+- **8B** picked a real but wrong course (`CSCI 3155` instead of `CSCI 2270`)
 
-### Small models over-trigger tool calls
-When asked "What is 2 + 2?", the model still called `lookup_course` before answering. The system prompt said "Always call the tool before answering course questions" but the model generalized this too aggressively. **For production, use more precise system prompts and/or a larger model.**
+Neither model could map the course name "Data Structures" to the correct code. **This is a tool design issue, not just a model size issue — the tool should accept course names, not just codes, or we need a search/fuzzy-match tool.**
+
+### Over-triggering fixed at 8B
+When asked "What is 2 + 2?":
+- **3B** incorrectly called `lookup_course` before answering
+- **8B** correctly skipped the tool and answered directly
+
+The 8B model respects tool-calling boundaries much better.
+
+### 3B vs 8B comparison summary
+
+| Test case | llama3.2:3b | llama3.1:8b |
+|---|---|---|
+| Direct course lookup (CSCI 3155) | Correct | Correct |
+| Fuzzy lookup (Data Structures → CSCI 2270) | Hallucinated fake code | Used wrong real code |
+| Non-course question (2+2) | Over-triggered tool | Correctly skipped tool |
+| Response quality | Terse, sometimes cut off | Detailed, well-structured |
 
 ---
 
@@ -115,5 +132,6 @@ Prepend the system prompt inside `llm_node` rather than storing it in state. Thi
 - Use the manual `StateGraph` pattern (not `create_react_agent`) for full control
 - Start with `MessagesState`, extend with custom fields (e.g., `user_id`, `session_id`) via TypedDict as needed
 - Wrap tool execution in try/except to prevent graph crashes
-- Use a model >= 8B for production tool-calling accuracy; 3B is fine for dev/testing
+- Use llama3.1:8b minimum — 3B has poor tool-calling judgment
+- Design tools to accept fuzzy input (names, not just codes) — don't rely on the LLM to resolve identifiers
 - Add a max-iterations guard to the tool loop to prevent infinite cycles
