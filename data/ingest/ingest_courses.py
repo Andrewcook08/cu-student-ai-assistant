@@ -72,6 +72,8 @@ def write_postgres(courses: list[dict], sections: list[dict]) -> None:
     """Write courses and sections to PostgreSQL.
 
     TODO: Replace stub with SQLAlchemy upserts via shared.database once INFRA-002 lands.
+    Sections use course_code (e.g. "CSCI 1300") but the PG model uses course_id (FK).
+    Upsert courses first, build a {code: id} lookup, then map sections before inserting.
     """
     print(f"[STUB] Would write {len(courses)} courses and {len(sections)} sections to PostgreSQL")
 
