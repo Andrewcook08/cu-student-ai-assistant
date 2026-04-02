@@ -133,5 +133,5 @@ Prepend the system prompt inside `llm_node` rather than storing it in state. Thi
 - Start with `MessagesState`, extend with custom fields (e.g., `user_id`, `session_id`) via TypedDict as needed
 - Wrap tool execution in try/except to prevent graph crashes
 - Use llama3.1:8b minimum — 3B has poor tool-calling judgment
-- Design tools to accept fuzzy input (names, not just codes) — don't rely on the LLM to resolve identifiers
+- Use the two-tool pattern: `search_courses` for fuzzy/vector search by name or keyword (returns codes + summaries), `lookup_course` for exact code-based retrieval of full details. The LLM learns to search first, then look up — don't rely on it to resolve names to codes directly
 - Add a max-iterations guard to the tool loop to prevent infinite cycles

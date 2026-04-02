@@ -456,7 +456,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 ## Troubleshooting
 
 ### Ollama is slow on CPU
-Expected. On CPU, a 7B model takes ~20-30 seconds per response. This is fine for development — you're testing the integration, not the inference speed. On GCP with an L4 GPU, it's ~2-3 seconds.
+Expected. On CPU, an 8B model takes ~20-30 seconds per response. This is fine for development — you're testing the integration, not the inference speed. On GCP with an L4 GPU, it's ~2-3 seconds.
 
 **Tip**: For faster local iteration on non-AI code (frontend, REST API, data ingestion), you don't need Ollama running. Only start it when testing the chat feature.
 

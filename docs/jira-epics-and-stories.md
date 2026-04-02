@@ -162,7 +162,7 @@
 - **Blocked by**: INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person B
 - **Labels**: `critical-path`
-- **Description**: Write `scripts/test_tool_calling.py`. Define 6 tool schemas matching the architecture. Write 20+ representative student questions with expected tool names. Test the chosen Ollama model. Report pass rate. If < 80%, test alternative models and document recommendation.
+- **Description**: Write `scripts/test_tool_calling.py`. Define 7 tool schemas matching the architecture. Write 20+ representative student questions with expected tool names. Test the chosen Ollama model. Report pass rate. If < 80%, test alternative models and document recommendation.
 - **Acceptance criteria**:
   - [ ] Test script runs against Ollama and produces pass/fail per question
   - [ ] Overall pass rate ≥ 80%
@@ -321,9 +321,9 @@
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: CHAT-002, CHAT-003
 - **Assignee**: Person C
-- **Description**: Create `core/tools.py`. Define 6 tools with `@tool` decorator: search_courses, check_prerequisites, get_degree_requirements, get_student_profile, find_schedule_conflicts, save_decision. Each tool has a clear docstring for the LLM and calls the appropriate service layer.
+- **Description**: Create `core/tools.py`. Define 7 tools with `@tool` decorator: search_courses, lookup_course, check_prerequisites, get_degree_requirements, get_student_profile, find_schedule_conflicts, save_decision. Each tool has a clear docstring for the LLM and calls the appropriate service layer. The search_courses/lookup_course split (fuzzy search by name → exact lookup by code) was validated by the CUAI-32 LangGraph spike.
 - **Acceptance criteria**:
-  - [ ] All 6 tools defined with typed parameters and descriptive docstrings
+  - [ ] All 7 tools defined with typed parameters and descriptive docstrings
   - [ ] Each tool calls the correct service (Neo4j, PostgreSQL, Ollama)
   - [ ] Tools return structured dicts (not raw database rows)
   - [ ] Tools are importable and can be bound to the LLM
@@ -365,6 +365,7 @@
 - **Description**: Create `core/llm_engine.py`. LangGraph StateGraph with nodes: classify_intent → build_context → call_llm → maybe_call_tools (loop) → validate_output → respond. Bind tools to the LLM. Handle the tool-calling loop (LLM generates tool calls → executor runs them → results fed back → LLM generates final response). Wire into the WebSocket endpoint (replace echo stub).
 - **Acceptance criteria**:
   - [ ] User sends "What CS courses are available?" → LLM calls search_courses → returns course list
+  - [ ] User sends "Tell me about Data Structures" → LLM calls search_courses → then lookup_course with resolved code
   - [ ] User sends "What are prereqs for CSCI 3104?" → LLM calls check_prerequisites → returns chain
   - [ ] Multi-tool flow works: LLM calls get_student_profile then get_degree_requirements
   - [ ] Tool call retry on malformed JSON works

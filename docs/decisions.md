@@ -18,7 +18,7 @@
 - [ADR-11: Vue 3 + TypeScript + Vite Frontend](#adr-11-vue-frontend)
 - [ADR-12: Suggested Actions — AI-Driven Structured UI](#adr-12-suggested-actions)
 - [ADR-13: GCP for Cloud Deployment](#adr-13-gcp-for-cloud-deployment)
-- [ADR-14: Security — Backend-Enforced Tool Authorization](#adr-14-security-tool-authorization)
+- [ADR-14: Security — Backend-Enforced Tool Authorization](#adr-14-security--backend-enforced-tool-authorization)
 - [ADR-15: Shared Package for Cross-Service Code](#adr-15-shared-package)
 - [ADR-16: uv Workspaces for Python Project Management](#adr-16-uv-workspaces)
 - [ADR-17: Defense-in-Depth Security Strategy](#adr-17-defense-in-depth-security)
@@ -68,7 +68,7 @@ Full microservices would be overkill because:
 ## ADR-2: Self-Hosted LLM via Ollama
 
 ### Decision
-Run LLM inference on self-hosted Ollama instances (Llama 3.1 8B or Mistral 7B) on GPU VMs, rather than using a hosted API (Claude, GPT).
+Run LLM inference on self-hosted Ollama instances (Llama 3.1 8B+) on GPU VMs, rather than using a hosted API (Claude, GPT).
 
 ### Alternatives Considered
 1. **Hosted API (Claude Sonnet, GPT-4)** — pay per request, no GPU management
@@ -90,6 +90,8 @@ Ollama is a hard requirement for this project (team/class decision). The trade-o
 - Operational complexity — mitigated by containerization (Ollama runs in Docker, same as everything else)
 
 **Cost at demo scale**: 1 GPU VM (GCP L4, ~$0.70/hour) supports ~50 concurrent users. Acceptable for a class project.
+
+**Minimum model size (validated by CUAI-32 spike):** 8B parameters is the practical minimum for reliable tool calling. Testing showed that 3B models (llama3.2:3b) exhibit poor tool-calling judgment: hallucinating tool arguments, over-triggering tools for non-tool queries, and failing fuzzy course name lookups. The 8B model (llama3.1:8b) correctly skipped tools for non-course questions and produced valid parameters. The Ollama container requires ~4.8GB for 8B Q4 quantized models, so the Docker memory limit is set to 8GB to provide headroom.
 
 ---
 
@@ -183,6 +185,14 @@ User message → Classify intent → Retrieve context (graph/vector/structured)
 
 **LlamaIndex** is more RAG-focused and less suited to the tool-calling + graph traversal + conversation memory combination we need.
 
+### Implementation Patterns (validated by CUAI-32 spike)
+
+**Manual StateGraph over `create_react_agent`:** The implementation uses manual `StateGraph` construction rather than LangGraph's prebuilt `create_react_agent()`. Manual construction is ~10 lines of graph wiring and gives full control over node logic, error handling, and state inspection. The prebuilt agent hides these details and is harder to customize for production use.
+
+**`MessagesState` as base class:** LangGraph's built-in `MessagesState` handles message accumulation via an `add` reducer (appends rather than replaces). Nodes return `{"messages": [new_msg]}` and the state grows automatically. Extend with custom fields (e.g., `user_id`, `session_id`) via TypedDict as needed — no need to build custom state management.
+
+**Streaming modes:** `stream_mode="updates"` yields per-node results (good for progress indicators). `stream_mode="messages"` or `astream_events()` provides token-level streaming for the chat UI's real-time response rendering.
+
 ---
 
 ## ADR-6: Tool Calling Over Raw RAG
@@ -205,7 +215,7 @@ Tool calling solves this by making data access **structured and verifiable**:
 
 This also means the LLM needs less context window for data (tool results are compact) and more is available for conversation history and reasoning.
 
-**We still use vector search** within the `search_courses` tool for fuzzy natural language queries. But the search is a tool the LLM calls explicitly, not a passive RAG injection.
+**We still use vector search** within the `search_courses` tool for fuzzy natural language queries. But the search is a tool the LLM calls explicitly, not a passive RAG injection. The CUAI-32 LangGraph spike validated that even 8B models can't reliably map course names to exact codes, so we use a two-tool pattern: `search_courses` for fuzzy/vector lookup by name or keyword, and `lookup_course` for exact code-based retrieval of full course details.
 
 ---
 
@@ -232,6 +242,8 @@ The Redis queue decouples them:
 - **Queue depth is an auto-scaling signal** — when the queue gets deep, spin up more GPU VMs. When it's empty, shut them down.
 
 **Why not RabbitMQ/Kafka?** Redis is already in the stack (for sessions and caching). Adding another message broker is unnecessary for this throughput level. Redis Streams or Redis pub/sub is sufficient.
+
+**Max-iterations guard (validated by CUAI-32 spike):** The LangGraph tool-calling loop must include a max-iterations guard (e.g., 10 tool calls per turn) to prevent infinite cycles. Small models are prone to over-triggering tools, and even larger models can occasionally enter a loop. The guard ensures graceful degradation — after hitting the limit, the LLM responds with what it has rather than looping forever.
 
 ---
 
@@ -302,7 +314,7 @@ We need authentication because of [ADR-9](#adr-9-persistent-decision-history) �
 
 **CU SSO** is the ideal end state (students use their CU credentials), but SAML/OAuth integration with a university IdP requires institutional approval and configuration that takes weeks and may not be available for a class project. We design the auth interface so SSO can be swapped in later.
 
-**JWT is the simplest auth that works**: the Course Search API issues tokens on login, both services validate them using a shared secret. No session store needed for auth (the JWT is self-contained). The `user_id` in the JWT is what the tool executor uses to scope all data access ([ADR-14](#adr-14-security-tool-authorization)).
+**JWT is the simplest auth that works**: the Course Search API issues tokens on login, both services validate them using a shared secret. No session store needed for auth (the JWT is self-contained). The `user_id` in the JWT is what the tool executor uses to scope all data access ([ADR-14](#adr-14-security--backend-enforced-tool-authorization)).
 
 **OAuth with Google/GitHub** would work but doesn't map to CU identity — students would need to remember which provider they used, and we can't match accounts to CU student records later.
 
@@ -328,7 +340,7 @@ This is a **single-page application** — the course search page and chat widget
 
 **Vite** because it's the default and fastest Vue build tool — hot module replacement in milliseconds, fast production builds. Vue + Vite is the officially recommended setup.
 
-**Pinia** (Vue's official state management) replaces Zustand. It's tightly integrated with Vue's reactivity system and devtools.
+**Pinia** is Vue's official state management library, tightly integrated with Vue's reactivity system and devtools.
 
 **Tailwind** because it maps directly to CSS properties (no abstraction to learn), makes it easy to match CU brand colors precisely, and eliminates CSS naming debates. **shadcn-vue** provides accessible, unstyled base components (modals, dropdowns, inputs) that we restyle with Tailwind — faster than building from scratch, more customizable than Vuetify.
 
@@ -446,7 +458,7 @@ This is the standard pattern for multi-service Python repos — shared code with
 ## ADR-16: uv Workspaces for Python Project Management
 
 ### Decision
-Use **uv workspaces** with a single root `pyproject.toml` defining workspace members (`shared`, `course-search-api`, `chat-service`, `data-ingest`), a single `uv.lock` at the root, and shared dev tooling (ruff, pytest, mypy) configured in the root `pyproject.toml`.
+Use **uv workspaces** with a single root `pyproject.toml` defining workspace members (`shared`, `services/course-search-api`, `services/chat-service`, `data`), a single `uv.lock` at the root, and shared dev tooling (ruff, pytest, mypy) configured in the root `pyproject.toml`.
 
 ### Alternatives Considered
 1. **uv workspaces** (chosen) — monorepo with single lockfile
@@ -664,7 +676,7 @@ If the system were adopted for production use, migrate PostgreSQL from the self-
 
 **The migration is trivial** because the application uses SQLAlchemy with connection strings from environment variables. Switching from the self-hosted VM to Cloud SQL means changing one Terraform variable (`DATABASE_URL`). No code changes, no schema changes, no ORM changes.
 
-**For the class project**, we stay on the self-hosted VM ([ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm)) because the budget doesn't justify Cloud SQL's minimum cost (~$10-15/mo) when a $25/mo VM runs all three databases. Cloud SQL is documented as the production scaling path, demonstrating that the architecture supports it without rework.
+**For the class project**, we stay on the self-hosted VM ([ADR-19](#adr-19-self-hosted-databases-on-vm)) because the budget doesn't justify Cloud SQL's minimum cost (~$10-15/mo) when a $25/mo VM runs all three databases. Cloud SQL is documented as the production scaling path, demonstrating that the architecture supports it without rework.
 
 ---
 
