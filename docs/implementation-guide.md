@@ -292,7 +292,7 @@ class Course(Base):
     code: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
     dept: Mapped[str] = mapped_column(String(4), nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    credits: Mapped[str | None] = mapped_column(String(10))
+    credits: Mapped[str | None] = mapped_column(String(20))
     description: Mapped[str | None] = mapped_column(Text)
     prerequisites_raw: Mapped[str | None] = mapped_column(Text)
     attributes: Mapped[str | None] = mapped_column(Text)
@@ -321,6 +321,8 @@ class Section(Base):
     dates: Mapped[str | None] = mapped_column(String(20))
 
     course: Mapped["Course"] = relationship(back_populates="sections")
+
+    __table_args__ = (UniqueConstraint("course_id", "crn"),)
 
 
 class Program(Base):
