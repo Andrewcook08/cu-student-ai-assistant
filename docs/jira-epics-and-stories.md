@@ -60,7 +60,7 @@
 - **Description**: Fill in the `shared/` package with real code: `config.py` (pydantic-settings), `database.py` (SQLAlchemy engine + session + get_db), `models.py` (all ORM models), `auth.py` (JWT create/decode, password hash/verify), `schemas.py` (shared Pydantic models: CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse).
 - **Acceptance criteria**:
   - [ ] `shared/shared/config.py` reads all env vars from `.env`
-  - [ ] `shared/shared/models.py` has all 8 tables: courses, sections, programs, requirements, users, completed_courses, student_decisions, tool_audit_log
+  - [ ] `shared/shared/models.py` has all 9 tables: courses, sections, course_attributes, programs, requirements, users, completed_courses, student_decisions, tool_audit_log
   - [ ] `shared/shared/auth.py` can create and decode JWTs, hash and verify passwords
   - [ ] `shared/shared/schemas.py` has CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse
   - [ ] `from shared.config import settings` works from any workspace member
@@ -94,11 +94,12 @@
 - **Blocked by**: INFRA-002 (for SQLAlchemy models)
 - **Assignee**: Person C
 - **Labels**: `critical-path`
-- **Description**: Write `data/ingest/ingest_courses.py`. Parse the JSON structure (department code → array of course objects). Extract dept code from course code. Strip "This section is closed" prefix from CRN. Handle credits as text. Deduplicate courses by code (topics courses appear multiple times with different titles) and extract pipe-delimited topic_titles. Write to PostgreSQL (courses + sections tables) and Neo4j (Course + Section + Department nodes). Must be idempotent (upsert).
+- **Description**: Write `data/ingest/ingest_courses.py`. Parse the JSON structure (department code → array of course objects). Extract dept code from course code. Strip "This section is closed" prefix from CRN. Handle credits as text. Deduplicate courses by code (topics courses appear multiple times with different titles) and extract pipe-delimited topic_titles. Normalize newline-delimited attributes into `course_attributes` table (split each line on `: ` into college/category pairs). Write to PostgreSQL (`courses`, `sections`, `course_attributes` tables) and Neo4j (`Course`, `Section`, `Department`, `Attribute` nodes with `HAS_ATTRIBUTE` edges). Must be idempotent (upsert).
 - **Acceptance criteria**:
   - [ ] PostgreSQL `courses` table has 3,410 rows (deduplicated by course code)
   - [ ] PostgreSQL `sections` table has ~13,223 rows
-  - [ ] Neo4j has 3,410 Course nodes, 152 Department nodes
+  - [ ] PostgreSQL `course_attributes` table is populated (~1,358 courses have attributes)
+  - [ ] Neo4j has 3,410 Course nodes, 152 Department nodes, `Attribute` nodes with `HAS_ATTRIBUTE` edges
   - [ ] Re-running does not create duplicates
   - [ ] CRN values are clean numeric strings
   - [ ] topic_titles populated for courses with multiple topic variants
@@ -137,7 +138,7 @@
 - **Phase**: 1 (Day 4-5)
 - **Blocked by**: DATA-001, INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person C
-- **Description**: Write `data/ingest/build_embeddings.py`. For each course, generate an embedding from `"{code} {title} {topic_titles} {description}"` via Ollama's nomic-embed-text model. Store on Neo4j Course nodes. Create vector index (`course-embeddings`, 768 dims, cosine).
+- **Description**: Write `data/ingest/build_embeddings.py`. For each course, generate an embedding from `"{code} {title} {topic_titles} {description} {attributes}"` via Ollama's nomic-embed-text model (attributes joined from `HAS_ATTRIBUTE` edges). Including attributes ensures gen-ed queries like "Engineering humanities requirement" surface relevant courses via vector search. Store on Neo4j Course nodes. Create vector index (`course-embeddings`, 768 dims, cosine).
 - **Acceptance criteria**:
   - [ ] All 3,410 Course nodes have non-null `embedding` property
   - [ ] Vector index `course-embeddings` exists in Neo4j

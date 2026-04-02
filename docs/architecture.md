@@ -373,12 +373,13 @@ Prerequisites are natural language strings in the course data. This is the most 
 (:Department {code, name})
 
 (:Course {code, title, credits, description, instruction_mode,
-          campus, attributes, topic_titles, embedding})
+          campus, topic_titles, embedding})
   -[:IN_DEPARTMENT]-> (:Department)
   -[:HAS_PREREQUISITE {type: "prerequisite"|"corequisite",
                        min_grade, raw_text}]-> (:Course)
   -[:HAS_SECTION]-> (:Section {crn, section_number, type, meets,
                                 instructor, status, dates, campus})
+  -[:HAS_ATTRIBUTE]-> (:Attribute {college, category})
 
 (:Program {name, type, total_credits})
   -- type: "BA", "BS", "Minor", "Certificate", etc.
@@ -423,7 +424,6 @@ courses (
   credits VARCHAR(20),               -- "3", "1-3", "Varies by section"
   description TEXT,
   prerequisites_raw TEXT,            -- original natural language string
-  attributes TEXT,                   -- e.g. "CMDI Core: Computing"
   topic_titles TEXT,                 -- pipe-delimited topic variant titles for topics courses, empty for non-topics
   instruction_mode VARCHAR(50),      -- "In Person", "Online", "Remote", etc.
   campus VARCHAR(100),
@@ -444,6 +444,14 @@ sections (
   campus VARCHAR(10),                -- "Main", "CE"
   dates VARCHAR(20),                 -- "01-08 to 04-24"
   UNIQUE(course_id, crn)             -- enables idempotent upserts during ingestion
+)
+
+course_attributes (
+  id SERIAL PRIMARY KEY,
+  course_code VARCHAR(10) NOT NULL REFERENCES courses(code),
+  college TEXT NOT NULL,              -- e.g. "Engineering & Applied Science General Education"
+  category TEXT NOT NULL,             -- e.g. "Humanities & Social Science"
+  UNIQUE(course_code, college, category)
 )
 
 -- ── Degree Requirements ──────────────────────────────────────────
@@ -552,8 +560,8 @@ def search_courses(query: str, department: str = None,
 @tool
 def lookup_course(course_code: str) -> dict:
     """Get full details for a specific course by its exact code (e.g. CSCI 2270)."""
-    # PostgreSQL: SELECT * FROM courses WHERE code = $code
-    # Also returns sections, prerequisite text, and topic_titles
+    # PostgreSQL: SELECT * FROM courses JOIN course_attributes USING (course_code) WHERE code = $code
+    # Returns sections, prerequisite text, topic_titles, and gen-ed attributes (college, category)
     # Use search_courses first if the student provides a name instead of a code
 
 @tool

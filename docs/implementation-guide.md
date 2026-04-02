@@ -295,7 +295,6 @@ class Course(Base):
     credits: Mapped[str | None] = mapped_column(String(20))
     description: Mapped[str | None] = mapped_column(Text)
     prerequisites_raw: Mapped[str | None] = mapped_column(Text)
-    attributes: Mapped[str | None] = mapped_column(Text)
     topic_titles: Mapped[str | None] = mapped_column(Text)  # pipe-delimited topic titles
     instruction_mode: Mapped[str | None] = mapped_column(String(50))
     campus: Mapped[str | None] = mapped_column(String(100))
@@ -304,6 +303,7 @@ class Course(Base):
     dates: Mapped[str | None] = mapped_column(String(50))
 
     sections: Mapped[list["Section"]] = relationship(back_populates="course")
+    course_attributes: Mapped[list["CourseAttribute"]] = relationship(back_populates="course")
 
 
 class Section(Base):
@@ -323,6 +323,19 @@ class Section(Base):
     course: Mapped["Course"] = relationship(back_populates="sections")
 
     __table_args__ = (UniqueConstraint("course_id", "crn"),)
+
+
+class CourseAttribute(Base):
+    __tablename__ = "course_attributes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    course_code: Mapped[str] = mapped_column(String(10), ForeignKey("courses.code"), nullable=False)
+    college: Mapped[str] = mapped_column(Text, nullable=False)     # e.g. "Engineering & Applied Science General Education"
+    category: Mapped[str] = mapped_column(Text, nullable=False)    # e.g. "Humanities & Social Science"
+
+    course: Mapped["Course"] = relationship(back_populates="course_attributes")
+
+    __table_args__ = (UniqueConstraint("course_code", "college", "category"),)
 
 
 class Program(Base):
@@ -457,6 +470,7 @@ class CourseCard(BaseModel):
     topic_titles: str | None = None
     instruction_mode: str | None = None
     status: str | None = None
+    attributes: list[str] | None = None  # e.g. ["Engineering & Applied Science General Education: Humanities & Social Science"]
 
 
 class Action(BaseModel):
@@ -970,8 +984,7 @@ def create_course_node(tx, course: dict):
         MERGE (c:Course {code: $code})
         SET c.title = $title, c.credits = $credits,
             c.description = $description, c.instruction_mode = $instruction_mode,
-            c.campus = $campus, c.attributes = $attributes,
-            c.topic_titles = $topic_titles
+            c.campus = $campus, c.topic_titles = $topic_titles
         MERGE (d:Department {code: $dept})
         MERGE (c)-[:IN_DEPARTMENT]->(d)
     """, **course)
@@ -984,6 +997,20 @@ def create_prerequisite_edge(tx, course_code: str, prereq_code: str, rel_type: s
         SET r.type = $rel_type, r.min_grade = $min_grade, r.raw_text = $raw_text
     """, course_code=course_code, prereq_code=prereq_code,
          rel_type=rel_type, min_grade=min_grade, raw_text=raw_text)
+
+def create_attribute_edges(tx, course_code: str, attributes_raw: str | None):
+    """Parse newline-delimited attributes and create Attribute nodes with HAS_ATTRIBUTE edges."""
+    if not attributes_raw:
+        return
+    for line in attributes_raw.strip().splitlines():
+        if ": " not in line:
+            continue
+        college, category = line.split(": ", 1)
+        tx.run("""
+            MATCH (c:Course {code: $code})
+            MERGE (a:Attribute {college: $college, category: $category})
+            MERGE (c)-[:HAS_ATTRIBUTE]->(a)
+        """, code=course_code, college=college.strip(), category=category.strip())
 ```
 
 **Important**: All ingestion scripts must be idempotent (use `MERGE` in Neo4j, `ON CONFLICT DO UPDATE` in PostgreSQL).
@@ -1006,13 +1033,17 @@ def get_embedding(text: str) -> list[float]:
 
 def build_all_embeddings(driver):
     with driver.session() as session:
-        # Get all courses without embeddings
+        # Get all courses without embeddings (include attributes for gen-ed search)
         courses = session.run(
-            "MATCH (c:Course) WHERE c.embedding IS NULL RETURN c.code, c.title, c.topic_titles, c.description"
+            "MATCH (c:Course) WHERE c.embedding IS NULL "
+            "OPTIONAL MATCH (c)-[:HAS_ATTRIBUTE]->(a) "
+            "RETURN c.code, c.title, c.topic_titles, c.description, "
+            "collect(a.college + ': ' + a.category) AS attributes"
         ).data()
 
         for course in courses:
-            text = f"{course['c.code']} {course['c.title']} {course.get('c.topic_titles', '')} {course.get('c.description', '')}"
+            attrs = " ".join(course.get("attributes", []))
+            text = f"{course['c.code']} {course['c.title']} {course.get('c.topic_titles', '')} {course.get('c.description', '')} {attrs}"
             embedding = get_embedding(text)
             session.run(
                 "MATCH (c:Course {code: $code}) SET c.embedding = $embedding",
