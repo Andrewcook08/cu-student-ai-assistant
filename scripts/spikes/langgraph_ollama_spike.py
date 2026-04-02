@@ -1,4 +1,8 @@
-"""CUAI-32: LangGraph + Ollama spike — minimal ReAct agent with tool calling.
+"""LangGraph + Ollama spike — two-tool pattern with gpt-oss:20b.
+
+Extends the CUAI-32 spike to test:
+  1. gpt-oss:20b model (vs previous 3b/8b tests)
+  2. Two-tool pattern: search_courses (fuzzy) + lookup_course (exact)
 
 Run with:
     uv run --package chat-service python scripts/spikes/langgraph_ollama_spike.py
@@ -13,17 +17,17 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 # Configuration
 # ---------------------------------------------------------------------------
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.1:8b"
+OLLAMA_MODEL = "gpt-oss:20b"
 
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
 COURSE_DATA = {
-    "CSCI 3155": {
-        "title": "Principles of Programming Languages",
-        "credits": 3,
-        "prerequisites": ["CSCI 2270"],
-        "description": "Study of principles of programming language design and implementation.",
+    "CSCI 1300": {
+        "title": "Introduction to Computer Science",
+        "credits": 4,
+        "prerequisites": [],
+        "description": "Teaches techniques for writing computer programs in higher level languages.",
     },
     "CSCI 2270": {
         "title": "Data Structures",
@@ -31,12 +35,67 @@ COURSE_DATA = {
         "prerequisites": ["CSCI 1300"],
         "description": "Studies data abstractions including stacks, queues, trees, and graphs.",
     },
+    "CSCI 2400": {
+        "title": "Computer Systems",
+        "credits": 4,
+        "prerequisites": ["CSCI 2270"],
+        "description": "Computer organization, machine-level programming, system software.",
+    },
+    "CSCI 3104": {
+        "title": "Algorithms",
+        "credits": 4,
+        "prerequisites": ["CSCI 2270"],
+        "description": "Design and analysis of algorithms: sorting, searching, graph algorithms.",
+    },
+    "CSCI 3155": {
+        "title": "Principles of Programming Languages",
+        "credits": 3,
+        "prerequisites": ["CSCI 2270"],
+        "description": "Study of principles of programming language design and implementation.",
+    },
+    "CSCI 3202": {
+        "title": "Introduction to Artificial Intelligence",
+        "credits": 3,
+        "prerequisites": ["CSCI 2270", "CSCI 2820"],
+        "description": "Survey of AI techniques: search, logic, machine learning, NLP.",
+    },
+    "CSCI 3302": {
+        "title": "Introduction to Robotics",
+        "credits": 3,
+        "prerequisites": ["CSCI 2270"],
+        "description": "Introduction to robotics concepts: kinematics, sensors, planning.",
+    },
+    "CSCI 3753": {
+        "title": "Operating Systems",
+        "credits": 4,
+        "prerequisites": ["CSCI 2400", "CSCI 2270"],
+        "description": "Fundamentals of operating systems: processes, memory, file systems.",
+    },
 }
 
 
 @tool
+def search_courses(query: str) -> str:
+    """Search for courses by name or keyword. Use this when you don't know the
+    exact course code. Returns a list of matching course codes and titles.
+
+    Example: search_courses("data structures") or search_courses("robotics")
+    """
+    query_lower = query.lower()
+    matches = []
+    for code, info in COURSE_DATA.items():
+        searchable = f"{code} {info['title']} {info['description']}".lower()
+        if query_lower in searchable:
+            matches.append(f"{code}: {info['title']}")
+    if not matches:
+        return f"No courses found matching '{query}'."
+    return "Matching courses:\n" + "\n".join(matches)
+
+
+@tool
 def lookup_course(course_code: str) -> str:
-    """Look up course information by course code (e.g. 'CSCI 3155').
+    """Look up full details for a course by its exact code (e.g. 'CSCI 3155').
+    Use search_courses first if you don't know the code.
 
     Returns course title, credits, prerequisites, and description.
     """
@@ -46,7 +105,7 @@ def lookup_course(course_code: str) -> str:
     return (
         f"{course_code} — {course['title']}\n"
         f"Credits: {course['credits']}\n"
-        f"Prerequisites: {', '.join(course['prerequisites'])}\n"
+        f"Prerequisites: {', '.join(course['prerequisites']) or 'None'}\n"
         f"Description: {course['description']}"
     )
 
@@ -54,7 +113,7 @@ def lookup_course(course_code: str) -> str:
 # ---------------------------------------------------------------------------
 # LLM + tool binding
 # ---------------------------------------------------------------------------
-tools = [lookup_course]
+tools = [search_courses, lookup_course]
 tools_by_name = {t.name: t for t in tools}
 
 llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL)
@@ -66,8 +125,10 @@ llm_with_tools = llm.bind_tools(tools)
 SYSTEM_PROMPT = SystemMessage(
     content=(
         "You are a helpful CU Boulder course advisor. "
-        "Use the lookup_course tool when a student asks about a specific course. "
-        "Always call the tool before answering course questions."
+        "You have two tools: search_courses (find courses by name or keyword) "
+        "and lookup_course (get full details by exact course code). "
+        "When a student asks about a course by name, search first to find the code, "
+        "then look up the full details. Do not guess course codes."
     )
 )
 
@@ -118,9 +179,11 @@ agent = graph_builder.compile()
 # Run demo queries
 # ---------------------------------------------------------------------------
 QUERIES = [
-    "What can you tell me about CSCI 3155?",
-    "What are the prerequisites for Data Structures?",
-    "What is 2 + 2?",  # Should NOT trigger tool call
+    "What can you tell me about CSCI 3155?",                # Direct lookup by code
+    "What are the prerequisites for Data Structures?",       # Fuzzy → search then lookup
+    "What is 2 + 2?",                                       # Should NOT trigger any tool
+    "What programming classes are available?",               # Broad search, no specific lookup
+    "Tell me about the intro to robotics course",            # Fuzzy name → search → lookup
 ]
 
 
