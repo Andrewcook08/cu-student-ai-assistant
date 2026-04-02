@@ -208,7 +208,7 @@ def run_query(query: str) -> None:
                     for tc in tool_calls:
                         print(f"    Tool call: {tc['name']}({tc['args']})")
                 if content and content != "(no content)":
-                    print(f"    Content: {content[:300]}")
+                    print(f"    Content: {content}")
 
     print()
 
