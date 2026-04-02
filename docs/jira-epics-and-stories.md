@@ -2,7 +2,7 @@
 
 > Import these into Jira to track implementation progress. Epics map to major system areas. Stories are sized in story points (1=trivial, 2=small, 3=medium, 5=large, 8=complex). Dependencies are explicit — don't start a story until its blockers are done.
 >
-> **Naming convention**: `[SERVICE]-NNN` where SERVICE is INFRA, API, CHAT, FE, DATA, DEPLOY.
+> **Naming convention**: `[SERVICE]-NNN` where SERVICE is INFRA, DATA, API, CHAT, FE, AUTH, MEM, SEC, DEPLOY, CICD, DEMO.
 >
 > **Labels**: `phase-1`, `phase-2`, `phase-3`, `phase-4`, `critical-path`, `blocked`, `security`
 
@@ -28,26 +28,36 @@
 
 ## Epic 1: Infrastructure & Repo Setup
 
-> Owner: Person A | Phase: 1 | Priority: Highest (unblocks everything)
+> Owner: Person A (Scott) | Phase: 1 | Priority: Highest (unblocks everything)
+>
+> **Note**: Andrew is picking up INFRA-001 (repo skeleton + Docker) to bootstrap the team. Scott owns INFRA-002 and INFRA-003 (the real code).
 
-### INFRA-001: Initialize uv workspace and root pyproject.toml
-- **Points**: 2
+### INFRA-001: Repo skeleton + Docker Compose
+- **Points**: 3
 - **Phase**: 1 (Day 1)
 - **Blocked by**: Nothing
-- **Assignee**: Person A
-- **Description**: Create root `pyproject.toml` with workspace members (shared, course-search-api, chat-service, data-ingest). Configure dev dependencies (ruff, pytest, mypy, httpx). Create `.python-version`, `.gitignore`.
+- **Assignee**: Person C (Andrew — bootstrapping for the team)
+- **Labels**: `critical-path`
+- **Description**: Create the full repo skeleton with no business logic. Root `pyproject.toml` with workspace members, `.python-version`, `.gitignore`. All directory structures for shared/, services/course-search-api/, services/chat-service/, data/, frontend/. Each workspace member gets a `pyproject.toml` and empty `__init__.py` files. Minimal `main.py` per service (FastAPI + health endpoint only — no shared imports). Dockerfiles for each service. `docker-compose.yml` with 7 services and healthchecks. `.env.example`. `data/raw/.gitkeep`.
 - **Acceptance criteria**:
   - [ ] `uv sync` succeeds from repo root
   - [ ] `uv run ruff check .` passes
   - [ ] `.gitignore` covers Python, Node, Docker, Terraform, IDE, OS files
+  - [ ] `cp .env.example .env && docker compose up -d --build` starts all 7 containers
+  - [ ] `docker compose ps` shows all data services as "healthy"
+  - [ ] `curl http://localhost:8000/api/health` → 200
+  - [ ] `curl http://localhost:8001/api/chat/health` → 200
+  - [ ] PostgreSQL, Neo4j, Redis, Ollama all accessible
+  - [ ] `data/raw/` exists with `.gitkeep`, JSON files gitignored
+  - [ ] Pushed to `main` — all team members can clone and run
 
 ### INFRA-002: Create shared Python package
 - **Points**: 5
-- **Phase**: 1 (Day 1)
+- **Phase**: 1 (Day 2-3)
 - **Blocked by**: INFRA-001
-- **Assignee**: Person A
+- **Assignee**: Person A (Scott)
 - **Labels**: `critical-path`
-- **Description**: Create `shared/` package with `config.py` (pydantic-settings), `database.py` (SQLAlchemy engine + session), `models.py` (all ORM models), `auth.py` (JWT create/decode, password hash/verify), `schemas.py` (shared Pydantic models: CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse).
+- **Description**: Fill in the `shared/` package with real code: `config.py` (pydantic-settings), `database.py` (SQLAlchemy engine + session + get_db), `models.py` (all ORM models), `auth.py` (JWT create/decode, password hash/verify), `schemas.py` (shared Pydantic models: CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse).
 - **Acceptance criteria**:
   - [ ] `shared/shared/config.py` reads all env vars from `.env`
   - [ ] `shared/shared/models.py` has all 8 tables: courses, sections, programs, requirements, users, completed_courses, student_decisions, tool_audit_log
@@ -55,67 +65,22 @@
   - [ ] `shared/shared/schemas.py` has CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse
   - [ ] `from shared.config import settings` works from any workspace member
 
-### INFRA-003: Create Docker Compose with healthchecks
+### INFRA-003: Wire services to shared package
 - **Points**: 3
-- **Phase**: 1 (Day 1)
-- **Blocked by**: INFRA-001
-- **Assignee**: Person A
+- **Phase**: 1 (Day 3-4)
+- **Blocked by**: INFRA-001, INFRA-002
+- **Assignee**: Person A (Scott)
 - **Labels**: `critical-path`
-- **Description**: Create `docker-compose.yml` with 7 services (postgres, neo4j, redis, ollama, course-search-api, chat-service, frontend). All data services have healthchecks. App services use `depends_on: condition: service_healthy`. Create `.env.example` with all required env vars.
+- **Description**: Update service `main.py` files to import from shared: add CORS middleware with settings, lifespan events (create tables, connect to services). Create `dependencies.py` (get_db, get_current_user). Create empty route files and empty test files. Verify full stack works with real shared imports.
 - **Acceptance criteria**:
-  - [ ] `cp .env.example .env && docker compose up -d` starts all containers
-  - [ ] `docker compose ps` shows all data services as "healthy"
-  - [ ] PostgreSQL accepts connections on port 5432
-  - [ ] Neo4j browser accessible at http://localhost:7474
-  - [ ] Redis responds to PING on port 6379
-  - [ ] Ollama API accessible at http://localhost:11434
-
-### INFRA-004: Scaffold Course Search API service
-- **Points**: 2
-- **Phase**: 1 (Day 1-2)
-- **Blocked by**: INFRA-002
-- **Assignee**: Person A
-- **Description**: Create `services/course-search-api/` with `pyproject.toml`, Dockerfile, `app/main.py` (FastAPI app with CORS, lifespan, health endpoint), `dependencies.py`, empty route files, empty test files.
-- **Acceptance criteria**:
-  - [ ] `uv run --package course-search-api uvicorn app.main:app --port 8000` starts
-  - [ ] `GET /api/health` returns `{"status": "ok"}`
-  - [ ] Docker image builds and runs
-
-### INFRA-005: Scaffold Chat Service
-- **Points**: 2
-- **Phase**: 1 (Day 1-2)
-- **Blocked by**: INFRA-002
-- **Assignee**: Person A
-- **Description**: Create `services/chat-service/` with `pyproject.toml` (includes langchain, langgraph, neo4j, redis, httpx), Dockerfile, `app/main.py` (FastAPI with CORS, lifespan, health endpoint), empty core/ and services/ directories, empty test files.
-- **Acceptance criteria**:
-  - [ ] `uv run --package chat-service uvicorn app.main:app --port 8001` starts
-  - [ ] `GET /api/chat/health` returns `{"status": "ok"}`
-  - [ ] Docker image builds and runs
-
-### INFRA-006: Scaffold data-ingest package
-- **Points**: 1
-- **Phase**: 1 (Day 1)
-- **Blocked by**: INFRA-001
-- **Assignee**: Person A
-- **Description**: Create `data/` workspace member with `pyproject.toml`, `ingest/__init__.py`, `raw/.gitkeep`. Ensure JSON data files are gitignored but `.gitkeep` is tracked.
-- **Acceptance criteria**:
-  - [ ] `data/` is a recognized uv workspace member
-  - [ ] `data/raw/` exists with `.gitkeep`
-  - [ ] JSON files in `data/raw/` are gitignored
-
-### INFRA-007: Full-stack Docker verification
-- **Points**: 1
-- **Phase**: 1 (Day 2)
-- **Blocked by**: INFRA-003, INFRA-004, INFRA-005
-- **Assignee**: Person A
-- **Labels**: `critical-path`
-- **Description**: Verify `docker compose up -d --build` starts all 7 containers. Both APIs return health checks. Frontend serves content. Push to main branch.
-- **Acceptance criteria**:
-  - [ ] All 7 containers running with `docker compose ps`
-  - [ ] `curl http://localhost:8000/api/health` → 200
-  - [ ] `curl http://localhost:8001/api/chat/health` → 200
-  - [ ] `curl http://localhost:5173` → HTML content
-  - [ ] Pushed to `main` — all team members can clone and run
+  - [ ] Both services import from shared (config, database, models)
+  - [ ] CORS middleware configured with `settings.cors_origins_list`
+  - [ ] Course Search API lifespan creates tables via `Base.metadata.create_all`
+  - [ ] `dependencies.py` has `get_db` and `get_current_user`
+  - [ ] Empty route files exist: `routes/courses.py`, `routes/programs.py`, `routes/auth.py`, `routes/students.py`, `routes/chat.py`
+  - [ ] Empty test directories with `conftest.py`
+  - [ ] `docker compose up -d --build` still works with real imports
+  - [ ] `uv run ruff check . && uv run mypy .` passes
 
 ---
 
@@ -169,7 +134,7 @@
 ### DATA-004: Build course embeddings via Ollama
 - **Points**: 3
 - **Phase**: 1 (Day 4-5)
-- **Blocked by**: DATA-001, INFRA-003 (Ollama container running)
+- **Blocked by**: DATA-001, INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person C
 - **Description**: Write `data/ingest/build_embeddings.py`. For each course, generate an embedding from `"{code} {title} {description}"` via Ollama's nomic-embed-text model. Store on Neo4j Course nodes. Create vector index (`course-embeddings`, 768 dims, cosine).
 - **Acceptance criteria**:
@@ -193,7 +158,7 @@
 ### DATA-006: Validate LLM tool calling with chosen model
 - **Points**: 3
 - **Phase**: 1 (Day 4-5)
-- **Blocked by**: INFRA-003 (Ollama running)
+- **Blocked by**: INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person B
 - **Labels**: `critical-path`
 - **Description**: Write `scripts/test_tool_calling.py`. Define 6 tool schemas matching the architecture. Write 20+ representative student questions with expected tool names. Test the chosen Ollama model. Report pass rate. If < 80%, test alternative models and document recommendation.
@@ -207,13 +172,13 @@
 
 ## Epic 3: Course Search API
 
-> Owner: Person A | Phase: 2 | Priority: High
+> Owner: Person B | Phase: 2 | Priority: High
 
 ### API-001: GET /api/courses — filtered course listing
 - **Points**: 3
 - **Phase**: 2 (Day 6-7)
 - **Blocked by**: DATA-001 (courses in PostgreSQL)
-- **Assignee**: Person A
+- **Assignee**: Person B
 - **Description**: Implement course listing with filters: dept, instruction_mode, status, credits, text search (q). Offset/limit pagination (default 50). Returns `{items, total, offset, limit}`.
 - **Acceptance criteria**:
   - [ ] `GET /api/courses?dept=CSCI` returns only CSCI courses
@@ -227,7 +192,7 @@
 - **Points**: 2
 - **Phase**: 2 (Day 7)
 - **Blocked by**: DATA-001
-- **Assignee**: Person A
+- **Assignee**: Person B
 - **Description**: Return a single course with all its sections, prerequisite text, and attributes. Include section meeting times, instructor, status.
 - **Acceptance criteria**:
   - [ ] `GET /api/courses/CSCI 1300` returns course + all sections
@@ -239,7 +204,7 @@
 - **Points**: 3
 - **Phase**: 2 (Day 7-8)
 - **Blocked by**: DATA-004 (embeddings + vector index)
-- **Assignee**: Person A
+- **Assignee**: Person B
 - **Description**: Accept a text query, generate embedding via Ollama, search Neo4j vector index, return ranked results with similarity scores.
 - **Acceptance criteria**:
   - [ ] `GET /api/courses/search?q=data+science` returns relevant courses
@@ -251,7 +216,7 @@
 - **Points**: 2
 - **Phase**: 2 (Day 8)
 - **Blocked by**: DATA-002
-- **Assignee**: Person A
+- **Assignee**: Person B
 - **Description**: List all programs (for dropdowns). Get requirements for a specific program, structured by requirement_type.
 - **Acceptance criteria**:
   - [ ] `GET /api/programs` returns 203 programs with id, name, type
@@ -263,7 +228,7 @@
 - **Points**: 3
 - **Phase**: 2-3 (Day 8-9)
 - **Blocked by**: INFRA-002 (User model)
-- **Assignee**: Person A
+- **Assignee**: Person B
 - **Description**: `GET /api/students/me` (returns profile, completed courses with grades, decisions). `PUT /api/students/me/completed-courses` (update completed course list with optional grades). All endpoints require JWT auth. Use test JWTs from `shared/auth.py` for development and testing; real login/register flow comes in Phase 3 (AUTH-001/002).
 - **Acceptance criteria**:
   - [ ] Endpoints require valid JWT (401 without)
@@ -275,7 +240,7 @@
 - **Points**: 3
 - **Phase**: 2 (Day 9)
 - **Blocked by**: API-001, API-002, API-004
-- **Assignee**: Person A
+- **Assignee**: Person B
 - **Description**: Write pytest tests for all endpoints. Use a test database (SQLite or separate PostgreSQL). Test: filtering, pagination, 404s, auth required, auth forbidden.
 - **Acceptance criteria**:
   - [ ] `uv run pytest services/course-search-api/tests/ -v` passes
@@ -291,7 +256,7 @@
 ### CHAT-000: LangGraph spike (timeboxed research)
 - **Points**: 2
 - **Phase**: 1 (Day 5-6)
-- **Blocked by**: INFRA-005
+- **Blocked by**: INFRA-003
 - **Assignee**: Person C
 - **Description**: Timeboxed spike to de-risk the 8-point CHAT-008. Research LangGraph StateGraph, ReAct pattern, and tool binding. Build a minimal working prototype: single tool (e.g., echo tool), no real data, hardcoded Ollama connection. Document patterns and gotchas for the team.
 - **Acceptance criteria**:
@@ -303,7 +268,7 @@
 ### CHAT-001: Stub WebSocket endpoint (echo)
 - **Points**: 2
 - **Phase**: 2 (Day 6-7)
-- **Blocked by**: INFRA-005
+- **Blocked by**: INFRA-003
 - **Assignee**: Person C
 - **Labels**: `critical-path`
 - **Description**: Create `routes/chat.py` with WebSocket endpoint at `/ws/chat/{session_id}`. Validate JWT from query param. Accept messages, send typing indicator, echo back. This unblocks Person B's frontend work.
@@ -328,8 +293,8 @@
 ### CHAT-003: Ollama service + embedding generation
 - **Points**: 2
 - **Phase**: 2 (Day 7-8)
-- **Blocked by**: INFRA-003 (Ollama running)
-- **Assignee**: Person A
+- **Blocked by**: INFRA-001 (Ollama from Docker Compose)
+- **Assignee**: Person C
 - **Description**: Create `services/ollama_service.py`. Async HTTP client (`httpx.AsyncClient`) to Ollama API. Functions: `get_embedding(text)`, `chat_completion(messages, tools)`. 120s timeout with graceful error handling.
 - **Acceptance criteria**:
   - [ ] `get_embedding("data science")` returns 768-dim vector
@@ -340,7 +305,7 @@
 ### CHAT-004: Redis service (sessions + inference queue)
 - **Points**: 3
 - **Phase**: 2 (Day 8-9)
-- **Blocked by**: INFRA-003 (Redis running)
+- **Blocked by**: INFRA-001 (Redis from Docker Compose)
 - **Assignee**: Person C
 - **Description**: Create `services/redis_service.py`. Async Redis client. Implement: session storage, conversation message caching (RPUSH/LRANGE), inference queue (LPUSH/BRPOP), result pub/sub channel. 120s timeout on queue wait with 30s progress update.
 - **Acceptance criteria**:
@@ -409,7 +374,7 @@
 - **Points**: 3
 - **Phase**: 2 (Day 8)
 - **Blocked by**: INFRA-002
-- **Assignee**: Person A
+- **Assignee**: Person C
 - **Description**: Create `services/postgres_service.py`. Functions: `get_student_data(user_id)` — returns profile + completed courses with grades + prior decisions. `save_student_decision(user_id, course_code, decision_type, notes)`. `get_schedule_conflicts(course_codes)` — join sections, parse meeting times, find overlaps.
 - **Acceptance criteria**:
   - [ ] `get_student_data` returns program, completed courses (with grades), decisions
@@ -446,7 +411,7 @@
 
 ## Epic 5: Frontend — Course Search
 
-> Owner: Person B (UI), Person A (API integration) | Phase: 1-2
+> Owner: Person B (Rohan) | Phase: 1-2
 
 ### FE-001: Vue + Vite + Tailwind project setup
 - **Points**: 2
@@ -488,7 +453,7 @@
 - **Points**: 3
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: API-001, API-002, FE-003
-- **Assignee**: Person A
+- **Assignee**: Person B
 - **Description**: Replace mock data with real API calls. Create `courseApi.ts`, `useCourses.ts` composable, `courseStore.ts` Pinia store. Wire filter controls to API query params. Implement pagination.
 - **Acceptance criteria**:
   - [ ] Course table loads real data from API on page load
@@ -572,13 +537,13 @@
 
 ## Epic 7: Authentication
 
-> Owner: Person A (backend) + Person B (frontend) | Phase: 3
+> Owner: Person B (Rohan) | Phase: 3
 
 ### AUTH-001: Register endpoint
 - **Points**: 3
 - **Phase**: 3 (Day 13)
 - **Blocked by**: INFRA-002 (User model)
-- **Assignee**: Person A
+- **Assignee**: Person B
 - **Description**: `POST /api/auth/register` — accepts email, password, name, program_id. Hashes password with bcrypt. Returns JWT. Validates email uniqueness.
 - **Acceptance criteria**:
   - [ ] Successful registration returns JWT + user_id
@@ -590,7 +555,7 @@
 - **Points**: 2
 - **Phase**: 3 (Day 13)
 - **Blocked by**: AUTH-001
-- **Assignee**: Person A
+- **Assignee**: Person B
 - **Description**: `POST /api/auth/login` — accepts email, password. Verifies against hash. Returns JWT.
 - **Acceptance criteria**:
   - [ ] Valid credentials return JWT
@@ -627,13 +592,13 @@
 
 ## Epic 8: Conversation Memory
 
-> Owner: Person C | Phase: 3
+> Owner: Person A (Scott) | Phase: 3
 
 ### MEM-001: Redis message storage (tier 1)
 - **Points**: 3
 - **Phase**: 3 (Day 13)
 - **Blocked by**: CHAT-004
-- **Assignee**: Person C
+- **Assignee**: Person A
 - **Description**: Create `core/memory.py`. Store last 20 messages per session in Redis (RPUSH). Load on new WebSocket connection. 2-hour TTL per session. Messages include role, content, tool calls, and tool results.
 - **Acceptance criteria**:
   - [ ] Messages persist across WebSocket reconnects (same session_id)
@@ -645,7 +610,7 @@
 - **Points**: 5
 - **Phase**: 3 (Day 14-15)
 - **Blocked by**: MEM-001
-- **Assignee**: Person C
+- **Assignee**: Person A
 - **Description**: When message count exceeds 20, trigger LLM summarization. Summary captures: student's major, completed courses, decisions made, preferences, courses being considered. Summary stored in Redis, prepended to every LLM call. After summarization, trim to last 10 messages.
 - **Acceptance criteria**:
   - [ ] Summary generated when message count > 20
@@ -658,7 +623,7 @@
 - **Points**: 3
 - **Phase**: 3 (Day 15-16)
 - **Blocked by**: CHAT-005 (save_decision tool), API-005 (student endpoints)
-- **Assignee**: Person C
+- **Assignee**: Person A
 - **Description**: Wire `save_decision` tool end-to-end. On new session, `get_student_profile` loads prior decisions. LLM references them: "Last time you were interested in CSCI 3104 — still planning on that?"
 - **Acceptance criteria**:
   - [ ] Student says "I want to take CSCI 3104" → LLM calls save_decision → stored in PostgreSQL
@@ -669,7 +634,9 @@
 
 ## Epic 9: Security Hardening
 
-> Owner: Person C | Phase: 3 | Labels: `security`
+> Owner: Person B + Person C | Phase: 3 | Labels: `security`
+>
+> **Note**: Person C (Andrew) owns SEC-001 (system prompt) and SEC-004 (security tests). Person B (Rohan) owns SEC-002 (input sanitizer) and SEC-003 (output validator).
 
 ### SEC-001: System prompt hardening + delimiter tags
 - **Points**: 3
@@ -894,42 +861,35 @@
 ## Story Dependency Graph
 
 ```
-INFRA-001 ──→ INFRA-002 ──→ INFRA-004 ──→ INFRA-007
-    │              │              │
-    │              │              └──→ API-001 ──→ API-002 ──→ API-006
-    │              │                       │
-    │              │              └──→ API-003
-    │              │                       │
-    │              │              └──→ API-004 ──→ AUTH-003
-    │              │
-    │              ├──→ INFRA-005 ──→ CHAT-001 ──→ FE-008
-    │              │
-    │              ├──→ DATA-001 ──→ DATA-003 ──→ DATA-005
-    │              │         │
-    │              │         └──→ DATA-004 ──→ DATA-005
-    │              │
-    │              ├──→ DATA-002 ──→ DATA-005
-    │              │
-    │              └──→ API-005 ──→ MEM-003
+INFRA-001 (Andrew) ──→ INFRA-002 (Scott) ──→ INFRA-003 (Scott)
+    │                       │                       │
+    │                       │                       ├──→ API-001 ──→ API-002 ──→ API-006
+    │                       │                       ├──→ API-003
+    │                       │                       ├──→ API-004 ──→ AUTH-003
+    │                       │                       ├──→ CHAT-001 ──→ FE-008
+    │                       │                       └──→ CHAT-000 (LangGraph spike)
+    │                       │
+    │                       ├──→ DATA-001 ──→ DATA-003 ──→ DATA-005
+    │                       │         │
+    │                       │         └──→ DATA-004 ──→ DATA-005
+    │                       │
+    │                       ├──→ DATA-002 ──→ DATA-005
+    │                       │
+    │                       └──→ API-005 ──→ MEM-003
     │
-    ├──→ INFRA-003 ──→ INFRA-007
-    │         │
-    │         ├──→ DATA-004
-    │         ├──→ DATA-006
-    │         ├──→ CHAT-003
-    │         └──→ CHAT-004
-    │
-    └──→ INFRA-006
+    │  (Docker Compose provides data services)
+    ├──→ DATA-004 (needs Ollama)
+    ├──→ DATA-006 (needs Ollama)
+    ├──→ CHAT-003 (needs Ollama)
+    └──→ CHAT-004 (needs Redis)
 
 FE-001 ──→ FE-002 ──→ FE-003 ──→ FE-004
-    │              │
-    │              └──→ FE-006 ──→ FE-007 ──→ FE-008
-    │                                   │
-    │                                   └──→ FE-009
     │
-    └──→ FE-005
-
-INFRA-005 ──→ CHAT-000 (LangGraph spike)
+    ├──→ FE-005
+    │
+    └──→ FE-006 ──→ FE-007 ──→ FE-008
+              │
+              └──→ FE-009
 
 CHAT-002 + CHAT-003 ──→ CHAT-005 ──→ CHAT-006 ──┐
                               │                   ├──→ CHAT-008 ──→ CHAT-011
@@ -939,8 +899,14 @@ CHAT-002 + CHAT-003 ──→ CHAT-005 ──→ CHAT-006 ──┐
                                                                SEC-002 ──→ SEC-004
                                                                SEC-003 ──→ SEC-004
 
-CHAT-004 ──→ MEM-001 ──→ MEM-002
+INFRA-002 ──→ CHAT-009 ──→ CHAT-010
+CHAT-002 ──→ CHAT-010
 
+CHAT-004 ──→ MEM-001 ──→ MEM-002
+CHAT-005 ──→ MEM-003
+API-005 ──→ MEM-003
+
+INFRA-002 ──→ AUTH-001
 AUTH-001 ──→ AUTH-002
 AUTH-001 ──→ AUTH-003
 AUTH-002 ──→ AUTH-004
@@ -952,6 +918,9 @@ DEPLOY-001 ──→ DEPLOY-002 ──→ DEPLOY-003
     ├──→ DEPLOY-005 ──→ DEPLOY-004 ──→ DEPLOY-007
     │
     └──→ DEPLOY-004
+
+DEPLOY-004 ──→ CICD-002
+DEPLOY-005 ──→ CICD-002
 
 DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 ```
@@ -965,13 +934,9 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 
 | Story | Points | Assignee | Day |
 |-------|--------|----------|-----|
-| INFRA-001 | 2 | Person A | 1 |
-| INFRA-002 | 5 | Person A | 1 |
-| INFRA-003 | 3 | Person A | 1 |
-| INFRA-004 | 2 | Person A | 1-2 |
-| INFRA-005 | 2 | Person A | 1-2 |
-| INFRA-006 | 1 | Person A | 1 |
-| INFRA-007 | 1 | Person A | 2 |
+| INFRA-001 | 3 | Person C (Andrew) | 1 |
+| INFRA-002 | 5 | Person A (Scott) | 2-3 |
+| INFRA-003 | 3 | Person A (Scott) | 3-4 |
 | FE-001 | 2 | Person B | 1 |
 | FE-002 | 3 | Person B | 2-3 |
 | FE-003 | 3 | Person B | 3-4 |
@@ -986,59 +951,59 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | DATA-005 | 2 | Person C | 5 |
 | DATA-006 | 3 | Person B | 4-5 |
 | CHAT-000 | 2 | Person C | 5-6 |
-| **Total** | **57** | | |
+| **Total** | **52** | | |
 
-**Per-person**: A=16, B=19, C=22. CHAT-000 spans into Day 6 (Sprint 2) but is timeboxed to 1 day.
+**Per-person**: A (Scott)=8, B (Rohan)=19, C (Andrew)=25. Andrew bootstraps the repo skeleton on Day 1, then pivots to data ingestion (can start parsing logic in pure Python while Docker builds). Scott starts on shared package once the skeleton is merged. CHAT-000 spans into Day 6 (Sprint 2) but is timeboxed to 1 day.
 
 ### Sprint 2: Core Features (Days 6-12, Mar 30 - Apr 5)
 **Goal**: Course search end-to-end. Chat with tool calling.
 
 | Story | Points | Assignee | Day |
 |-------|--------|----------|-----|
-| API-001 | 3 | Person A | 6-7 |
-| API-002 | 2 | Person A | 7 |
-| API-003 | 3 | Person A | 7-8 |
-| API-004 | 2 | Person A | 8 |
-| API-005 | 3 | Person A | 8-9 |
-| API-006 | 3 | Person A | 9 |
-| FE-004 | 3 | Person A | 9-10 |
+| API-001 | 3 | Person B | 6-7 |
+| API-002 | 2 | Person B | 7 |
+| API-003 | 3 | Person B | 7-8 |
+| API-004 | 2 | Person B | 8 |
+| API-005 | 3 | Person B | 8-9 |
+| API-006 | 3 | Person B | 9 |
+| FE-004 | 3 | Person B | 9-10 |
 | FE-008 | 5 | Person B | 8-12 |
 | CHAT-001 | 2 | Person C | 6-7 |
 | CHAT-002 | 5 | Person C | 7-9 |
-| CHAT-003 | 2 | Person A | 7-8 |
+| CHAT-003 | 2 | Person C | 7-8 |
 | CHAT-004 | 3 | Person C | 8-9 |
 | CHAT-005 | 3 | Person C | 9-10 |
 | CHAT-006 | 3 | Person C | 10 |
 | CHAT-007 | 3 | Person C | 10-11 |
 | CHAT-008 | 8 | Person C | 10-12 |
-| CHAT-009 | 3 | Person A | 8 |
+| CHAT-009 | 3 | Person C | 8 |
 | CHAT-010 | 3 | Person C | 9-10 |
 | CHAT-011 | 5 | Person B | 12-13 |
 | **Total** | **64** | | |
 
-**Per-person**: A=24, B=10, C=30. Person C has the heaviest load (chat core chain). CHAT-011 may spill into Sprint 3.
+**Per-person**: A=0, B=29, C=35. Person A is free to help with bug fixes or start Terraform prep. CHAT-011 may spill into Sprint 3.
 
 ### Sprint 3: Integration + Polish (Days 13-19, Apr 6-12)
 **Goal**: Full local demo with auth, memory, security.
 
 | Story | Points | Assignee | Day |
 |-------|--------|----------|-----|
-| AUTH-001 | 3 | Person A | 13 |
-| AUTH-002 | 2 | Person A | 13 |
+| AUTH-001 | 3 | Person B | 13 |
+| AUTH-002 | 2 | Person B | 13 |
 | AUTH-003 | 5 | Person B | 13-14 |
 | AUTH-004 | 3 | Person B | 14 |
-| MEM-001 | 3 | Person C | 13 |
-| MEM-002 | 5 | Person C | 14-15 |
-| MEM-003 | 3 | Person C | 15-16 |
+| MEM-001 | 3 | Person A | 13 |
+| MEM-002 | 5 | Person A | 14-15 |
+| MEM-003 | 3 | Person A | 15-16 |
 | SEC-001 | 3 | Person C | 15 |
 | SEC-002 | 2 | Person B | 16 |
 | SEC-003 | 2 | Person B | 16-17 |
 | SEC-004 | 5 | Person C | 17-18 |
 | **Total** | **36** | | |
 
-**Per-person**: A=5, B=12, C=19. Lighter sprint — buffer for bug fixes and integration issues from Sprint 2.
+**Per-person**: A=11, B=17, C=8. Person A (Scott) owns conversation memory. Person C (Andrew) focuses on security hardening.
 
-### Sprint 4: Deploy + Demo (Days 20-24, Apr 13-15)
+### Sprint 4: Deploy + Demo (Days 20-24, Apr 13-17)
 **Goal**: Live on GCP, demo rehearsed.
 
 | Story | Points | Assignee | Day |
@@ -1057,7 +1022,7 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | DEMO-003 | 3 | Everyone | 23-24 |
 | **Total** | **37** | | |
 
-**Per-person**: A=21, B=5, C=11. Person A heavy on Terraform. Person B lighter — can help with branding polish and bug fixes.
+**Per-person**: A=21, B=5, C=5, Everyone=6. Person A heavy on Terraform. Person B lighter — can help with branding polish and bug fixes.
 
 ---
 
@@ -1065,14 +1030,14 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 
 | Metric | Value |
 |--------|-------|
-| **Total stories** | 63 |
-| **Total story points** | 194 |
+| **Total stories** | 59 |
+| **Total story points** | 189 |
 | **Sprints** | 4 (5 + 7 + 7 + 5 days) |
-| **Person A (teammate)** | 66 pts, 25 stories — Infra, API, Auth backend, CHAT-003/009, Deploy |
-| **Person B (teammate)** | 46 pts, 16 stories — Frontend, Auth UI, CI/CD, CHAT-011, DATA-006, SEC-002/003 |
-| **Person C (Andrew)** | 76 pts, 20 stories — Data ingestion, Chat core, Memory, SEC-001/004, Demo |
+| **Person A — Scott** | 40 pts, 12 stories — Shared Package, Wire Services, Docker verification, Terraform, GCP Deploy, Conversation Memory |
+| **Person B — Rohan** | 70 pts, 25 stories — Frontend, Course Search API, Auth, CI/CD, CHAT-011, DATA-006, SEC-002/003 |
+| **Person C — Andrew** | 73 pts, 20 stories — Repo skeleton, Data ingestion, Chat engine (LangGraph), Neo4j, Redis, Security (SEC-001/004), Demo |
 | **Shared** | 6 pts, 2 stories — DEMO-002 (3), DEMO-003 (3) |
-| **Cross-person blocks** | 4 (all cross-sprint — zero mid-sprint blocking) |
-| **Critical path stories** | INFRA-002, INFRA-003, INFRA-007, DATA-001, DATA-006, CHAT-001, CHAT-010, CHAT-008 |
+| **Cross-person blocks** | 12 (most front-loaded in Days 1-2 scaffolding, zero mid-sprint blocking) |
+| **Critical path stories** | INFRA-001, INFRA-002, INFRA-003, DATA-001, DATA-002, DATA-006, CHAT-001, CHAT-008 |
 | **Highest risk story** | CHAT-008 (LangGraph engine — 8 points, complex integration; de-risked by CHAT-000 spike) |
 | **Security stories** | 5 (SEC-001 through SEC-004 + CHAT-006) |

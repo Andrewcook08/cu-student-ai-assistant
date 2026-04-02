@@ -165,6 +165,6 @@ All config is via environment variables, read by `shared/config.py`:
 - `docs/architecture.md` — Full system design, schemas, API spec, security model
 - `docs/decisions.md` — 23 Architecture Decision Records (ADRs)
 - `docs/implementation-guide.md` — Step-by-step build instructions with code
-- `docs/jira-epics-and-stories.md` — 60 stories across 12 epics with dependencies
+- `docs/jira-epics-and-stories.md` — 59 stories across 12 epics with dependencies
 - `docs/local-development.md` — Docker Compose setup, dev workflow, troubleshooting
 - `docs/development-workflow.md` — Branching, PR, testing, Claude Code setup
