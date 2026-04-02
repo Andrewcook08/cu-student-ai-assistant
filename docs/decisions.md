@@ -753,7 +753,7 @@ This performance profile makes gpt-oss:20b the clear production choice. The two-
 
 ---
 
-## ADR-27: Normalize Course Attributes into a Join Table
+## ADR-27: Normalize Course Attributes into a Join Table (CUAI-20 / DATA-001)
 
 ### Decision
 Replace the `attributes TEXT` column on the `courses` table with a `course_attributes (course_code, college, category)` join table in PostgreSQL and `(:Attribute {college, category})` nodes with `[:HAS_ATTRIBUTE]` edges in Neo4j.

@@ -157,20 +157,6 @@
   - [ ] All validation queries from the implementation guide pass
   - [ ] Total runtime < 15 minutes (embeddings are the bottleneck)
 
-### DATA-007 (CUAI-77): Normalize course attributes into join table
-- **Points**: 3
-- **Phase**: 1
-- **Blocked by**: INFRA-002 (for shared models)
-- **Assignee**: Person C
-- **Description**: Replace the `attributes TEXT` column on `courses` with a normalized `course_attributes` join table `(course_code, college, category)`. Each attribute line (e.g. "Engineering & Applied Science General Education: Humanities & Social Science") splits on `: ` into college/category. Write to PostgreSQL and create `(:Attribute {college, category})` nodes with `[:HAS_ATTRIBUTE]` edges in Neo4j. The same course satisfies different gen-ed requirements for different colleges — normalization enables precise filtering by college + category.
-- **Acceptance criteria**:
-  - [ ] `course_attributes` table exists with `(course_code, college, category)` columns + unique constraint
-  - [ ] ~1,358 courses with attributes produce rows
-  - [ ] Each attribute line correctly split on `: ` into (college, category)
-  - [ ] Neo4j has `Attribute` nodes with `HAS_ATTRIBUTE` edges
-  - [ ] Re-running does not create duplicates
-  - [ ] `SELECT * FROM course_attributes WHERE college LIKE '%Engineering%' AND category LIKE '%Humanities%'` returns expected courses
-
 ### DATA-006: Validate LLM tool calling with chosen model
 - **Points**: 3
 - **Phase**: 1 (Day 4-5)
