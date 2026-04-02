@@ -1,6 +1,6 @@
 # Local Development Guide
 
-> Run the entire system on your machine before spending GCP credits. Everything runs in Docker — no need to install PostgreSQL, Neo4j, Redis, or Ollama natively.
+> Run the entire system on your machine before spending GCP credits. Databases run in Docker. On Apple Silicon Macs, run Ollama natively (via Ollama.app) for Metal GPU acceleration — Docker on Mac cannot access the GPU.
 
 ---
 
@@ -32,7 +32,7 @@ Install these before starting:
 **Hardware recommendations:**
 - **RAM**: 16GB minimum, 32GB recommended (Neo4j and Ollama are memory-hungry)
 - **Disk**: ~20GB free (Docker images + database data + Ollama model)
-- **GPU**: Optional. Ollama runs on CPU locally (slower, ~60-90s per response for gpt-oss:20b on CPU vs ~5-10s with GPU). If you have an NVIDIA GPU or Apple Silicon Mac, Ollama will use it automatically.
+- **GPU**: Optional but recommended. On **Apple Silicon Macs**, run Ollama natively via [Ollama.app](https://ollama.com/download) for Metal GPU acceleration (~5-10s per response). Docker on Mac runs CPU-only (~60-90s per response) because Docker's Linux VM cannot access Metal. On **Linux with NVIDIA GPU**, Docker can use GPU passthrough (`--gpus all`).
 
 ---
 
@@ -98,12 +98,33 @@ This starts 7 containers:
 
 ### 4. Pull the Ollama model (first time only, ~13GB download)
 
+**Apple Silicon Mac (recommended):** Run Ollama natively for Metal GPU acceleration.
+
+```bash
+# Install Ollama.app from https://ollama.com/download (or brew install ollama)
+# Launch Ollama.app (NOT `ollama serve` — the app enables Metal GPU)
+ollama pull gpt-oss:20b
+ollama pull nomic-embed-text
+```
+
+Then update your `.env` to point at native Ollama instead of Docker:
+```
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+And start Docker **without** the Ollama container:
+```bash
+docker compose up -d postgres neo4j redis
+```
+
+**Linux / other platforms:** Use the Docker container.
+
 ```bash
 docker compose exec ollama ollama pull gpt-oss:20b
 docker compose exec ollama ollama pull nomic-embed-text
 ```
 
-This takes a few minutes on the first run. The models are cached in a Docker volume and persist across restarts.
+Models are cached (in a Docker volume or `~/.ollama/`) and persist across restarts.
 
 ### 5. Run data ingestion
 
@@ -456,7 +477,9 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 ## Troubleshooting
 
 ### Ollama is slow on CPU
-Expected. On CPU, gpt-oss:20b takes ~60-90 seconds per response on CPU. This is fine for development — you're testing the integration, not the inference speed. On GCP with an L4 GPU, it's ~5-10 seconds.
+If you're on an Apple Silicon Mac and seeing ~60-90s per response, you're running Ollama in Docker (CPU-only). Switch to native Ollama via **Ollama.app** for Metal GPU acceleration (~5-10s per response). See [Step 4](#4-pull-the-ollama-model-first-time-only-13gb-download) for setup.
+
+**Important:** Use **Ollama.app** (the macOS app), not `ollama serve` from the CLI. The CLI server does not enable Metal GPU. Verify with `ollama ps` — it should show `100% GPU`, not `100% CPU`.
 
 **Tip**: For faster local iteration on non-AI code (frontend, REST API, data ingestion), you don't need Ollama running. Only start it when testing the chat feature.
 
@@ -506,7 +529,7 @@ Understanding these differences ensures local testing is valid before deploying:
 |--------|-------|-----|
 | **App services** | Docker containers or `uvicorn --reload` | Cloud Run (auto-scaling, scale-to-zero) |
 | **Databases** | Docker containers on your machine | Docker Compose on a Compute Engine VM |
-| **Ollama** | CPU (slow) or local GPU | L4 GPU on Compute Engine, auto-scaled via Managed Instance Group (fast) |
+| **Ollama** | Native (Metal GPU on Apple Silicon) or Docker (CPU-only on Mac, GPU on Linux) | L4 GPU on Compute Engine, auto-scaled via Managed Instance Group (fast) |
 | **Networking** | `localhost` / Docker internal network | Private VPC subnet (no public IPs) + Serverless VPC Connector |
 | **Secrets** | `.env` file | Terraform-managed Cloud Run env vars |
 | **Data persistence** | Docker volumes (local disk) | Persistent disk on Compute Engine VM |
