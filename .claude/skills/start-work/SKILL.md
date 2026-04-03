@@ -77,23 +77,31 @@ Output a focused brief:
 
 ## Step 8: Ensure correct branch
 
-**If any blockers are not Done**, say: **"This story is blocked. Resolve the dependencies above before starting."** and stop.
-
-If all clear, run `git branch --show-current`. If already on a feature branch for this story, continue.
-
-If on `main` or a different story's branch:
-1. Build the branch name: `feat/$ARGUMENTS-<short-description>`
-2. Check local branches:
+Run `git branch --show-current`. Check if a branch for this ticket exists:
+1. Check local:
 ```bash
    git branch --list "*$ARGUMENTS*"
 ```
-3. If not found locally, check remote:
+2. If not found locally, check remote:
 ```bash
    git fetch origin
    git branch -r --list "*$ARGUMENTS*"
 ```
-4. If found on remote: `git checkout -b <branch> origin/<branch>`
-5. If found locally: `git checkout <branch>`
-6. Only if not found anywhere, create new: `git checkout -b <branch>`
+
+**If any blockers are not Done AND no branch exists anywhere:**
+Say: **"This story is blocked and hasn't been started. Resolve the dependencies above before starting."** and stop.
+
+**If any blockers are not Done BUT a branch exists:**
+Switch to the branch (checkout local, or checkout from remote if only there). Then:
+1. Run `git log --oneline main..<branch> | head -20` to show work already done
+2. Summarize what's been implemented vs what acceptance criteria remain
+3. Say: **"This story is blocked but in progress on `<branch>`. Here's what's done so far and what's still waiting on dependencies. You may be able to work on the unblocked parts."**
+
+**If all blockers are Done:**
+If on `main` or a different story's branch:
+1. Build the branch name: `feat/$ARGUMENTS-<short-description>`
+2. If found on remote: `git checkout -b <branch> origin/<branch>`
+3. If found locally: `git checkout <branch>`
+4. Only if not found anywhere, create new: `git checkout -b <branch>`
 
 Then say: **"Context loaded, on branch `<branch-name>`. Ready to build — describe what you want to start with or say 'go' to follow the implementation guide."**
