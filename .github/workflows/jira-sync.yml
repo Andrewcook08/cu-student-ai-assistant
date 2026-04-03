@@ -2,6 +2,10 @@ name: Sync PR Status to Jira
 
 on:
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.claude/**'
     types: [opened, review_requested, closed]
     branches: [main]
 
