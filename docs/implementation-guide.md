@@ -516,6 +516,13 @@ def build_all_embeddings(driver):
         """)
 ```
 
+Unit tests for embedding logic (`data/ingest/tests/test_build_embeddings.py`):
+```bash
+uv run pytest data/ingest/tests/test_build_embeddings.py -v
+```
+
+Tests cover: `build_embedding_text` (all fields, topics, missing fields, multiple attributes), `get_embedding` (success + HTTP error), and `build_all_embeddings` (no courses, processing flow, retry on failure). All tests use mocks — no Ollama or Neo4j needed.
+
 #### Day 5: Run All + Validate
 
 `data/ingest/run_all.py`:
