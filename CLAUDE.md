@@ -10,9 +10,16 @@
 
 ### 2. Subagent Strategy
 - Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
 - One task per subagent for focused execution
+
+**When to use a subagent (Task tool):**
+- One focused job: research, edit a file, review code, run a grep
+- Task needs context from the main conversation
+- Sequential dependency: output of one feeds the next
+
+**When to use agent teams (parallel agents):**
+- Multiple independent units of work that touch completely different files
+- If two tasks could edit the same file, they cannot be parallelized — use sequential subagents instead
 
 ### 3. Self-Improvement Loop
 - After ANY correction from the user: update `tasks/lessons.md` with the pattern
