@@ -31,8 +31,5 @@ infra/terraform.tfvars
 frontend/node_modules/
 frontend/dist/
 
-# Claude Code
-.claude/
-
 # Tasks (Claude Code plans, todos, lessons)
 tasks/
