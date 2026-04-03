@@ -15,12 +15,26 @@ Do NOT start coding yet. Your job is to gather and present the right context so 
 Grep `docs/jira-epics-and-stories.md` for `$ARGUMENTS`. Extract:
 - Full story description
 - Acceptance criteria
-- Blocked by (dependencies)
+- Blocked by (dependencies) — note the story IDs of blockers
 - Points and phase
 
 If the story ID isn't found, tell the user and stop.
 
-## Step 2: Load relevant architecture sections
+## Step 2: Check blocker status in Jira
+
+For each blocking story ID found in Step 1:
+1. Grep `docs/development-workflow.md` and `docs/jira-epics-and-stories.md` to find the CUAI-XX Jira key for each blocker
+2. Query the Jira API for each blocker's status:
+```bash
+   curl -s -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+     "$JIRA_BASE_URL/rest/api/3/issue/CUAI-XX?fields=status,summary" \
+     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['fields']['status']['name'], '-', d['fields']['summary'])"
+```
+3. Classify each blocker as **Done** or **Blocking**
+
+If Jira credentials are not set or the API call fails, fall back to reporting the blockers from the docs without status and warn the user to verify manually.
+
+## Step 3: Load relevant architecture sections
 
 Use the routing table in [story-routing.md](story-routing.md) to determine which sections of `docs/architecture.md` are relevant for this story's prefix (DATA-, CHAT-, API-, FE-, etc.).
 
@@ -32,26 +46,28 @@ grep -n "^## " docs/architecture.md
 ```
 Then use `sed` to extract the line range for each relevant section.
 
-## Step 3: Load implementation guide context
+## Step 4: Load implementation guide context
 
 Read the relevant phase and person section from `docs/implementation-guide.md`:
 - Determine which phase this story belongs to (from the Jira doc)
 - Determine which person owns it
 - Read just that phase+person subsection
 
-## Step 4: Check for related decisions
+## Step 5: Check for related decisions
 
 If the story references an ADR (e.g., "See ADR-6"), read just that ADR from `docs/decisions.md`.
 
-## Step 5: Present context
+## Step 6: Present context
 
 Output a focused brief:
 ```
 ## Story: $ARGUMENTS
 <story description + acceptance criteria>
 
-## Blocked by
-<dependency status - note which are done vs pending>
+## Blockers
+<for each dependency: story ID, CUAI key, Jira status (Done/In Progress/To Do)>
+<if any are not Done: "⚠️ BLOCKED — the following dependencies are not complete:">
+<if all Done: "✅ All dependencies complete">
 
 ## Architecture context
 <relevant sections, summarized to key specs the implementation needs>
@@ -63,9 +79,11 @@ Output a focused brief:
 <list the files this story touches based on the architecture doc>
 ```
 
-## Step 6: Ensure correct branch
+## Step 7: Ensure correct branch
 
-Run `git branch --show-current`. If already on a feature branch for this story, continue.
+**If any blockers are not Done**, say: **"This story is blocked. Resolve the dependencies above before starting."** and stop.
+
+If all clear, run `git branch --show-current`. If already on a feature branch for this story, continue.
 
 If on `main` or a different story's branch:
 1. Grep `docs/development-workflow.md` for `$ARGUMENTS` to find the CUAI-XX Jira key
