@@ -20,9 +20,25 @@ Use the Jira MCP tools to get the issue for `$ARGUMENTS`. Extract:
 
 From the summary, extract the **story ID prefix** (e.g., INFRA-, DATA-, CHAT-, API-, FE-, AUTH-, MEM-, SEC-, DEPLOY-, CICD-, DEMO-). This is used for doc routing in later steps.
 
-## Step 2: Check blocker status
+## Step 2: Check blocker status and progress
 
-For each blocking/linked issue from Step 1, get its status via Jira MCP. Classify each as **Done** or **Blocking**.
+For each blocking/linked issue from Step 1:
+
+1. Get its status via Jira MCP
+2. Check if a branch exists for it:
+```bash
+   git branch --list "*<blocker-CUAI-key>*"
+   git fetch origin
+   git branch -r --list "*<blocker-CUAI-key>*"
+```
+3. If a branch exists, check progress:
+```bash
+   git log --oneline main..<branch> | head -10
+```
+4. Classify each blocker:
+   - **Done** — completed
+   - **In Progress (branch exists)** — summarize what commits have been made and estimate how far along it is based on the blocker's acceptance criteria
+   - **Not Started** — no branch, status is To Do
 
 ## Step 3: Find story details in docs
 
@@ -61,7 +77,10 @@ Output a focused brief:
 <description + acceptance criteria from docs>
 
 ## Blockers
-<for each dependency: CUAI key, summary, status (Done/In Progress/To Do)>
+<for each dependency:>
+  - <CUAI key>: <summary> — <status>
+    <if branch exists: "Branch: <name>, <N> commits — <summary of work done>">
+    <if In Progress: "Remaining: <what acceptance criteria are not yet done>">
 <if any are not Done: "⚠️ BLOCKED — the following dependencies are not complete:">
 <if all Done: "✅ All dependencies complete">
 
@@ -84,12 +103,11 @@ Run `git branch --show-current`. Check if a branch for this ticket exists:
 ```
 2. If not found locally, check remote:
 ```bash
-   git fetch origin
    git branch -r --list "*$ARGUMENTS*"
 ```
 
 **If any blockers are not Done AND no branch exists anywhere:**
-Review the acceptance criteria and the blocker descriptions. Determine if any acceptance criteria can be worked on independently without the blockers being complete (e.g., writing parsing logic before the DB is ready, building UI components against mock data before the API exists).
+Review the acceptance criteria, the blocker descriptions, and the progress on each blocker. Determine if any acceptance criteria can be worked on independently without the blockers being complete (e.g., writing parsing logic before the DB is ready, building UI components against mock data before the API exists). Also consider blocker progress — if a blocker is nearly done, work that depends on it may be safe to start.
 
 If nothing can be started independently:
 Say: **"This story is blocked and no work can begin until the dependencies above are resolved."** and stop.
