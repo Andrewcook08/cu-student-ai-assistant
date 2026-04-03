@@ -903,6 +903,10 @@ cu-student-ai-assistant/
 │       │                           #   Handles: or-groups, choose-N, section headers, &-bundles
 │       ├── build_embeddings.py     # Generate embeddings via Ollama (nomic-embed-text)
 │       │                           #   → store on Neo4j Course nodes, create vector index
+│       ├── tests/
+│       │   ├── __init__.py
+│       │   ├── test_ingest_courses.py    # Unit tests: course JSON parsing, deduplication
+│       │   └── test_build_embeddings.py  # Unit tests: embedding text builder, Ollama client, retry logic
 │       └── run_all.py              # CLI entry: python -m data.ingest.run_all
 │                                   #   Runs all ingestion steps in order
 │

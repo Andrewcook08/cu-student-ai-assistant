@@ -20,10 +20,17 @@ Dispatch one **Task** per affected file. Follow the per-file instructions in [su
 
 **Order matters:** architecture.md first, decisions.md second, then remaining files in parallel.
 
-## Phase 3: Verify
+## Phase 3: Update affected Jira tickets
+
+For each story that had its description or acceptance criteria updated in `docs/jira-epics-and-stories.md`:
+1. Search Jira for the story ID to find the CUAI-XX key
+2. Update the ticket description and/or acceptance criteria via Jira MCP to match the docs
+3. Add a comment on the ticket noting what changed and why
+
+## Phase 4: Verify
 
 Dispatch one **Task** to grep all docs for every stale term from the manifest. Report any remaining occurrences with file and line number. If any found, fix them directly.
 
-## Phase 4: Report
+## Phase 5: Report
 
-List files updated, what changed in each, verification result, and whether a new ADR was added.
+List files updated, what changed in each, Jira tickets updated, verification result, and whether a new ADR was added.

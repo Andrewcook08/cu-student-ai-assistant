@@ -516,6 +516,12 @@ def build_all_embeddings(driver):
         """)
 ```
 
+**Tests** (`data/ingest/tests/test_build_embeddings.py`): Unit tests cover `build_embedding_text` (all fields, topics, missing optionals, multiple attributes), `get_embedding` (success + HTTP error), and `build_all_embeddings` (skip when empty, process courses, retry on failure). All tests mock Neo4j and Ollama — no external services needed.
+
+```bash
+uv run pytest data/ingest/tests/test_build_embeddings.py -v
+```
+
 #### Day 5: Run All + Validate
 
 `data/ingest/run_all.py`:

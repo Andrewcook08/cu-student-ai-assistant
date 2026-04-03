@@ -145,6 +145,7 @@
   - [ ] `CALL db.index.vector.queryNodes('course-embeddings', 5, $embedding)` returns results
   - [ ] Vector index uses 768 dimensions with cosine similarity
   - [ ] Script is idempotent (skips courses that already have embeddings)
+  - [ ] `uv run pytest data/ingest/tests/test_build_embeddings.py -v` passes (unit tests for text builder, Ollama client, retry logic)
 
 ### DATA-005: run_all.py orchestrator + validation
 - **Points**: 2
