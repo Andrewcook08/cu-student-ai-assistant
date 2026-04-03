@@ -89,7 +89,15 @@ Run `git branch --show-current`. Check if a branch for this ticket exists:
 ```
 
 **If any blockers are not Done AND no branch exists anywhere:**
-Say: **"This story is blocked and hasn't been started. Resolve the dependencies above before starting."** and stop.
+Review the acceptance criteria and the blocker descriptions. Determine if any acceptance criteria can be worked on independently without the blockers being complete (e.g., writing parsing logic before the DB is ready, building UI components against mock data before the API exists).
+
+If nothing can be started independently:
+Say: **"This story is blocked and no work can begin until the dependencies above are resolved."** and stop.
+
+If some work can begin:
+1. List which acceptance criteria are blocked and which can start now
+2. Create the branch: `git checkout -b feat/$ARGUMENTS-<short-description>`
+3. Say: **"This story is partially blocked. The following can be started now:"** and list the unblocked criteria. **"The following are waiting on dependencies:"** and list the blocked criteria.
 
 **If any blockers are not Done BUT a branch exists:**
 Switch to the branch (checkout local, or checkout from remote if only there). Then:
