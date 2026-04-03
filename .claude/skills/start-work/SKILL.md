@@ -23,13 +23,9 @@ If the story ID isn't found, tell the user and stop.
 ## Step 2: Check blocker status in Jira
 
 For each blocking story ID found in Step 1:
-1. Grep `docs/development-workflow.md` and `docs/jira-epics-and-stories.md` to find the CUAI-XX Jira key for each blocker
-2. Query the Jira API for each blocker's status:
-```bash
-   curl -s -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
-     "$JIRA_BASE_URL/rest/api/3/issue/CUAI-XX?fields=status,summary" \
-     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['fields']['status']['name'], '-', d['fields']['summary'])"
-```
+1. Find the CUAI-XX Jira key by grepping `docs/development-workflow.md` and `docs/jira-epics-and-stories.md`
+2. Use the Jira MCP tools to get the issue status for each CUAI-XX key
+3. Classify each blocker as **Done** or **Blocking**
 3. Classify each blocker as **Done** or **Blocking**
 
 If Jira credentials are not set or the API call fails, fall back to reporting the blockers from the docs without status and warn the user to verify manually.
