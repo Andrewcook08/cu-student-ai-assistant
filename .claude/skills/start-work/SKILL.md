@@ -10,6 +10,15 @@ allowed-tools: Read Grep Glob Bash
 
 Do NOT start coding yet. Your job is to gather and present the right context so the next prompt can build efficiently.
 
+## Step 0: Check branch
+
+Run `git branch --show-current`. If on `main`:
+1. Grep `docs/development-workflow.md` for `$ARGUMENTS` to find the CUAI-XX Jira key
+2. Build the branch name: `feat/CUAI-XX-<short description from story>`
+3. Run `git checkout -b <branch name>`
+
+If already on a feature branch, note it and continue.
+
 ## Step 1: Find the story
 
 Grep `docs/jira-epics-and-stories.md` for `$ARGUMENTS`. Extract:
