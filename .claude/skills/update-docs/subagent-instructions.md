@@ -3,7 +3,6 @@
 When dispatching a Task for each file, include the change manifest and the file-specific instructions below.
 
 ## Base prompt for every subagent
-
 ```
 You are updating one documentation file. Read the file, find every reference to the stale terms in the manifest, update to new values, and grep the file afterward for any you missed.
 
@@ -36,6 +35,7 @@ SECTIONS: <from manifest>
 - Update dependency graph if dependencies changed
 - Update sprint plan if assignments or timing changed
 - Update summary table at bottom
+- **Track which stories were modified — report their story IDs back so the main agent can update Jira in Phase 3**
 
 ### local-development.md
 - Update port map, docker-compose details, or commands if affected

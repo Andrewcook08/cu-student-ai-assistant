@@ -87,7 +87,7 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 
 ### Testing
 - pytest + pytest-asyncio for backend
-- Test files next to source: `services/*/tests/`
+- Test files next to source: `services/*/tests/`, `data/ingest/tests/`
 - Fixtures in `conftest.py` per service
 - Test what matters: tools, auth, prerequisite parser, API endpoints, security
 - Don't test: ORM models, Pydantic schemas, config loading, frontend components

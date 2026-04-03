@@ -420,11 +420,13 @@ uv run pytest
 ```bash
 uv run pytest services/course-search-api/tests/
 uv run pytest services/chat-service/tests/
+uv run pytest data/ingest/tests/
 ```
 
 ### Run a specific test file
 ```bash
 uv run pytest services/chat-service/tests/test_security.py -v
+uv run pytest data/ingest/tests/test_build_embeddings.py -v
 ```
 
 ### Linting and formatting
