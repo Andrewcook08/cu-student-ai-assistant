@@ -10,15 +10,6 @@ allowed-tools: Read Grep Glob Bash
 
 Do NOT start coding yet. Your job is to gather and present the right context so the next prompt can build efficiently.
 
-## Step 0: Check branch
-
-Run `git branch --show-current`. If on `main`:
-1. Grep `docs/development-workflow.md` for `$ARGUMENTS` to find the CUAI-XX Jira key
-2. Build the branch name: `feat/CUAI-XX-<short description from story>`
-3. Run `git checkout -b <branch name>`
-
-If already on a feature branch, note it and continue.
-
 ## Step 1: Find the story
 
 Grep `docs/jira-epics-and-stories.md` for `$ARGUMENTS`. Extract:
@@ -55,7 +46,6 @@ If the story references an ADR (e.g., "See ADR-6"), read just that ADR from `doc
 ## Step 5: Present context
 
 Output a focused brief:
-
 ```
 ## Story: $ARGUMENTS
 <story description + acceptance criteria>
@@ -73,4 +63,33 @@ Output a focused brief:
 <list the files this story touches based on the architecture doc>
 ```
 
-Then say: **"Context loaded. Ready to build — describe what you want to start with or say 'go' to follow the implementation guide."**
+## Step 6: Ensure correct branch
+
+Run `git branch --show-current`. If already on a feature branch for this story, continue.
+
+If on `main` or a different story's branch:
+1. Grep `docs/development-workflow.md` for `$ARGUMENTS` to find the CUAI-XX Jira key
+2. Build the branch name: `feat/CUAI-XX-<short-description-from-story>`
+3. Check if the branch exists locally:
+```bash
+   git branch --list "feat/CUAI-*$ARGUMENTS*" "feat/*<jira-key>*"
+```
+4. If not found locally, fetch and check remote:
+```bash
+   git fetch origin
+   git branch -r --list "origin/feat/CUAI-*$ARGUMENTS*" "origin/feat/*<jira-key>*"
+```
+5. If found on remote, check it out locally:
+```bash
+   git checkout -b <branch-name> origin/<branch-name>
+```
+6. If found locally, switch to it:
+```bash
+   git checkout <branch-name>
+```
+7. Only if not found anywhere, create new:
+```bash
+   git checkout -b <branch-name>
+```
+
+Then say: **"Context loaded, on branch `<branch-name>`. Ready to build — describe what you want to start with or say 'go' to follow the implementation guide."**
