@@ -96,10 +96,10 @@
 - **Labels**: `critical-path`
 - **Description**: Write `data/ingest/ingest_courses.py`. Parse the JSON structure (department code → array of course objects). Extract dept code from course code. Strip "This section is closed" prefix from CRN. Handle credits as text. Deduplicate courses by code (topics courses appear multiple times with different titles) and extract pipe-delimited topic_titles. Normalize newline-delimited attributes into `course_attributes` table (split each line on `: ` into college/category pairs). Write to PostgreSQL (`courses`, `sections`, `course_attributes` tables) and Neo4j (`Course`, `Section`, `Department`, `Attribute` nodes with `HAS_ATTRIBUTE` edges). Must be idempotent (upsert).
 - **Acceptance criteria**:
-  - [ ] PostgreSQL `courses` table has 3,410 rows (deduplicated by course code)
-  - [ ] PostgreSQL `sections` table has ~13,223 rows
-  - [ ] PostgreSQL `course_attributes` table is populated (~1,358 courses have attributes)
-  - [ ] Neo4j has 3,410 Course nodes, 152 Department nodes, `Attribute` nodes with `HAS_ATTRIBUTE` edges
+  - [ ] PostgreSQL `courses` table count matches architecture.md § Datasets (deduplicated by course code)
+  - [ ] PostgreSQL `sections` table count matches architecture.md § Datasets
+  - [ ] PostgreSQL `course_attributes` table populated per architecture.md § Datasets
+  - [ ] Neo4j node counts match architecture.md § Datasets (`Course`, `Department`, `Attribute` nodes with `HAS_ATTRIBUTE` edges)
   - [ ] Re-running does not create duplicates
   - [ ] CRN values are clean numeric strings
   - [ ] topic_titles populated for courses with multiple topic variants
@@ -112,9 +112,9 @@
 - **Labels**: `critical-path`
 - **Description**: Write `data/ingest/ingest_requirements.py`. Parse the flat list per program. Detect: `or`-prefix entries, choose-N groups, `&`-bundles, `/`-cross-listed, section headers, free-text requirements, total credit hours. Classify each entry's `requirement_type`. Write to PostgreSQL (programs + requirements tables) and Neo4j (Program + Requirement nodes with HAS_REQUIREMENT, SATISFIED_BY, OR_ALTERNATIVE relationships).
 - **Acceptance criteria**:
-  - [ ] PostgreSQL `programs` table has 203 rows
+  - [ ] PostgreSQL `programs` table count matches architecture.md § Datasets
   - [ ] PostgreSQL `requirements` table has correct count per program
-  - [ ] Neo4j has 203 Program nodes with HAS_REQUIREMENT edges
+  - [ ] Neo4j Program node count matches architecture.md § Datasets, with HAS_REQUIREMENT edges
   - [ ] OR alternatives are linked with OR_ALTERNATIVE relationships
   - [ ] Choose-N groups are correctly identified
   - [ ] Re-running does not create duplicates
@@ -127,11 +127,11 @@
 - **Description**: Write `data/ingest/parse_prerequisites.py`. Regex patterns for: single prereq, OR alternatives, AND requirements, corequisites, restrictions. For each match, create HAS_PREREQUISITE edges in Neo4j with type, min_grade, and raw_text. For non-matching strings, preserve raw_text only (LLM fallback).
 - **Acceptance criteria**:
   - [ ] Handles all 5 common patterns (single, OR, AND, corequisite, restriction)
-  - [ ] Neo4j has > 2,000 HAS_PREREQUISITE edges
+  - [ ] Neo4j HAS_PREREQUISITE count >80% of courses with prerequisites
   - [ ] Every edge has `raw_text` preserved
   - [ ] Matched edges have `min_grade` populated
   - [ ] Known typos in data ("prerequsite") don't crash the parser
-  - [ ] ~80% parse rate (2,200+ of 2,830 courses with prerequisites)
+  - [ ] Parse rate ≥80% of courses with prerequisite data
 
 ### DATA-004: Build course embeddings via Ollama
 - **Points**: 3
@@ -221,7 +221,7 @@
 - **Assignee**: Person B
 - **Description**: List all programs (for dropdowns). Get requirements for a specific program, structured by requirement_type.
 - **Acceptance criteria**:
-  - [ ] `GET /api/programs` returns 203 programs with id, name, type
+  - [ ] `GET /api/programs` returns program count matches architecture.md § Datasets, with id, name, type
   - [ ] `GET /api/programs/1/requirements` returns structured requirements
   - [ ] Requirements are ordered by sort_order
   - [ ] OR alternatives are grouped with their parent requirement
