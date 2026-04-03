@@ -32,7 +32,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["services/course-search-api/tests", "services/chat-service/tests"]
+testpaths = ["services/course-search-api/tests", "services/chat-service/tests", "data/ingest/tests"]
 
 [tool.mypy]
 python_version = "3.12"
