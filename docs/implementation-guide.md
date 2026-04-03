@@ -89,90 +89,11 @@ Fill in the real code. Start with the shared package (INFRA-002), then wire serv
 
 **1. Initialize the uv workspace**
 
-Create `pyproject.toml` at the repo root:
+Create `pyproject.toml` at the repo root. Key settings: uv workspace with members `shared`, `services/course-search-api`, `services/chat-service`, `data`. Dev deps include ruff, pytest, pytest-asyncio, mypy, httpx. Ruff targets py312 with line-length 100. Mypy strict mode with pydantic plugin.
 
-```toml
-[project]
-name = "cu-student-ai-assistant"
-version = "0.1.0"
-requires-python = ">=3.12"
+Create `.python-version` with `3.12`.
 
-[tool.uv.workspace]
-members = [
-    "shared",
-    "services/course-search-api",
-    "services/chat-service",
-    "data",
-]
-
-[tool.uv]
-dev-dependencies = [
-    "ruff>=0.8",
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "mypy>=1.13",
-    "httpx>=0.27",        # async test client for FastAPI
-    "types-passlib>=1.7",
-    "types-python-jose>=3.3",
-]
-
-[tool.ruff]
-target-version = "py312"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "SIM"]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["services/course-search-api/tests", "services/chat-service/tests"]
-
-[tool.mypy]
-python_version = "3.12"
-strict = true
-plugins = ["pydantic.mypy"]
-```
-
-Create `.python-version`:
-```
-3.12
-```
-
-Create `.gitignore`:
-```gitignore
-# Python
-__pycache__/
-*.pyc
-.venv/
-*.egg-info/
-
-# Environment
-.env
-.env.local
-
-# IDE
-.idea/
-.vscode/
-*.swp
-
-# OS
-.DS_Store
-
-# Data (large files — keep raw/ via .gitkeep)
-data/raw/*.json
-
-# Docker
-docker-compose.override.yml
-
-# Terraform
-infra/*.tfstate*
-infra/.terraform/
-infra/terraform.tfvars
-
-# Node
-frontend/node_modules/
-frontend/dist/
-```
+Create `.gitignore` covering: Python artifacts, `.env` files, IDE configs, OS files, `data/raw/*.json`, Docker overrides, Terraform state, and Node `node_modules`/`dist`.
 
 **2. Create the shared package**
 
@@ -180,344 +101,31 @@ frontend/dist/
 mkdir -p shared/shared
 ```
 
-`shared/pyproject.toml`:
-```toml
-[project]
-name = "shared"
-version = "0.1.0"
-requires-python = ">=3.12"
-dependencies = [
-    "pydantic>=2.9",
-    "pydantic-settings>=2.6",
-    "sqlalchemy>=2.0",
-    "python-jose[cryptography]>=3.3",
-    "passlib[bcrypt]>=1.7",
-]
-```
+`shared/pyproject.toml`: deps are pydantic, pydantic-settings, sqlalchemy, python-jose[cryptography], passlib[bcrypt].
 
 `shared/shared/__init__.py`:
 ```python
 """Shared package for cross-service code."""
 ```
 
-`shared/shared/config.py`:
-```python
-"""Application configuration via environment variables."""
+`shared/shared/config.py`: See `.env.example` and [architecture.md](architecture.md#tech-stack) for all settings. Implementation notes: `BaseSettings` from `pydantic_settings`. Add `cors_origins_list` property that splits comma-separated origins. Set `model_config` with `extra="ignore"`. Instantiate module-level `settings = Settings()`.
 
-from pydantic_settings import BaseSettings
+`shared/shared/database.py`: Implementation notes: `create_engine` with `pool_pre_ping=True`. `DeclarativeBase` subclass for `Base`. `get_db()` generator yields a session and closes in `finally` block -- used with FastAPI `Depends()`.
 
+`shared/shared/models.py` — implements all tables from [architecture.md  PostgreSQL Schema](architecture.md#postgresql-schema). Implementation notes:
+- Use `Mapped[]` + `mapped_column()` (SQLAlchemy 2.0 style)
+- `CourseAttribute` has composite `UniqueConstraint` on `(course_code, college, category)`
+- `ToolAuditLog.parameters` uses `JSONB` from `sqlalchemy.dialects.postgresql`
+- `Section` has `UniqueConstraint("course_id", "crn")`
+- `CompletedCourse` has `UniqueConstraint("user_id", "course_code")`
+- All `created_at` fields use `default=datetime.utcnow`
+- Tables: `courses`, `sections`, `course_attributes`, `programs`, `requirements`, `users`, `completed_courses`, `student_decisions`, `tool_audit_log`
 
-class Settings(BaseSettings):
-    # Database
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/cu_assistant"
-    neo4j_uri: str = "bolt://localhost:7687"
-    neo4j_user: str = "neo4j"
-    neo4j_password: str = "development"
-    redis_url: str = "redis://localhost:6379/0"
+`shared/shared/auth.py`: Implementation notes: `python-jose` for JWT encode/decode, `passlib[bcrypt]` for password hashing. Use `timezone.utc` (not `utcnow`). Four functions: `hash_password`, `verify_password`, `create_access_token(user_id, email)`, `decode_access_token(token)`. Token payload includes `sub` (user_id as string), `email`, and `exp`.
 
-    # Ollama
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "gpt-oss:20b"
-    ollama_embed_model: str = "nomic-embed-text"
+`shared/shared/schemas.py`: See [architecture.md  Chat Response Schema](architecture.md#chat-response-schema) for the full contract. Implementation notes: all Pydantic `BaseModel` subclasses. Key models: `CourseCard` (code, title, credits, description, topic_titles, instruction_mode, status, attributes as `list[str] | None`), `Action` (type, label, payload), `ChatRequest`, `ChatResponse`, `ErrorResponse`.
 
-    # Auth
-    jwt_secret: str = "change-me-in-production"
-    jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 120
-
-    # CORS
-    cors_allowed_origins: str = "http://localhost:5173"
-
-    @property
-    def cors_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_allowed_origins.split(",")]
-
-    model_config = {"env_file": ".env", "extra": "ignore"}
-
-
-settings = Settings()
-```
-
-`shared/shared/database.py`:
-```python
-"""SQLAlchemy engine and session factory."""
-
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
-
-from shared.config import settings
-
-engine = create_engine(settings.database_url, pool_pre_ping=True)
-SessionLocal = sessionmaker(bind=engine)
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-```
-
-`shared/shared/models.py` — SQLAlchemy ORM models matching the PostgreSQL schema in architecture.md:
-
-```python
-"""SQLAlchemy ORM models — single source of truth for the PostgreSQL schema."""
-
-from datetime import datetime
-
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from shared.database import Base
-
-
-class Course(Base):
-    __tablename__ = "courses"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    code: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
-    dept: Mapped[str] = mapped_column(String(4), nullable=False)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    credits: Mapped[str | None] = mapped_column(String(20))
-    description: Mapped[str | None] = mapped_column(Text)
-    prerequisites_raw: Mapped[str | None] = mapped_column(Text)
-    topic_titles: Mapped[str | None] = mapped_column(Text)  # pipe-delimited topic titles
-    instruction_mode: Mapped[str | None] = mapped_column(String(50))
-    campus: Mapped[str | None] = mapped_column(String(100))
-    grading_mode: Mapped[str | None] = mapped_column(String(50))
-    session: Mapped[str | None] = mapped_column(String(100))
-    dates: Mapped[str | None] = mapped_column(String(50))
-
-    sections: Mapped[list["Section"]] = relationship(back_populates="course")
-    course_attributes: Mapped[list["CourseAttribute"]] = relationship(back_populates="course")
-
-
-class Section(Base):
-    __tablename__ = "sections"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"))
-    crn: Mapped[str | None] = mapped_column(String(10))
-    section_number: Mapped[str | None] = mapped_column(String(5))
-    type: Mapped[str | None] = mapped_column(String(5))
-    meets: Mapped[str | None] = mapped_column(String(100))
-    instructor: Mapped[str | None] = mapped_column(String(200))
-    status: Mapped[str | None] = mapped_column(String(20))
-    campus: Mapped[str | None] = mapped_column(String(10))
-    dates: Mapped[str | None] = mapped_column(String(20))
-
-    course: Mapped["Course"] = relationship(back_populates="sections")
-
-    __table_args__ = (UniqueConstraint("course_id", "crn"),)
-
-
-class CourseAttribute(Base):
-    __tablename__ = "course_attributes"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    course_code: Mapped[str] = mapped_column(String(10), ForeignKey("courses.code"), nullable=False)
-    college: Mapped[str] = mapped_column(Text, nullable=False)     # e.g. "Engineering & Applied Science General Education"
-    category: Mapped[str] = mapped_column(Text, nullable=False)    # e.g. "Humanities & Social Science"
-
-    course: Mapped["Course"] = relationship(back_populates="course_attributes")
-
-    __table_args__ = (UniqueConstraint("course_code", "college", "category"),)
-
-
-class Program(Base):
-    __tablename__ = "programs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    type: Mapped[str | None] = mapped_column(String(50))
-    total_credits: Mapped[str | None] = mapped_column(String(10))
-
-    requirements: Mapped[list["Requirement"]] = relationship(back_populates="program")
-
-
-class Requirement(Base):
-    __tablename__ = "requirements"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    program_id: Mapped[int] = mapped_column(ForeignKey("programs.id"))
-    sort_order: Mapped[int | None] = mapped_column(Integer)
-    requirement_type: Mapped[str | None] = mapped_column(String(20))
-    course_code: Mapped[str | None] = mapped_column(String(15))
-    name: Mapped[str | None] = mapped_column(Text)
-    credits: Mapped[str | None] = mapped_column(String(10))
-    raw_id: Mapped[str | None] = mapped_column(Text)
-
-    program: Mapped["Program"] = relationship(back_populates="requirements")
-
-
-class User(Base):
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    program_id: Mapped[int | None] = mapped_column(ForeignKey("programs.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-    completed_courses: Mapped[list["CompletedCourse"]] = relationship(
-        back_populates="user"
-    )
-    decisions: Mapped[list["StudentDecision"]] = relationship(back_populates="user")
-
-
-class CompletedCourse(Base):
-    __tablename__ = "completed_courses"
-    __table_args__ = (UniqueConstraint("user_id", "course_code"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    course_code: Mapped[str] = mapped_column(String(10), nullable=False)
-    grade: Mapped[str | None] = mapped_column(String(5))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-    user: Mapped["User"] = relationship(back_populates="completed_courses")
-
-
-class StudentDecision(Base):
-    __tablename__ = "student_decisions"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    course_code: Mapped[str] = mapped_column(String(10), nullable=False)
-    decision_type: Mapped[str | None] = mapped_column(String(20))
-    notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-    user: Mapped["User"] = relationship(back_populates="decisions")
-
-
-class ToolAuditLog(Base):
-    __tablename__ = "tool_audit_log"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(Integer)
-    session_id: Mapped[str | None] = mapped_column(String(100))
-    tool_name: Mapped[str | None] = mapped_column(String(50))
-    parameters: Mapped[dict | None] = mapped_column(JSONB)
-    result_summary: Mapped[str | None] = mapped_column(Text)
-    flagged: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-```
-
-`shared/shared/auth.py`:
-```python
-"""JWT creation and validation — used by both services."""
-
-from datetime import datetime, timedelta, timezone
-
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-
-from shared.config import settings
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
-
-
-def create_access_token(user_id: int, email: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    return jwt.encode(
-        {"sub": str(user_id), "email": email, "exp": expire},
-        settings.jwt_secret,
-        algorithm=settings.jwt_algorithm,
-    )
-
-
-def decode_access_token(token: str) -> dict:
-    """Returns {"sub": "user_id", "email": "..."} or raises JWTError."""
-    return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-```
-
-`shared/shared/schemas.py`:
-```python
-"""Shared Pydantic models used by both services and the frontend contract."""
-
-from pydantic import BaseModel
-
-
-class CourseCard(BaseModel):
-    code: str
-    title: str
-    credits: str | None = None
-    description: str | None = None
-    topic_titles: str | None = None
-    instruction_mode: str | None = None
-    status: str | None = None
-    attributes: list[str] | None = None  # e.g. ["Engineering & Applied Science General Education: Humanities & Social Science"]
-
-
-class Action(BaseModel):
-    type: str       # "select_program", "confirm_decision", "view_course", "mark_completed"
-    label: str      # Display text
-    payload: dict   # Data for the UI element
-
-
-class ChatRequest(BaseModel):
-    message: str
-    session_id: str | None = None
-    context: dict | None = None  # selected_major, completed_courses, etc.
-
-
-class ChatResponse(BaseModel):
-    reply: str
-    structured_data: list[CourseCard] | None = None
-    suggested_actions: list[Action] | None = None
-    session_id: str
-
-
-class ErrorResponse(BaseModel):
-    error: str
-    detail: str | None = None
-```
-
-**3. Create `.env.example`**
-
-```env
-# Database connections (Docker Compose internal networking)
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/cu_assistant
-NEO4J_URI=bolt://neo4j:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=development
-REDIS_URL=redis://redis:6379/0
-
-# Ollama
-OLLAMA_BASE_URL=http://ollama:11434
-OLLAMA_MODEL=gpt-oss:20b
-OLLAMA_EMBED_MODEL=nomic-embed-text
-
-# Auth
-JWT_SECRET=local-development-secret-change-in-production
-
-# CORS
-CORS_ALLOWED_ORIGINS=http://localhost:5173
-```
+**3. Create `.env.example`** -- see `.env.example` and [local-development.md](local-development.md) for all variables. Covers: database connections (PostgreSQL, Neo4j, Redis), Ollama settings (base URL, model, embed model), JWT secret, and CORS origins.
 
 **4. Create `docker-compose.yml`**
 
@@ -540,124 +148,44 @@ mkdir -p services/course-search-api/app/services
 mkdir -p services/course-search-api/tests
 ```
 
-`services/course-search-api/pyproject.toml`:
-```toml
-[project]
-name = "course-search-api"
-version = "0.1.0"
-requires-python = ">=3.12"
-dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
-    "shared",
-]
-
-[tool.uv.sources]
-shared = { workspace = true }
-```
+`services/course-search-api/pyproject.toml`: deps are fastapi, uvicorn[standard], shared (workspace source).
 
 `services/course-search-api/app/__init__.py`: empty
 
-`services/course-search-api/app/main.py`:
+Both service `main.py` files follow the same pattern — FastAPI + CORS middleware + lifespan + health endpoint:
+
 ```python
-"""Course Search API — stateless REST over PostgreSQL."""
-
+# Shared pattern for both services:
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from shared.config import settings
-from shared.database import Base, engine
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    # Course Search API: Base.metadata.create_all(bind=engine)
+    # Chat Service: connect Neo4j, Redis, verify Ollama; disconnect on shutdown
     yield
 
+app = FastAPI(title="...", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list,
+                   allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-app = FastAPI(title="CU Course Search API", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.get("/api/health")
+@app.get("/api/health")  # Chat Service uses /api/chat/health
 async def health():
     return {"status": "ok"}
 ```
 
-Create empty `__init__.py` in `routes/`, `services/`, and `tests/`.
+Create empty `__init__.py` in `routes/`, `services/`, and `tests/` for each service.
 
 **6. Scaffold the Chat Service**
 
 ```bash
-mkdir -p services/chat-service/app/routes
-mkdir -p services/chat-service/app/core
-mkdir -p services/chat-service/app/services
+mkdir -p services/chat-service/app/{routes,core,services}
 mkdir -p services/chat-service/tests
 ```
 
-`services/chat-service/pyproject.toml`:
-```toml
-[project]
-name = "chat-service"
-version = "0.1.0"
-requires-python = ">=3.12"
-dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
-    "shared",
-    "langchain>=0.3",
-    "langgraph>=0.2",
-    "langchain-ollama>=0.2",
-    "neo4j>=5.25",
-    "redis>=5.2",
-    "httpx>=0.27",
-]
-
-[tool.uv.sources]
-shared = { workspace = true }
-```
-
-`services/chat-service/app/main.py`:
-```python
-"""Chat Service — stateful AI orchestration."""
-
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from shared.config import settings
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # TODO: connect Neo4j, Redis, verify Ollama
-    yield
-    # TODO: disconnect
-
-
-app = FastAPI(title="CU Chat Service", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.get("/api/chat/health")
-async def health():
-    return {"status": "ok"}
-```
+`services/chat-service/pyproject.toml`: deps are fastapi, uvicorn[standard], shared (workspace), langchain, langgraph, langchain-ollama, neo4j, redis, httpx.
 
 **7. Scaffold the Data Ingest Package**
 
@@ -666,21 +194,7 @@ mkdir -p data/raw data/ingest
 touch data/raw/.gitkeep
 ```
 
-`data/pyproject.toml`:
-```toml
-[project]
-name = "data-ingest"
-version = "0.1.0"
-requires-python = ">=3.12"
-dependencies = [
-    "shared",
-    "neo4j>=5.25",
-    "httpx>=0.27",
-]
-
-[tool.uv.sources]
-shared = { workspace = true }
-```
+`data/pyproject.toml`: deps are shared (workspace), neo4j, httpx.
 
 `data/ingest/__init__.py`: empty
 
@@ -953,65 +467,9 @@ RESTRICTION = re.compile(r"Restricted to (.+?) (?:majors?|minors?|students?)")
 
 Once Docker Compose is running (from INFRA-001) and Scott's shared package is merged (INFRA-002):
 
-**PostgreSQL writes** — use SQLAlchemy models from `shared/models.py`:
-```python
-from shared.database import SessionLocal, engine, Base
-from shared.models import Course, Section, Program, Requirement
+**PostgreSQL writes** — use SQLAlchemy models from `shared/models.py`. Upsert pattern: `sqlalchemy.dialects.postgresql.insert` with `on_conflict_do_update(index_elements=["code"])`. Import `SessionLocal`, `engine`, `Base` from `shared.database`.
 
-# Create tables
-Base.metadata.create_all(bind=engine)
-
-# Upsert pattern (idempotent):
-from sqlalchemy.dialects.postgresql import insert
-
-def upsert_course(db, course_data: dict):
-    stmt = insert(Course).values(**course_data)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["code"],
-        set_={k: v for k, v in course_data.items() if k != "code"},
-    )
-    db.execute(stmt)
-```
-
-**Neo4j writes** — create nodes and relationships:
-```python
-from neo4j import GraphDatabase
-
-driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "development"))
-
-def create_course_node(tx, course: dict):
-    tx.run("""
-        MERGE (c:Course {code: $code})
-        SET c.title = $title, c.credits = $credits,
-            c.description = $description, c.instruction_mode = $instruction_mode,
-            c.campus = $campus, c.topic_titles = $topic_titles
-        MERGE (d:Department {code: $dept})
-        MERGE (c)-[:IN_DEPARTMENT]->(d)
-    """, **course)
-
-def create_prerequisite_edge(tx, course_code: str, prereq_code: str, rel_type: str, min_grade: str, raw_text: str):
-    tx.run("""
-        MATCH (c:Course {code: $course_code})
-        MATCH (p:Course {code: $prereq_code})
-        MERGE (c)-[r:HAS_PREREQUISITE]->(p)
-        SET r.type = $rel_type, r.min_grade = $min_grade, r.raw_text = $raw_text
-    """, course_code=course_code, prereq_code=prereq_code,
-         rel_type=rel_type, min_grade=min_grade, raw_text=raw_text)
-
-def create_attribute_edges(tx, course_code: str, attributes_raw: str | None):
-    """Parse newline-delimited attributes and create Attribute nodes with HAS_ATTRIBUTE edges."""
-    if not attributes_raw:
-        return
-    for line in attributes_raw.strip().splitlines():
-        if ": " not in line:
-            continue
-        college, category = line.split(": ", 1)
-        tx.run("""
-            MATCH (c:Course {code: $code})
-            MERGE (a:Attribute {college: $college, category: $category})
-            MERGE (c)-[:HAS_ATTRIBUTE]->(a)
-        """, code=course_code, college=college.strip(), category=category.strip())
-```
+**Neo4j writes** — see [architecture.md § Neo4j Graph Schema](architecture.md#neo4j-graph-schema) for node/relationship patterns. Create `Course`, `Department`, `Attribute` nodes. Edges: `IN_DEPARTMENT`, `HAS_PREREQUISITE` (with `type`, `min_grade`, `raw_text` properties), `HAS_ATTRIBUTE`. Parse `attributes_raw` by splitting on newlines then `": "` into college/category pairs.
 
 **Important**: All ingestion scripts must be idempotent (use `MERGE` in Neo4j, `ON CONFLICT DO UPDATE` in PostgreSQL).
 
@@ -1576,96 +1034,11 @@ app.include_router(chat_router)
 
 #### Days 7-9: Neo4j Service + Graph RAG
 
-`services/chat-service/app/services/neo4j_service.py`:
-```python
-from neo4j import AsyncGraphDatabase
-from shared.config import settings
-
-driver = AsyncGraphDatabase.driver(
-    settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password)
-)
-
-async def vector_search(query_embedding: list[float], limit: int = 10) -> list[dict]:
-    async with driver.session() as session:
-        result = await session.run("""
-            CALL db.index.vector.queryNodes('course-embeddings', $limit, $embedding)
-            YIELD node, score
-            RETURN node.code AS code, node.title AS title,
-                   node.description AS description, score
-        """, embedding=query_embedding, limit=limit)
-        return [dict(record) async for record in result]
-
-async def get_prerequisite_chain(course_code: str) -> dict:
-    async with driver.session() as session:
-        result = await session.run("""
-            MATCH path = (c:Course {code: $code})-[:HAS_PREREQUISITE*]->(prereq)
-            RETURN [n IN nodes(path) | n.code] AS chain,
-                   [r IN relationships(path) | {type: r.type, min_grade: r.min_grade, raw_text: r.raw_text}] AS edges
-        """, code=course_code)
-        records = [dict(r) async for r in result]
-        return {"course": course_code, "chains": records}
-
-async def get_degree_requirements(program_name: str) -> dict:
-    async with driver.session() as session:
-        result = await session.run("""
-            MATCH (p:Program WHERE p.name CONTAINS $name)-[:HAS_REQUIREMENT]->(r)
-            OPTIONAL MATCH (r)-[:SATISFIED_BY]->(c:Course)
-            OPTIONAL MATCH (r)-[:OR_ALTERNATIVE]->(alt)
-            RETURN p.name AS program, r.name AS requirement, r.requirement_type AS type,
-                   collect(DISTINCT c.code) AS courses,
-                   collect(DISTINCT alt.name) AS alternatives
-        """, name=program_name)
-        return {"requirements": [dict(r) async for r in result]}
-```
+`services/chat-service/app/services/neo4j_service.py`: Implements the Cypher queries from [architecture.md  Neo4j Graph Schema](architecture.md#neo4j-graph-schema). Implementation notes: use `AsyncGraphDatabase.driver` from the `neo4j` package. Three async functions: `vector_search` (calls `db.index.vector.queryNodes`), `get_prerequisite_chain` (variable-length `HAS_PREREQUISITE*` path traversal), `get_degree_requirements` (program -> requirements with optional course/alternative matches).
 
 #### Days 9-11: LangGraph Engine + Tools
 
-`services/chat-service/app/core/tools.py`:
-```python
-from langchain_core.tools import tool
-from app.services.neo4j_service import vector_search, get_prerequisite_chain, get_degree_requirements
-from app.services.ollama_service import get_embedding
-from app.services.postgres_service import get_student_data, get_course_by_code, save_student_decision, get_schedule_conflicts
-
-@tool
-async def search_courses(query: str, department: str | None = None) -> list[dict]:
-    """Search for courses by keyword or department. Use when a student asks about available courses by name or topic."""
-    embedding = await get_embedding(query)
-    results = await vector_search(embedding)
-    if department:
-        results = [r for r in results if r["code"].startswith(department)]
-    return results
-
-@tool
-async def lookup_course(course_code: str) -> dict:
-    """Get full details for a specific course by its exact code (e.g. CSCI 2270). Use search_courses first if you only have a name."""
-    return await get_course_by_code(course_code)
-
-@tool
-async def check_prerequisites(course_code: str) -> dict:
-    """Get the full prerequisite chain for a course. Use when a student asks about requirements for a specific course."""
-    return await get_prerequisite_chain(course_code)
-
-@tool
-async def get_degree_requirements_tool(program: str) -> dict:
-    """Get all requirements for a degree program. Use when a student asks what courses they need for their major."""
-    return await get_degree_requirements(program)
-
-@tool
-async def get_student_profile(user_id: str) -> dict:
-    """Get a student's declared program and completed courses with grades. Called at conversation start."""
-    return await get_student_data(int(user_id))
-
-@tool
-async def find_schedule_conflicts(course_codes: list[str]) -> list[dict]:
-    """Check for time conflicts between selected courses. Use when planning a semester schedule."""
-    return await get_schedule_conflicts(course_codes)
-
-@tool
-async def save_decision(user_id: str, course_code: str, decision_type: str, notes: str | None = None) -> dict:
-    """Save a student's course planning decision. Use when the student confirms they want to plan/drop a course."""
-    return await save_student_decision(int(user_id), course_code, decision_type, notes)
-```
+`services/chat-service/app/core/tools.py`: Implements all 7 tools from [architecture.md  Tool Calling](architecture.md#tool-calling). Implementation notes: `@tool` decorator from `langchain_core.tools`. All functions are `async`. Docstrings are critical -- the LLM uses them to decide which tool to call. Each tool delegates to service functions in `neo4j_service`, `postgres_service`, or `ollama_service`.
 
 `services/chat-service/app/core/tool_executor.py`:
 ```python
@@ -1706,83 +1079,18 @@ async def execute_tool_call(
     return result
 ```
 
-`services/chat-service/app/core/context_builder.py` — assembles context for the LLM prompt:
+`services/chat-service/app/core/context_builder.py` — assembles context for the LLM prompt. See [architecture.md  Security](architecture.md#security-prompt-injection--abuse-prevention) for the RAG context isolation pattern. Key implementation detail -- the delimiter tag pattern for injected context:
 
 ```python
-"""Assembles context from graph/vector/structured retrieval for the LLM prompt."""
-
-from app.services.neo4j_service import vector_search, get_prerequisite_chain, get_degree_requirements
-from app.services.postgres_service import get_student_data
-
-
-async def build_context(
-    intent: str,
-    user_id: int,
-    query_embedding: list[float] | None = None,
-    conversation_summary: str | None = None,
-) -> str:
-    """Build delimited context string based on intent and available data."""
-    sections = []
-
-    # Student profile (if authenticated)
-    if user_id:
-        profile = await get_student_data(user_id)
-        if profile:
-            sections.append(f"<user_profile>\n{profile}\n</user_profile>")
-
-    # Conversation summary (if available from memory tier 2)
-    if conversation_summary:
-        sections.append(
-            f"<conversation_summary>\n{conversation_summary}\n</conversation_summary>"
-        )
-
-    # Intent-specific retrieval
-    if intent == "course_search" and query_embedding:
-        results = await vector_search(query_embedding)
-        sections.append(f"<retrieved_context>\n{results}\n</retrieved_context>")
-    elif intent == "degree_planning" and user_id:
-        profile = await get_student_data(user_id)
-        if profile and profile.get("program"):
-            reqs = await get_degree_requirements(profile["program"])
-            sections.append(f"<retrieved_context>\n{reqs}\n</retrieved_context>")
-
-    return "\n\n".join(sections)
+# Each context section is wrapped in XML-style delimiter tags:
+sections.append(f"<user_profile>\n{profile}\n</user_profile>")
+sections.append(f"<conversation_summary>\n{summary}\n</conversation_summary>")
+sections.append(f"<retrieved_context>\n{results}\n</retrieved_context>")
 ```
 
-`services/chat-service/app/core/llm_engine.py` — the LangGraph state machine:
+The `build_context()` function takes `intent`, `user_id`, optional `query_embedding`, and optional `conversation_summary`. It routes to different retrieval strategies based on intent (`course_search` uses vector search, `degree_planning` fetches program requirements).
 
-```python
-"""LangGraph conversation engine."""
-
-from langgraph.graph import StateGraph, MessagesState
-from langchain_ollama import ChatOllama
-from shared.config import settings
-from app.core.context_builder import build_context
-
-llm = ChatOllama(
-    model=settings.ollama_model,
-    base_url=settings.ollama_base_url,
-)
-
-# Bind tools to the model
-from app.core.tools import (
-    search_courses, lookup_course, check_prerequisites, get_degree_requirements_tool,
-    get_student_profile, find_schedule_conflicts, save_decision,
-)
-
-tools = [search_courses, lookup_course, check_prerequisites, get_degree_requirements_tool,
-         get_student_profile, find_schedule_conflicts, save_decision]
-llm_with_tools = llm.bind_tools(tools)
-
-# LangGraph state machine
-# Nodes: classify_intent → build_context → call_llm → maybe_call_tools → respond
-# The context_builder assembles delimited context (<retrieved_context>,
-# <user_profile>, <conversation_summary>) based on the classified intent.
-# The tool-calling loop: LLM generates tool calls → executor runs them →
-# results fed back → LLM generates final response
-```
-
-The exact LangGraph wiring follows the standard ReAct pattern from LangGraph docs — the intent classifier node routes to different system prompts, the context builder assembles retrieval results, then the LLM + tool loop runs.
+`services/chat-service/app/core/llm_engine.py` — the LangGraph state machine. Uses `ChatOllama` from `langchain_ollama`, binds all 7 tools via `llm.bind_tools()`. Follows the standard ReAct pattern from LangGraph docs: `StateGraph` with nodes for `classify_intent → build_context → call_llm → maybe_call_tools → respond`. The intent classifier routes to different system prompts, the context builder assembles retrieval results, then the LLM + tool loop runs.
 
 #### Day 12: Redis Queue Integration
 

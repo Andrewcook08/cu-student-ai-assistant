@@ -1,53 +1,6 @@
 # CU Student AI Assistant — Project Context
 
-> **Purpose**: Feed this file to Claude Code so it saves the project context to memory. Run this in your first conversation:
-> ```
-> Read docs/claude-code-project-context.md and save it all to your memory.
-> ```
-
----
-
-## Architecture
-
-- **Two backend services** + Ollama GPU workers + Vue frontend
-- **Course Search API** (`services/course-search-api/`) — stateless FastAPI REST over PostgreSQL
-- **Chat Service** (`services/chat-service/`) — stateful FastAPI with LangGraph, tool calling, WebSocket
-- **Shared package** (`shared/`) — JWT auth, SQLAlchemy models, Pydantic schemas, config
-- **Data ingestion** (`data/`) — JSON → PostgreSQL + Neo4j + embeddings
-- **Frontend** (`frontend/`) — Vue 3 + TypeScript + Vite + Tailwind + Pinia
-- **Infrastructure** (`infra/`) — Terraform for GCP (Cloud Run, Compute Engine, MIG)
-
-Read `docs/architecture.md` for the full design. Read `docs/decisions.md` for ADRs.
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.12, FastAPI, SQLAlchemy, LangChain, LangGraph |
-| Frontend | Vue 3, TypeScript, Vite, Tailwind CSS, Pinia |
-| Databases | PostgreSQL 16, Neo4j 5 (graph + vectors), Redis 7 |
-| LLM | Ollama (model set via OLLAMA_MODEL env var) |
-| Embeddings | nomic-embed-text (768 dims) via Ollama |
-| IaC | Terraform (GCP: Cloud Run, Compute Engine, MIG) |
-
-## Project Structure
-
-```
-cu-student-ai-assistant/
-├── pyproject.toml              # Root uv workspace config
-├── uv.lock                     # Single lockfile (auto-generated)
-├── docker-compose.yml          # Local dev: all 7 services
-├── .env.example                # Template for env vars
-├── shared/                     # Shared Python package
-│   └── shared/                 # config, models, auth, schemas, database
-├── services/
-│   ├── course-search-api/      # REST API service
-│   └── chat-service/           # Chat + AI service
-├── data/                       # Ingestion scripts + raw JSON
-├── frontend/                   # Vue SPA
-├── infra/                      # Terraform
-└── docs/                       # Architecture, decisions, guides
-```
+**Architecture, tech stack, project structure**: See `docs/architecture.md`. ADRs in `docs/decisions.md`.
 
 ## Commands
 
@@ -148,28 +101,4 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 - CI must pass before merge (ruff, mypy, pytest)
 - Never commit `.env`, `terraform.tfvars`, or `data/raw/*.json`
 
-## Environment Variables
-
-All config is via environment variables, read by `shared/config.py`:
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/cu_assistant` | PostgreSQL connection |
-| `NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection |
-| `NEO4J_USER` | `neo4j` | Neo4j auth |
-| `NEO4J_PASSWORD` | `development` | Neo4j auth |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API |
-| `OLLAMA_MODEL` | `gpt-oss:20b` | LLM model name |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
-| `JWT_SECRET` | `change-me-in-production` | JWT signing secret |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | Allowed CORS origins |
-
-## Key Documentation
-
-- `docs/architecture.md` — Full system design, schemas, API spec, security model
-- `docs/decisions.md` — 23 Architecture Decision Records (ADRs)
-- `docs/implementation-guide.md` — Step-by-step build instructions with code
-- `docs/jira-epics-and-stories.md` — 59 stories across 12 epics with dependencies
-- `docs/local-development.md` — Docker Compose setup, dev workflow, troubleshooting
-- `docs/development-workflow.md` — Branching, PR, testing, Claude Code setup
+**Environment variables**: See `.env.example` and `shared/config.py`.
