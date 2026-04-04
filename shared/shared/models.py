@@ -147,7 +147,7 @@ class ToolAuditLog(Base):
     __tablename__ = "tool_audit_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"))
+    user_id: Mapped[int | None] = mapped_column(Integer)
     session_id: Mapped[str | None] = mapped_column(String(100))
     tool_name: Mapped[str] = mapped_column(String(50), nullable=False)
     parameters: Mapped[dict | None] = mapped_column(JSON)
