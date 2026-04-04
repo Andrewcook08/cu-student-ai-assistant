@@ -168,14 +168,36 @@ def parse_prerequisites(courses: list[dict]) -> list[dict]:
     return edges
 
 
-def write_neo4j_prerequisites(edges: list[dict]) -> None:
-    """Write HAS_PREREQUISITE edges to Neo4j.
+def _neo4j_batch(tx, query: str, items: list[dict], batch_size: int = 500) -> None:
+    """Execute a Cypher query in batches via UNWIND."""
+    for i in range(0, len(items), batch_size):
+        tx.run(query, rows=items[i : i + batch_size])
 
-    TODO: Replace stub with neo4j driver MERGE queries once DATA-001 lands.
-    Each edge becomes: (source:Course)-[:HAS_PREREQUISITE {type, min_grade, raw_text}]->
-    (target:Course)
-    """
-    print(f"[STUB] Would write {len(edges)} HAS_PREREQUISITE edges to Neo4j")
+
+def write_neo4j_prerequisites(edges: list[dict]) -> None:
+    """Write HAS_PREREQUISITE edges to Neo4j using MERGE (idempotent)."""
+    from neo4j import GraphDatabase
+    from shared.config import settings
+
+    driver = GraphDatabase.driver(
+        settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password)
+    )
+    try:
+        with driver.session() as session:
+            session.execute_write(
+                _neo4j_batch,
+                """
+                UNWIND $rows AS r
+                MATCH (source:Course {code: r.source_code})
+                MATCH (target:Course {code: r.target_code})
+                MERGE (source)-[rel:HAS_PREREQUISITE {type: r.type}]->(target)
+                SET rel.min_grade = r.min_grade, rel.raw_text = r.raw_text
+                """,
+                edges,
+            )
+        print(f"  Neo4j: {len(edges)} HAS_PREREQUISITE edges written")
+    finally:
+        driver.close()
 
 
 def run() -> None:

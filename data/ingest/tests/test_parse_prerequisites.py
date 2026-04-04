@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -142,3 +144,74 @@ def test_edge_fields_present(edges: list[dict]) -> None:
 def test_edge_types_valid(edges: list[dict]) -> None:
     valid_types = {"prerequisite", "corequisite"}
     assert all(e["type"] in valid_types for e in edges)
+
+
+# ── Neo4j write tests ─────────────────────────────────────────────────────────
+
+SAMPLE_EDGES = [
+    {
+        "source_code": "CSCI 2270",
+        "target_code": "CSCI 1300",
+        "type": "prerequisite",
+        "min_grade": "C-",
+        "raw_text": "Requires prerequisite of CSCI 1300 (minimum grade C-).",
+    },
+    {
+        "source_code": "CSCI 3104",
+        "target_code": "CSCI 2270",
+        "type": "prerequisite",
+        "min_grade": "C-",
+        "raw_text": "Requires prerequisite of CSCI 2270 (minimum grade C-).",
+    },
+]
+
+
+@pytest.fixture()
+def _mock_prereq_neo4j():
+    mock_driver = MagicMock()
+    mock_neo4j_session = MagicMock()
+    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_neo4j_session)
+    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+    mock_neo4j = MagicMock()
+    mock_neo4j.GraphDatabase.driver.return_value = mock_driver
+
+    mock_settings = MagicMock(
+        neo4j_uri="bolt://localhost:7687",
+        neo4j_user="neo4j",
+        neo4j_password="test",
+    )
+
+    with patch.dict(sys.modules, {
+        "neo4j": mock_neo4j,
+        "shared": MagicMock(),
+        "shared.config": MagicMock(settings=mock_settings),
+    }):
+        yield mock_neo4j, mock_driver, mock_neo4j_session
+
+
+class TestWriteNeo4jPrerequisites:
+    def test_creates_and_closes_driver(self, _mock_prereq_neo4j) -> None:
+        mock_neo4j, mock_driver, mock_neo4j_session = _mock_prereq_neo4j
+        from data.ingest.parse_prerequisites import write_neo4j_prerequisites
+
+        write_neo4j_prerequisites(SAMPLE_EDGES)
+
+        mock_neo4j.GraphDatabase.driver.assert_called_once()
+        mock_driver.close.assert_called_once()
+
+    def test_executes_write(self, _mock_prereq_neo4j) -> None:
+        mock_neo4j, mock_driver, mock_neo4j_session = _mock_prereq_neo4j
+        from data.ingest.parse_prerequisites import write_neo4j_prerequisites
+
+        write_neo4j_prerequisites(SAMPLE_EDGES)
+
+        mock_neo4j_session.execute_write.assert_called_once()
+
+    def test_empty_edges_no_crash(self, _mock_prereq_neo4j) -> None:
+        mock_neo4j, mock_driver, mock_neo4j_session = _mock_prereq_neo4j
+        from data.ingest.parse_prerequisites import write_neo4j_prerequisites
+
+        write_neo4j_prerequisites([])
+
+        mock_driver.close.assert_called_once()
