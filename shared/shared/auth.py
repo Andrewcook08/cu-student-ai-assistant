@@ -19,12 +19,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_access_token(subject: str | int) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     payload = {"sub": str(subject), "exp": expire}
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 def decode_access_token(token: str) -> str:
     """Decode token and return subject. Raises JWTError on invalid/expired token."""
-    payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     sub: str | None = payload.get("sub")
     if sub is None:
         raise JWTError("Missing subject in token")

@@ -12,17 +12,21 @@ class Settings(BaseSettings):
     redis_url: str
 
     # Ollama
-    ollama_base_url: str
+    ollama_url: str
     ollama_model: str
     ollama_embed_model: str
 
     # Auth
-    jwt_secret: str
+    jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24  # 24 hours
 
     # CORS
-    cors_allowed_origins: str
+    cors_origins: str
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 settings = Settings()
