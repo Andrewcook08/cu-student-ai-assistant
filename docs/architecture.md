@@ -468,7 +468,7 @@ requirements (
   sort_order INTEGER,                -- preserves original list position
   requirement_type VARCHAR(20),      -- "course", "or_alternative", "choose_n",
                                      --   "section_header", "elective_text", "total_credits"
-  course_code VARCHAR(15),           -- "CSCI 1300", "CSCI 2270&CSCI 2275", NULL for headers/text
+  course_code VARCHAR(60),           -- "CSCI 1300", "CSCI 1300,CSCI 1310", NULL for headers/text
   name TEXT,                         -- course name or descriptive text
   credits VARCHAR(10),               -- from the name field in source data (for choose_n groups)
   raw_id TEXT                        -- original id field, preserved for debugging

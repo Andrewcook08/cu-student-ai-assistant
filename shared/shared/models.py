@@ -1,11 +1,11 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -91,7 +91,7 @@ class Requirement(Base):
     program_id: Mapped[int] = mapped_column(Integer, ForeignKey("programs.id"), nullable=False)
     sort_order: Mapped[int | None] = mapped_column(Integer)
     requirement_type: Mapped[str | None] = mapped_column(String(20))
-    course_code: Mapped[str | None] = mapped_column(String(15))
+    course_code: Mapped[str | None] = mapped_column(String(60))
     name: Mapped[str | None] = mapped_column(Text)
     credits: Mapped[str | None] = mapped_column(String(10))
     raw_id: Mapped[str | None] = mapped_column(Text)

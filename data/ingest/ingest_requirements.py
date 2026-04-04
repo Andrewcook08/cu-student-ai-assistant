@@ -194,25 +194,226 @@ def parse_requirements(path: Path) -> tuple[list[dict], list[dict]]:
     return programs, requirements
 
 
+def _pg_upsert_batched(session, model, rows, index_elements, update_cols, batch_size=1000):
+    """Execute batched INSERT ... ON CONFLICT DO UPDATE to stay under the 65535 param limit."""
+    from sqlalchemy.dialects.postgresql import insert
+
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i : i + batch_size]
+        stmt = insert(model).values(batch)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=index_elements,
+            set_={col: getattr(stmt.excluded, col) for col in update_cols},
+        )
+        session.execute(stmt)
+
+
+def _pg_insert_batched(session, model, rows, batch_size=1000):
+    """Execute batched plain INSERT (no upsert) for models without a unique constraint."""
+    from sqlalchemy.dialects.postgresql import insert
+
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i : i + batch_size]
+        session.execute(insert(model).values(batch))
+
+
 def write_postgres(programs: list[dict], requirements: list[dict]) -> None:
     """Write programs and requirements to PostgreSQL.
 
-    TODO: Replace stub once INFRA-002 lands.
+    Programs are upserted (keyed on name). Requirements are delete-then-inserted
+    per program for idempotency (no unique constraint on the requirements table).
     """
-    req_count = len(requirements)
-    print(f"[STUB] Would write {len(programs)} programs and {req_count} requirements to PostgreSQL")
+    from shared.database import SessionLocal, engine
+    from shared.models import Base, Program, Requirement
+    from sqlalchemy import delete, select
+
+    Base.metadata.create_all(bind=engine)
+    session = SessionLocal()
+    try:
+        # 1. Upsert programs
+        if programs:
+            program_rows = [
+                {
+                    "name": p["program_name"],
+                    "type": p["degree_type"],
+                    "total_credits": p["total_credits"],
+                }
+                for p in programs
+            ]
+            _pg_upsert_batched(
+                session, Program, program_rows,
+                index_elements=["name"],
+                update_cols=["type", "total_credits"],
+            )
+            session.flush()
+
+        # 2. Build {name: id} lookup
+        rows = session.execute(select(Program.name, Program.id)).all()
+        name_to_id = {name: id_ for name, id_ in rows}
+
+        # 3. Delete existing requirements for idempotency
+        if programs:
+            program_ids = [
+                name_to_id[p["program_name"]]
+                for p in programs
+                if p["program_name"] in name_to_id
+            ]
+            if program_ids:
+                session.execute(
+                    delete(Requirement).where(Requirement.program_id.in_(program_ids))
+                )
+
+        # 4. Insert requirements
+        if requirements:
+            req_rows = [
+                {
+                    "program_id": name_to_id[r["program_name"]],
+                    "sort_order": r["position"],
+                    "requirement_type": r["requirement_type"],
+                    "course_code": ",".join(r["course_codes"]) if r["course_codes"] else None,
+                    "name": r["name"],
+                    "credits": r["credits_text"] or None,
+                    "raw_id": r["raw_id"],
+                }
+                for r in requirements
+            ]
+            _pg_insert_batched(session, Requirement, req_rows)
+
+        session.commit()
+        print(
+            f"  PostgreSQL: {len(programs)} programs, "
+            f"{len(requirements)} requirements"
+        )
+    finally:
+        session.close()
+
+
+def _neo4j_batch(tx, query: str, items: list[dict], batch_size: int = 500) -> None:
+    """Execute a Cypher query in batches via UNWIND."""
+    for i in range(0, len(items), batch_size):
+        tx.run(query, rows=items[i : i + batch_size])
 
 
 def write_neo4j(programs: list[dict], requirements: list[dict]) -> None:
     """Write program/requirement graph to Neo4j.
 
-    TODO: Replace stub once INFRA-002 lands.
+    Creates Program nodes, Requirement nodes with HAS_REQUIREMENT edges,
+    SATISFIED_BY edges to existing Course nodes, and OR_ALTERNATIVE edges
+    between or-alternative requirements and their predecessors.
     """
-    or_alt_count = sum(1 for r in requirements if r["or_predecessor_position"] is not None)
-    print(
-        f"[STUB] Would write {len(programs)} Program nodes, "
-        f"{len(requirements)} Requirement nodes, and {or_alt_count} OR_ALTERNATIVE edges to Neo4j"
+    from neo4j import GraphDatabase
+    from shared.config import settings
+
+    driver = GraphDatabase.driver(
+        settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password)
     )
+    try:
+        with driver.session() as session:
+            # 1. Program nodes
+            if programs:
+                program_rows = [
+                    {
+                        "name": p["program_name"],
+                        "type": p["degree_type"],
+                        "total_credits": p["total_credits"],
+                    }
+                    for p in programs
+                ]
+                session.execute_write(
+                    _neo4j_batch,
+                    """
+                    UNWIND $rows AS p
+                    MERGE (prog:Program {name: p.name})
+                    SET prog.type = p.type, prog.total_credits = p.total_credits
+                    """,
+                    program_rows,
+                )
+
+            # 2. Requirement nodes + HAS_REQUIREMENT edges
+            if requirements:
+                req_rows = [
+                    {
+                        "program_name": r["program_name"],
+                        "sort_order": r["position"],
+                        "name": r["name"],
+                        "requirement_type": r["requirement_type"],
+                        "course_code": ",".join(r["course_codes"]) if r["course_codes"] else None,
+                        "raw_text": r["raw_id"],
+                        "credits": r["credits_text"] or None,
+                    }
+                    for r in requirements
+                ]
+                session.execute_write(
+                    _neo4j_batch,
+                    """
+                    UNWIND $rows AS r
+                    MATCH (p:Program {name: r.program_name})
+                    MERGE (req:Requirement {program_name: r.program_name, sort_order: r.sort_order})
+                    SET req.name = r.name, req.requirement_type = r.requirement_type,
+                        req.course_code = r.course_code, req.raw_text = r.raw_text,
+                        req.credits = r.credits
+                    MERGE (p)-[:HAS_REQUIREMENT]->(req)
+                    """,
+                    req_rows,
+                )
+
+            # 3. SATISFIED_BY edges (requirement → Course)
+            satisfied_rows = [
+                {
+                    "program_name": r["program_name"],
+                    "sort_order": r["position"],
+                    "course_codes": r["course_codes"],
+                }
+                for r in requirements
+                if r["course_codes"]
+            ]
+            if satisfied_rows:
+                session.execute_write(
+                    _neo4j_batch,
+                    """
+                    UNWIND $rows AS r
+                    MATCH (req:Requirement {program_name: r.program_name, sort_order: r.sort_order})
+                    UNWIND r.course_codes AS code
+                    MATCH (c:Course {code: code})
+                    MERGE (req)-[:SATISFIED_BY]->(c)
+                    """,
+                    satisfied_rows,
+                )
+
+            # 4. OR_ALTERNATIVE edges
+            or_alt_rows = [
+                {
+                    "program_name": r["program_name"],
+                    "sort_order": r["position"],
+                    "pred_sort_order": r["or_predecessor_position"],
+                }
+                for r in requirements
+                if r["or_predecessor_position"] is not None
+            ]
+            if or_alt_rows:
+                session.execute_write(
+                    _neo4j_batch,
+                    """
+                    UNWIND $rows AS r
+                    MATCH (req:Requirement {program_name: r.program_name, sort_order: r.sort_order})
+                    MATCH (pred:Requirement {
+                        program_name: r.program_name,
+                        sort_order: r.pred_sort_order})
+                    MERGE (req)-[:OR_ALTERNATIVE]->(pred)
+                    """,
+                    or_alt_rows,
+                )
+
+        or_alt_count = len(or_alt_rows) if or_alt_rows else 0
+        satisfied_count = len(satisfied_rows) if satisfied_rows else 0
+        print(
+            f"  Neo4j: {len(programs)} Program nodes, "
+            f"{len(requirements)} Requirement nodes, "
+            f"{satisfied_count} SATISFIED_BY edges, "
+            f"{or_alt_count} OR_ALTERNATIVE edges"
+        )
+    finally:
+        driver.close()
 
 
 def ingest_requirements() -> None:
