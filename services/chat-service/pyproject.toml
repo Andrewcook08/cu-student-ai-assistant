@@ -16,3 +16,9 @@ dependencies = [
 
 [tool.uv.sources]
 shared = { workspace = true }
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "../../shared"
