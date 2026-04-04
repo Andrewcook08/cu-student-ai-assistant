@@ -478,34 +478,40 @@ Once Docker Compose is running (from INFRA-001) and Scott's shared package is me
 `data/ingest/build_embeddings.py`:
 ```python
 import httpx
-from neo4j import GraphDatabase
 
-OLLAMA_URL = "http://localhost:11434"
-
-def get_embedding(text: str) -> list[float]:
-    resp = httpx.post(f"{OLLAMA_URL}/api/embed", json={
-        "model": "nomic-embed-text",
+def get_embedding(text: str, client: httpx.Client, *, base_url: str, model: str) -> list[float]:
+    resp = client.post(f"{base_url}/api/embed", json={
+        "model": model,
         "input": text,
     })
     return resp.json()["embeddings"][0]
 
-def build_all_embeddings(driver):
+def build_all_embeddings():
+    from neo4j import GraphDatabase
+    from shared.config import settings
+
+    driver = GraphDatabase.driver(
+        settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password)
+    )
     with driver.session() as session:
         # Get all courses without embeddings (include attributes for gen-ed search)
         courses = session.run(
             "MATCH (c:Course) WHERE c.embedding IS NULL "
-            "OPTIONAL MATCH (c)-[:HAS_ATTRIBUTE]->(a) "
-            "RETURN c.code, c.title, c.topic_titles, c.description, "
+            "OPTIONAL MATCH (c)-[:HAS_ATTRIBUTE]->(a:Attribute) "
+            "RETURN c.code AS code, c.title AS title, "
+            "c.topic_titles AS topic_titles, c.description AS description, "
             "collect(a.college + ': ' + a.category) AS attributes"
         ).data()
 
         for course in courses:
             attrs = " ".join(course.get("attributes", []))
-            text = f"{course['c.code']} {course['c.title']} {course.get('c.topic_titles', '')} {course.get('c.description', '')} {attrs}"
-            embedding = get_embedding(text)
+            text = f"{course['code']} {course['title']} {course.get('topic_titles', '')} {course.get('description', '')} {attrs}"
+            embedding = get_embedding(
+                text, client, base_url=settings.ollama_url, model=settings.ollama_embed_model
+            )
             session.run(
                 "MATCH (c:Course {code: $code}) SET c.embedding = $embedding",
-                code=course["c.code"], embedding=embedding,
+                code=course["code"], embedding=embedding,
             )
 
         # Create vector index

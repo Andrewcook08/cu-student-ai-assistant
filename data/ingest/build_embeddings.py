@@ -2,27 +2,19 @@
 
 from __future__ import annotations
 
-import os
 import time
 
 import httpx
-from neo4j import GraphDatabase
-
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "development")
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2.0
 
 
-def get_embedding(text: str, client: httpx.Client) -> list[float]:
+def get_embedding(text: str, client: httpx.Client, *, base_url: str, model: str) -> list[float]:
     """Call Ollama embed API and return the embedding vector."""
     resp = client.post(
-        f"{OLLAMA_BASE_URL}/api/embed",
-        json={"model": OLLAMA_EMBED_MODEL, "input": text},
+        f"{base_url}/api/embed",
+        json={"model": model, "input": text},
         timeout=30.0,
     )
     resp.raise_for_status()
@@ -56,7 +48,13 @@ def build_embedding_text(record: dict) -> str:
 
 def build_all_embeddings() -> None:
     """Generate embeddings for all Course nodes missing them."""
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    from neo4j import GraphDatabase
+    from shared.config import settings
+
+    driver = GraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password),
+    )
 
     with driver.session() as session:
         create_vector_index(session)
@@ -90,7 +88,12 @@ def build_all_embeddings() -> None:
             embedding = None
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
-                    embedding = get_embedding(text, client)
+                    embedding = get_embedding(
+                        text,
+                        client,
+                        base_url=settings.ollama_url,
+                        model=settings.ollama_embed_model,
+                    )
                     break
                 except (httpx.HTTPError, KeyError) as exc:
                     if attempt < MAX_RETRIES:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -78,7 +79,9 @@ def test_get_embedding_returns_vector() -> None:
     client = MagicMock(spec=httpx.Client)
     client.post.return_value = mock_resp
 
-    result = get_embedding("test text", client)
+    result = get_embedding(
+        "test text", client, base_url="http://localhost:11434", model="nomic-embed-text"
+    )
     assert result == fake_vector
     assert len(result) == 768
 
@@ -90,21 +93,46 @@ def test_get_embedding_raises_on_http_error() -> None:
     )
 
     with pytest.raises(httpx.HTTPStatusError):
-        get_embedding("test text", client)
+        get_embedding(
+            "test text", client, base_url="http://localhost:11434", model="nomic-embed-text"
+        )
 
 
 # ── build_all_embeddings (integration-level with mocks) ─────────────
 
 
-@patch("data.ingest.build_embeddings.GraphDatabase")
-@patch("data.ingest.build_embeddings.httpx.Client")
-def test_build_all_skips_when_no_courses(mock_client_cls, mock_gdb, capsys) -> None:
-    mock_session = MagicMock()
-    mock_session.run.return_value.data.return_value = []
+@pytest.fixture()
+def _mock_neo4j_and_config():
+    """Inject mock neo4j and shared.config modules for lazy imports."""
     mock_driver = MagicMock()
+    mock_session = MagicMock()
     mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
     mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
-    mock_gdb.driver.return_value = mock_driver
+
+    mock_neo4j = MagicMock()
+    mock_neo4j.GraphDatabase.driver.return_value = mock_driver
+
+    mocks = {
+        "shared": MagicMock(),
+        "shared.config": MagicMock(
+            settings=MagicMock(
+                neo4j_uri="bolt://localhost:7687",
+                neo4j_user="neo4j",
+                neo4j_password="test",
+                ollama_url="http://localhost:11434",
+                ollama_embed_model="nomic-embed-text",
+            )
+        ),
+        "neo4j": mock_neo4j,
+    }
+    with patch.dict(sys.modules, mocks):
+        yield mock_driver, mock_session
+
+
+@patch("data.ingest.build_embeddings.httpx.Client")
+def test_build_all_skips_when_no_courses(mock_client_cls, _mock_neo4j_and_config, capsys) -> None:
+    _mock_driver, mock_session = _mock_neo4j_and_config
+    mock_session.run.return_value.data.return_value = []
 
     build_all_embeddings()
 
@@ -112,13 +140,11 @@ def test_build_all_skips_when_no_courses(mock_client_cls, mock_gdb, capsys) -> N
     assert "nothing to do" in output
 
 
-@patch("data.ingest.build_embeddings.GraphDatabase")
 @patch("data.ingest.build_embeddings.httpx.Client")
-def test_build_all_processes_courses(mock_client_cls, mock_gdb) -> None:
+def test_build_all_processes_courses(mock_client_cls, _mock_neo4j_and_config) -> None:
     fake_vector = [0.5] * 768
+    _mock_driver, mock_session = _mock_neo4j_and_config
 
-    # Set up Neo4j mock — first session for index, second for query, third+ for writes.
-    mock_session = MagicMock()
     mock_session.run.return_value.data.return_value = [
         {
             "code": "CSCI 1300",
@@ -128,12 +154,7 @@ def test_build_all_processes_courses(mock_client_cls, mock_gdb) -> None:
             "attributes": [],
         },
     ]
-    mock_driver = MagicMock()
-    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
-    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
-    mock_gdb.driver.return_value = mock_driver
 
-    # Set up Ollama mock.
     mock_client = MagicMock()
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"embeddings": [fake_vector]}
@@ -142,7 +163,6 @@ def test_build_all_processes_courses(mock_client_cls, mock_gdb) -> None:
 
     build_all_embeddings()
 
-    # Verify embedding was written back.
     write_calls = [
         c for c in mock_session.run.call_args_list
         if c.args and "SET c.embedding" in str(c.args[0])
@@ -151,12 +171,11 @@ def test_build_all_processes_courses(mock_client_cls, mock_gdb) -> None:
 
 
 @patch("data.ingest.build_embeddings.time.sleep")
-@patch("data.ingest.build_embeddings.GraphDatabase")
 @patch("data.ingest.build_embeddings.httpx.Client")
-def test_build_all_retries_on_failure(mock_client_cls, mock_gdb, mock_sleep) -> None:
+def test_build_all_retries_on_failure(mock_client_cls, mock_sleep, _mock_neo4j_and_config) -> None:
     fake_vector = [0.5] * 768
+    _mock_driver, mock_session = _mock_neo4j_and_config
 
-    mock_session = MagicMock()
     mock_session.run.return_value.data.return_value = [
         {
             "code": "CSCI 2270",
@@ -166,12 +185,7 @@ def test_build_all_retries_on_failure(mock_client_cls, mock_gdb, mock_sleep) -> 
             "attributes": [],
         },
     ]
-    mock_driver = MagicMock()
-    mock_driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
-    mock_driver.session.return_value.__exit__ = MagicMock(return_value=False)
-    mock_gdb.driver.return_value = mock_driver
 
-    # Fail twice, succeed on third attempt.
     mock_client = MagicMock()
     fail_resp = MagicMock()
     fail_resp.raise_for_status.side_effect = httpx.ConnectError("connection refused")
@@ -182,10 +196,7 @@ def test_build_all_retries_on_failure(mock_client_cls, mock_gdb, mock_sleep) -> 
 
     build_all_embeddings()
 
-    # Should have retried (slept twice).
     assert mock_sleep.call_count == 2
-
-    # Embedding should still be written.
     write_calls = [
         c for c in mock_session.run.call_args_list
         if c.args and "SET c.embedding" in str(c.args[0])
