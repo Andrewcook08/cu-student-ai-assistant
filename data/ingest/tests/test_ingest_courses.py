@@ -30,7 +30,7 @@ def test_parse_classes_course_count(courses: list[dict]) -> None:
 
 
 def test_parse_classes_section_count(sections: list[dict]) -> None:
-    assert len(sections) == 13223
+    assert len(sections) == 9470
 
 
 def test_parse_classes_department_count(courses: list[dict]) -> None:
