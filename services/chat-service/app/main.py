@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.routes import chat
 from shared.config import settings
 
 
@@ -14,6 +15,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="CU Chat Service", lifespan=lifespan)
+
+app.include_router(chat.router)
 
 app.add_middleware(
     CORSMiddleware,
