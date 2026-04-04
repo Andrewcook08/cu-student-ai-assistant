@@ -58,24 +58,24 @@ Edit `.env` with local values. For local Docker development, the defaults should
 
 ```env
 # Database connections (Docker Compose internal networking)
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/cu_assistant
+DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/cu_assistant
 NEO4J_URI=bolt://neo4j:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=development
 REDIS_URL=redis://redis:6379/0
 
 # Ollama (running in Docker)
-OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_URL=http://ollama:11434
 
 # Auth
-JWT_SECRET=local-development-secret-change-in-production
+JWT_SECRET_KEY=local-development-secret-change-in-production
 
 # Ollama model (pulled on first startup)
 OLLAMA_MODEL=gpt-oss:20b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 
 # CORS (frontend origin — must match Vite dev server or Cloud Run URL)
-CORS_ALLOWED_ORIGINS=http://localhost:5173
+CORS_ORIGINS=http://localhost:5173
 ```
 
 ### 3. Start all services
@@ -88,7 +88,7 @@ This starts 7 containers:
 
 | Container | Port | URL |
 |-----------|------|-----|
-| `postgres` | 5432 | `postgresql://postgres:postgres@localhost:5432/cu_assistant` |
+| `postgres` | 5432 | `postgresql+psycopg://postgres:postgres@localhost:5432/cu_assistant` |
 | `neo4j` | 7474 (browser), 7687 (bolt) | http://localhost:7474 |
 | `redis` | 6379 | `redis://localhost:6379` |
 | `ollama` | 11434 | http://localhost:11434 |
@@ -109,7 +109,7 @@ ollama pull nomic-embed-text
 
 Then update your `.env` to point at native Ollama instead of Docker:
 ```
-OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_URL=http://localhost:11434
 ```
 
 And start Docker **without** the Ollama container:
@@ -246,10 +246,10 @@ When running locally (outside Docker), use `localhost` connection strings instea
 
 ```env
 # .env.local (for running outside Docker)
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/cu_assistant
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/cu_assistant
 NEO4J_URI=bolt://localhost:7687
 REDIS_URL=redis://localhost:6379/0
-OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_URL=http://localhost:11434
 ```
 
 ### Frontend development (Vue)
@@ -541,8 +541,8 @@ Understanding these differences ensures local testing is valid before deploying:
 
 Only **connection strings and environment variables** change. The application code is identical. This is by design — Docker Compose locally mirrors the GCP setup:
 
-- Local: `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/cu_assistant`
-- GCP: `DATABASE_URL=postgresql://user:pass@10.0.0.x:5432/cu_assistant` (internal VPC IP)
+- Local: `DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/cu_assistant`
+- GCP: `DATABASE_URL=postgresql+psycopg://user:pass@10.0.0.x:5432/cu_assistant` (internal VPC IP)
 
 No code changes are needed to deploy. The `config.py` in `shared/` reads from environment variables, which are set by `.env` locally and by Terraform on GCP.
 

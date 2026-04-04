@@ -554,9 +554,9 @@ Run and validate:
 docker compose exec ollama ollama pull nomic-embed-text
 
 # Run ingestion (against Docker databases)
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/cu_assistant \
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/cu_assistant \
 NEO4J_URI=bolt://localhost:7687 \
-OLLAMA_BASE_URL=http://localhost:11434 \
+OLLAMA_URL=http://localhost:11434 \
 uv run --package data-ingest python -m data.ingest.run_all
 
 # Verify PostgreSQL
@@ -564,7 +564,7 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 # Expected: 3410
 
 docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*) FROM sections;"
-# Expected: ~13223
+# Expected: ~9470
 
 docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*) FROM programs;"
 # Expected: 203
@@ -1366,9 +1366,9 @@ gcloud compute ssh data-services --tunnel-through-iap --zone=us-central1-a
 # (from local machine, using IAP tunnel for port forwarding)
 gcloud compute ssh data-services --tunnel-through-iap --zone=us-central1-a -- -L 5432:localhost:5432 -L 7687:localhost:7687 -L 11434:localhost:11434
 # In another terminal:
-DATABASE_URL=postgresql://postgres:<password>@localhost:5432/cu_assistant \
+DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/cu_assistant \
 NEO4J_URI=bolt://localhost:7687 \
-OLLAMA_BASE_URL=http://localhost:11434 \
+OLLAMA_URL=http://localhost:11434 \
 uv run --package data-ingest python -m data.ingest.run_all
 
 # 6. Cloud Run services (needs Artifact Registry + VPC connector)

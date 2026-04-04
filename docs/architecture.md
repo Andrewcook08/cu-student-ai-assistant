@@ -327,7 +327,7 @@ We have 2 JSON datasets (degree paths deferred — see note below). Each is inge
 
 | Dataset | Size | Neo4j Use | PostgreSQL Use |
 |---------|------|-----------|----------------|
-| Course offerings (`cu_classes.json`) | ~200K lines, 152 depts, 3,410 courses (deduplicated by code; 325 topics-course duplicates merged), 13,223 sections | Course nodes + vector embeddings + prerequisite edges | Filter by dept, time, credits, instructor, status (UI) |
+| Course offerings (`cu_classes.json`) | ~200K lines, 152 depts, 3,410 courses (deduplicated by code; 325 topics-course duplicates merged), 9,470 sections (deduplicated by course+CRN; topics courses share sections) | Course nodes + vector embeddings + prerequisite edges | Filter by dept, time, credits, instructor, status (UI) |
 | Degree requirements (`cu_degree_requirements.json`) | ~43K lines, 203 programs (54 BA, 78 minors, 42 certs, 29 BS/other) | Program → Requirement → Course graph | Lookup by program (dropdown) |
 
 **Degree paths** (deferred): Only ~101 programs have pathway data, and the dataset hasn't been acquired yet. The graph built from requirements + prerequisites provides the same planning capability — the AI can reason about "what do you need for CS BA" from the requirements data and "what are the prerequisites for CSCI 3104" from the course data. Degree paths would be supplementary context, not essential.
@@ -795,8 +795,8 @@ cu-student-ai-assistant/
 │       ├── models.py               # SQLAlchemy ORM models: User, Course, Program,
 │       │                           #   Requirement, StudentDecision, ToolAuditLog
 │       └── config.py               # pydantic-settings: Settings class reading env vars
-│                                   #   (DATABASE_URL, NEO4J_URI, REDIS_URL, JWT_SECRET,
-│                                   #    CORS_ALLOWED_ORIGINS, OLLAMA_MODEL, etc.)
+│                                   #   (DATABASE_URL, NEO4J_URI, REDIS_URL, JWT_SECRET_KEY,
+│                                   #    CORS_ORIGINS, OLLAMA_URL, OLLAMA_MODEL, etc.)
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  SERVICES  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
 │
@@ -889,7 +889,7 @@ cu-student-ai-assistant/
 │   │                               #   [tool.uv.sources] shared = { workspace = true }
 │   ├── raw/                        # Source JSON datasets
 │   │   ├── .gitkeep
-│   │   ├── cu_classes.json         # ~200K lines, 152 depts, 3,410 courses, 13,223 sections
+│   │   ├── cu_classes.json         # ~200K lines, 152 depts, 3,410 courses, 9,470 sections
 │   │   └── cu_degree_requirements.json  # ~43K lines, 203 programs
 │   └── ingest/
 │       ├── __init__.py
@@ -1390,12 +1390,12 @@ GCP deployment and presentation prep.
 
 ### Resolved
 
-1. ~~**Dataset structure**~~: Resolved — analyzed both JSON files. `cu_classes.json`: 152 depts, 3,410 courses (deduplicated), 13,223 sections with 15 fields per course. `cu_degree_requirements.json`: 203 programs as flat requirement lists with implicit or-groups and choose-N patterns. Prerequisites are natural language strings in the course data (2,830 courses have them). Schemas updated to match. See [Data Architecture](#data-architecture).
+1. ~~**Dataset structure**~~: Resolved — analyzed both JSON files. `cu_classes.json`: 152 depts, 3,410 courses (deduplicated), 9,470 sections (deduplicated by course+CRN; topics courses share sections) with 15 fields per course. `cu_degree_requirements.json`: 203 programs as flat requirement lists with implicit or-groups and choose-N patterns. Prerequisites are natural language strings in the course data (2,830 courses have them). Schemas updated to match. See [Data Architecture](#data-architecture).
 3. ~~**Authentication scope**~~: Resolved — JWT + email/password for now, CU SSO later ([ADR-10](decisions.md#adr-10-jwt-authentication)).
 4. ~~**Graph complexity**~~: Resolved — prerequisites ARE in the course data as natural language strings (~80% parseable via regex). 2,830 of 3,410 courses have prerequisite data. Graph traversal is very useful. Degree requirements connect 203 programs to ~2,497 unique course codes. The graph is rich enough to power "what can I take next?" queries.
 6. ~~**Budget**~~: Resolved — $50 GCP coupon per person × 3 people = $150. Estimated spend ~$15-25 for 3.5 weeks. Self-hosted databases on VM to conserve credits ([ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm)).
 7. ~~**Team assignment**~~: Resolved — Person A = Scott (shared package, memory, deploy), Person B = Rohan (frontend, Course Search API, auth, CI/CD, security), Person C = Andrew (repo skeleton, data ingestion, chat/AI engine).
-12. ~~**CORS configuration**~~: Resolved — both backend services use the same CORS config via `shared/config.py`. Local development: allow `http://localhost:5173` (Vite dev server). GCP: allow only the Cloud Run frontend URL (set via `CORS_ALLOWED_ORIGINS` env var in Terraform). Both services read `settings.cors_allowed_origins` and configure `CORSMiddleware` identically in their `main.py`. Never use `allow_origins=["*"]` — even in development, pin to the frontend origin.
+12. ~~**CORS configuration**~~: Resolved — both backend services use the same CORS config via `shared/config.py`. Local development: allow `http://localhost:5173` (Vite dev server). GCP: allow only the Cloud Run frontend URL (set via `CORS_ORIGINS` env var in Terraform). Both services read `settings.cors_origins_list` and configure `CORSMiddleware` identically in their `main.py`. Never use `allow_origins=["*"]` — even in development, pin to the frontend origin.
 
 ### Must resolve before implementation (blocks Phase 1)
 

@@ -750,7 +750,7 @@
   - [ ] All 3 Cloud Run services deploy
   - [ ] Services can reach data VM (PostgreSQL, Neo4j, Redis) via VPC
   - [ ] Chat service has min_instances=1
-  - [ ] CORS_ALLOWED_ORIGINS set to frontend Cloud Run URL
+  - [ ] CORS_ORIGINS set to frontend Cloud Run URL
   - [ ] Health endpoints return 200
 
 ### DEPLOY-005: Artifact Registry
