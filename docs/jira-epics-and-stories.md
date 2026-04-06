@@ -430,78 +430,60 @@
   - [ ] Vite proxy routes `/api/*` to port 8000 and `/ws/*` to port 8001
   - [ ] TypeScript compiles without errors
 
-### FE-002: Layout shell — port banner header from cu-classes.html
+### FE-002: Layout shell (header, filter sidebar, footer)
 - **Points**: 3
 - **Phase**: 1 (Day 2-3)
 - **Blocked by**: FE-001
 - **Assignee**: Person B
-- **Description**: Port the `<header class="banner">` markup from `frontend/cu-classes.html` lines 449-470 into `src/components/layout/AppHeader.vue`. The header is a 50px-tall black bar with the title `CLASS SEARCH` in CU gold (`#CFB87C`), a help icon, a primary cart icon, and a login/logout area. Replace the Font Awesome 4.7.0 CDN link (`cu-classes.html` line 7) with `lucide-vue-next` icons: `fa-question-circle` → `HelpCircle`, `fa-shopping-cart` → `ShoppingCart`, `fa-sign-in` → `LogIn`, `fa-sign-out` → `LogOut`. Replace `data-action="login"` with `@click="authStore.openLogin()"` and `data-action="logout"` with `@click="authStore.logout()"`. Replace the `.user-anon .anon-only` / `.authed-only` CSS toggle with `v-if="!authStore.isAuthenticated"` / `v-if="authStore.isAuthenticated"` against a stub Pinia `authStore` (returns `isAuthenticated: false` for now). Also create the empty layout shell: `<main class="panels">` flex container as `src/views/CourseSearchView.vue`, with placeholder `<div class="panel">` (left, 370px) and `<div class="empty-space">` (right, flex:1) — content for those panels lands in FE-003. Build `AppFooter.vue` (minimal — copyright line). The page is **not** required to be responsive at this stage; the reference is desktop-first and FE-003 will inherit the same constraint.
+- **Description**: Build the Course Search page visual shell using `frontend/cu-classes.html` as a reference (ADR-31 — visual shell only, not the full CU filter set). Port only the header and page frame:
+  1. `src/components/layout/AppHeader.vue` — port the `<header class="banner">` markup from `cu-classes.html` lines 449-470 (50px black bar, `CLASS SEARCH` title in CU gold, help icon, cart icon, login/logout area). Replace Font Awesome CDN icons with `lucide-vue-next` (`HelpCircle`, `ShoppingCart`, `LogIn`, `LogOut`). Replace `data-action="login"` / `data-action="logout"` with `@click` handlers against a stub Pinia `authStore`. Replace `.user-anon .anon-only` / `.authed-only` with `v-if` on `authStore.isAuthenticated`.
+  2. `src/views/CourseSearchView.vue` — port the `<main class="panels">` flex layout (left `.panel` 370px, right `.empty-space` flex:1, `min-height: calc(100vh - 50px)`)
+  3. `src/components/layout/FilterBar.vue` — our minimum-viable filter sidebar (not a port of CU's full form). Single `.section` titled "Search Classes" containing four form controls styled with the ported `.form-group` / `.form-control` / `.btn--full` classes: **Department** dropdown, **Level** dropdown (Undergrad Lower/Upper/Graduate/Law/Non-Credit), **Time** range control, **Credit Hours** dropdown, plus a SEARCH CLASSES submit button
+  4. `src/components/layout/AppFooter.vue` — minimal copyright line
 - **Acceptance criteria**:
-  - [ ] `AppHeader.vue` renders identically to `frontend/cu-classes.html` lines 449-470 when opened side-by-side in a browser (50px height, black background, gold `CLASS SEARCH` title, help/cart icons, login link)
-  - [ ] No Font Awesome CDN link in any rendered HTML; icons come from `lucide-vue-next`
-  - [ ] Login button is visible when `authStore.isAuthenticated === false`; logout link is visible when `true` (verifiable by toggling the stub store value)
-  - [ ] `CourseSearchView.vue` renders the flex `panels` layout with empty 370px left panel and `empty-space` right pane, with `min-height: calc(100vh - 50px)` matching `cu-classes.html` line 102
-  - [ ] No console errors; no broken icon glyphs; route `/` mounts `CourseSearchView.vue`
+  - [ ] Header displays CU logo/branding with gold/black colors matching `cu-classes.html` lines 449-470 side-by-side
+  - [ ] No Font Awesome CDN link in rendered HTML; icons come from `lucide-vue-next`
+  - [ ] Login button is visible when `authStore.isAuthenticated === false`; logout link when `true`
+  - [ ] Filter sidebar has four working dropdown/input controls: department, level, time, credits
+  - [ ] Filter sidebar is visually styled with the reference `.section` / `.form-control` / `.btn--full` classes (uses `src/assets/cu-classes.css` imported in FE-001)
+  - [ ] `CourseSearchView.vue` mounts at route `/` with the flex layout (370px left panel + flex:1 right pane)
+  - [ ] Login button visible (non-functional until auth is wired)
+  - [ ] Not required to be responsive (desktop-first, matching the reference)
 
-### FE-003: Filter sidebar + welcome pane — port form sections from cu-classes.html
-- **Points**: 5
-- **Phase**: 1 (Day 3-5)
+### FE-003: Course table + detail panel (mock data)
+- **Points**: 3
+- **Phase**: 1 (Day 3-4)
 - **Blocked by**: FE-002
 - **Assignee**: Person B
-- **Description**: Port the four filter sections and the welcome pane from `frontend/cu-classes.html` into Vue components. Create:
-  1. `src/components/course-search/FilterSidebar.vue` — wraps the four section components below; ports `<div class="panel">` (lines 473-1113) including the `<div class="panel__head"><h2>Search Classes</h2></div>` heading
-  2. `src/components/course-search/SearchCriteriaForm.vue` — ports section 1 (`crit-section-1464624409188`, lines 480-744): keyword input (`#crit-keyword`), Term select (`#crit-srcdb`), Subject select (`#crit-subject`), Campus select (`#crit-camp`), Career/Course Level select (`#crit-career_or_level`), "Avoid Schedule Conflicts" checkbox, "Avoid Certain Time Periods" checkbox, **SEARCH CLASSES** submit button. Replace the `<form id="search-form">` element with `<form @submit.prevent="onSearch">` calling a stub `useCourseSearch()` composable that just `console.log`s the filter object. Replace static `<option>` blocks with `v-for` loops over typed constants in `src/constants/filters.ts` (see acceptance criteria for option-source rules)
-  3. `src/components/course-search/GenEdFilters.vue` — ports section 2 (`crit-section-1638389551179`, lines 745-859): the eight gen-ed attribute selects (A&S, BUSN, CMDI, EDUC, ENGR, ENVD, MUSC, plus the two GenEd note rows). Section starts collapsed. Replace `data-action="toggle-section-collapse"` and `aria-controls`/`aria-expanded` strings with a `ref<boolean>` collapsed state, `@click="collapsed = !collapsed"`, and `:aria-expanded="!collapsed"`. Move the option lists to `src/constants/genEdAttributes.ts` keyed by college (`asgened`, `business_gened`, `cmcigened`, `educgened`, `engrgened`, `envdgened`, `muscgened`)
-  4. `src/components/course-search/AdvancedFilters.vue` — ports section 3 (`crit-section-1464797400962`, lines 860-1095): Course Material Cost, Location, Session, Open/Waitlisted/Closed, Waitlist Type, Class Type, Instruction Mode, Credit Hours, MAPS, Other Attributes selects + the **RESET ALL FILTERS** button. Move the option lists to `src/constants/advancedFilters.ts`. Section is always-open (no collapse toggle in the reference)
-  5. `src/components/course-search/CartsPanel.vue` — ports section 4 (`crit-section-1493317115924`, lines 1096-1108): MY PRIMARY CART button + Other Carts select. Wrap the entire component in `v-if="authStore.isAuthenticated"` so anonymous users don't see it
-  6. `src/components/course-search/WelcomePane.vue` — ports `<div class="empty-space">` (lines 1114-1138): the `.glass` welcome card with the three paragraphs (Welcome to CU Boulder Class Search, grade replacement note, troubleshooting link) and the version number footer. The `.promoted--removed` block (lines 1125-1132) is hidden in the reference and may be omitted
+- **Description**: Build the course results components that live in the right `.empty-space` slot of `CourseSearchView.vue`, plus the initial welcome-pane state ported from `cu-classes.html`. Create:
+  1. `src/components/course-search/WelcomePane.vue` — ports `<div class="empty-space">` + `.glass` welcome card from `cu-classes.html` lines 1114-1138. Shown on initial page load before any search. Three intro paragraphs may be lightly edited for our app
+  2. `src/components/course-search/CourseTable.vue` — renders 15+ mock courses with columns: code, title, credits, status, instruction mode. Replaces `WelcomePane.vue` in the right pane after a search runs (`v-if="hasSearched"`)
+  3. `src/components/course-search/CourseRow.vue` — individual row; clicking expands `CourseDetail` below it
+  4. `src/components/course-search/CourseDetail.vue` — expanded detail panel showing sections (CRN, time, instructor, status), prerequisites, description
+  5. `src/mocks/courses.ts` — 15+ mock course objects used by `CourseTable.vue` in FE-003. FE-004 replaces this with a real API call.
 
-  **Things to delete and not port:**
-  - The `<div id="sam-login">` SAM Login modal (`cu-classes.html` lines 1151-1168) — replaced by `LoginModal.vue` in a later auth ticket
-  - The `<div class="seligo-drop">` widget markup (line 1169) and the `seligo-container`/`seligo-cover`/`seligo-original` wrapper around `#crit-subject` (lines 496) — replaced by shadcn-vue `<Select>` (or `<Combobox>` for the searchable Subject filter)
-  - The three external `<script>` tags for `/sam/core.js`, `fose.js`, `/js/lfjs.js` (lines 1143-1145)
-  - All `data-swipe-key`, `data-srcdb`, `data-group`, `data-key`, `data-action="result-detail"` data-attributes — they belonged to CU's bespoke `fose.js` SPA
-  - The `#welcome-text-button` "Class Search Info" button — omit
-  - All inline `style=""` attributes (move to scoped component styles)
-
-  **Mock data for this ticket** (FE-004 will replace these with API calls):
-  - Term options: hardcode in `src/constants/filters.ts` exactly as in `cu-classes.html` line 491 (`Fall 2026 = 2267`, `Summer 2026 = 2264`, `Spring 2026 = 2261`, `Summer & Fall 2026 = 9993`, `Academic Year 2025-2026 = 9990`, `Academic Year 2024-2025 = 9991`)
-  - Subject options: hardcode the **visible** options from `cu-classes.html` lines 497-708 in `src/constants/filters.ts` (skip every `<option ... hidden="">` — those are inactive subjects). FE-004 will move this to `GET /api/subjects`
-  - Campus, Career, Location, Session, Class Type, Instruction Mode, Credit Hours, MAPS, Other Attributes: hardcode the visible options from the reference into the appropriate constant file
+  The filter controls built in FE-002 (`FilterBar.vue`) filter the mock data locally in this ticket. FE-004 wires them to the real `GET /api/courses` endpoint.
 - **Acceptance criteria**:
-  - [ ] All six components above exist and are mounted under `CourseSearchView.vue` (sidebar in left `.panel`, welcome pane in right `.empty-space`)
-  - [ ] Opening `frontend/cu-classes.html` and `http://localhost:5173` side-by-side in a browser shows the **same layout, colors, fonts, spacing, and section ordering**. The sidebar must match the reference at the section heading, form-control, and button level
-  - [ ] No Font Awesome CDN link, no `seligo-*` markup, no `<script src="...fose.js">`, no `<div id="sam-login">`, no `data-swipe-key`/`data-action="result-detail"` attributes anywhere in the rendered DOM
-  - [ ] `SearchCriteriaForm.vue` `<form>` uses `@submit.prevent` and on submit logs the current filter state to the console (no API call yet)
-  - [ ] `GenEdFilters.vue` starts collapsed; clicking the section header toggles `.section--collapsed` and updates `aria-expanded`
-  - [ ] `CartsPanel.vue` is hidden when `authStore.isAuthenticated === false`
-  - [ ] All `<select>` option lists are sourced from typed constants in `src/constants/`, not hardcoded inline. Term, Subject, Campus, Career constants match the visible (non-`hidden`) options in `cu-classes.html` exactly
-  - [ ] Welcome pane shows the `.glass` card with the same three paragraphs as `cu-classes.html` lines 1118-1121 (text may be lightly edited but the structure matches)
+  - [ ] `WelcomePane.vue` renders the `.glass` welcome card matching `cu-classes.html` lines 1114-1138 on initial load
+  - [ ] `CourseTable.vue` renders 15+ mock courses with code, title, credits, status
+  - [ ] Clicking a row expands `CourseDetail.vue` below it
+  - [ ] Detail shows sections (CRN, time, instructor, status)
+  - [ ] `FilterBar.vue` controls filter the mock data locally (e.g. selecting a department narrows the visible rows)
+  - [ ] After a search runs, `CourseSearchView.vue` swaps `WelcomePane.vue` for `CourseTable.vue` via `v-if="hasSearched"`
   - [ ] `frontend/cu-classes.html` is **not modified** by this ticket — it remains an immutable reference per ADR-31
 
-### FE-004: Wire course search to real API + build CourseResults pane
-- **Points**: 5
-- **Phase**: 2 (Day 9-11)
+### FE-004: Wire course search to real API
+- **Points**: 3
+- **Phase**: 2 (Day 9-10)
 - **Blocked by**: API-001, API-002, FE-003
 - **Assignee**: Person B
-- **Description**: Build the search results pane (which does **not** exist in `frontend/cu-classes.html` — the reference only shows the empty/welcome state) and wire the filter form from FE-003 to the real Course Search API. Create:
-  1. `src/services/courseApi.ts` — REST client for `GET /api/courses` (with filter query params), `GET /api/terms`, `GET /api/subjects`
-  2. `src/composables/useCourses.ts` — composable that wraps `courseApi` and exposes `search(filters)`, `loading`, `error`, `results`, `total`, `page`
-  3. `src/stores/courseStore.ts` — Pinia store: `filters`, `results`, `selectedCourse`, `pagination`
-  4. `src/components/course-search/CourseResults.vue` — replaces `WelcomePane.vue` in the right `.empty-space` slot once a search has been performed. Reuses the `.empty-space` outer wrapper class from `cu-classes.html` line 1114 so the right-pane background and padding match the welcome state
-  5. `src/components/course-search/CourseRow.vue` — single result row (course code, title, credits, status, instruction mode)
-  6. `src/components/course-search/CourseDetail.vue` — expanded detail panel for a clicked row (sections, CRN, time, instructor, prerequisites, description)
-
-  Replace the hardcoded Term and Subject constants from FE-003 with API calls (`GET /api/terms`, `GET /api/subjects`). Wire `SearchCriteriaForm.vue`'s `@submit.prevent="onSearch"` to call `useCourses().search(filters)`. After a successful search, swap `WelcomePane.vue` for `CourseResults.vue` in `CourseSearchView.vue` via `v-if="hasSearched"`.
+- **Description**: Replace the mock course data from FE-003 with real API calls. Create `src/services/courseApi.ts`, `src/composables/useCourses.ts` composable, `src/stores/courseStore.ts` Pinia store. Wire `FilterBar.vue`'s four controls (department, level, time, credits) to query params on `GET /api/courses` and refetch on change. Implement pagination.
 - **Acceptance criteria**:
-  - [ ] `SearchCriteriaForm.vue`'s SEARCH CLASSES button triggers a real `GET /api/courses` call with the current filter state
-  - [ ] After a successful search, the right pane swaps from `WelcomePane.vue` to `CourseResults.vue` and displays real result rows
-  - [ ] Term and Subject `<select>`s are populated from `GET /api/terms` and `GET /api/subjects` (no longer hardcoded)
-  - [ ] Changing any filter and re-submitting refetches from the API
-  - [ ] Pagination works (next/prev, total count visible)
-  - [ ] Loading state shown while fetching (e.g., spinner or skeleton in the results pane)
-  - [ ] API errors shown as toast notification (and the welcome pane reappears or an error state replaces the results)
-  - [ ] Clicking a `CourseRow` opens `CourseDetail` with full section info
+  - [ ] `CourseTable.vue` loads real data from `GET /api/courses` on page load (or on first search)
+  - [ ] Changing department filter re-fetches from API
+  - [ ] Pagination works (next/prev, showing total count)
+  - [ ] Loading state shown while fetching
+  - [ ] API errors shown as toast notification
 
 ### FE-005: TypeScript types
 - **Points**: 1
@@ -980,7 +962,7 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | INFRA-003 | 3 | Person A (Scott) | 3-4 |
 | FE-001 | 2 | Person B | 1 |
 | FE-002 | 3 | Person B | 2-3 |
-| FE-003 | 5 | Person B | 3-5 |
+| FE-003 | 3 | Person B | 3-4 |
 | FE-005 | 1 | Person B | 2 |
 | FE-006 | 2 | Person B | 4 |
 | FE-007 | 3 | Person B | 4-5 |
@@ -992,9 +974,9 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | DATA-005 | 2 | Person C | 5 |
 | DATA-006 | 3 | Person B | 4-5 |
 | CHAT-000 | 2 | Person C | 5-6 |
-| **Total** | **54** | | |
+| **Total** | **52** | | |
 
-**Per-person**: A (Scott)=8, B (Rohan)=21, C (Andrew)=25. Andrew bootstraps the repo skeleton on Day 1, then pivots to data ingestion (can start parsing logic in pure Python while Docker builds). Scott starts on shared package once the skeleton is merged. CHAT-000 spans into Day 6 (Sprint 2) but is timeboxed to 1 day.
+**Per-person**: A (Scott)=8, B (Rohan)=19, C (Andrew)=25. Andrew bootstraps the repo skeleton on Day 1, then pivots to data ingestion (can start parsing logic in pure Python while Docker builds). Scott starts on shared package once the skeleton is merged. CHAT-000 spans into Day 6 (Sprint 2) but is timeboxed to 1 day.
 
 ### Sprint 2: Core Features (Days 6-12, Mar 30 - Apr 5)
 **Goal**: Course search end-to-end. Chat with tool calling.
@@ -1007,7 +989,7 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | API-004 | 2 | Person B | 8 |
 | API-005 | 3 | Person B | 8-9 |
 | API-006 | 3 | Person B | 9 |
-| FE-004 | 5 | Person B | 9-11 |
+| FE-004 | 3 | Person B | 9-10 |
 | FE-008 | 5 | Person B | 8-12 |
 | CHAT-001 | 2 | Person C | 6-7 |
 | CHAT-002 | 5 | Person C | 7-9 |
@@ -1020,9 +1002,9 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | CHAT-009 | 3 | Person C | 8 |
 | CHAT-010 | 3 | Person C | 9-10 |
 | CHAT-011 | 5 | Person B | 12-13 |
-| **Total** | **66** | | |
+| **Total** | **64** | | |
 
-**Per-person**: A=0, B=31, C=35. Person A is free to help with bug fixes or start Terraform prep. CHAT-011 may spill into Sprint 3.
+**Per-person**: A=0, B=29, C=35. Person A is free to help with bug fixes or start Terraform prep. CHAT-011 may spill into Sprint 3.
 
 ### Sprint 3: Integration + Polish (Days 13-19, Apr 6-12)
 **Goal**: Full local demo with auth, memory, security.
@@ -1072,10 +1054,10 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | Metric | Value |
 |--------|-------|
 | **Total stories** | 59 |
-| **Total story points** | 193 |
+| **Total story points** | 189 |
 | **Sprints** | 4 (5 + 7 + 7 + 5 days) |
 | **Person A — Scott** | 40 pts, 12 stories — Shared Package, Wire Services, Docker verification, Terraform, GCP Deploy, Conversation Memory |
-| **Person B — Rohan** | 74 pts, 25 stories — Frontend (anchored to `frontend/cu-classes.html` per ADR-31), Course Search API, Auth, CI/CD, CHAT-011, DATA-006, SEC-002/003 |
+| **Person B — Rohan** | 70 pts, 25 stories — Frontend (visual shell anchored to `frontend/cu-classes.html` per ADR-31; functional filter set unchanged from original plan), Course Search API, Auth, CI/CD, CHAT-011, DATA-006, SEC-002/003 |
 | **Person C — Andrew** | 73 pts, 20 stories — Repo skeleton, Data ingestion, Chat engine (LangGraph), Neo4j, Redis, Security (SEC-001/004), Demo |
 | **Shared** | 6 pts, 2 stories — DEMO-002 (3), DEMO-003 (3) |
 | **Cross-person blocks** | 12 (most front-loaded in Days 1-2 scaffolding, zero mid-sprint blocking) |

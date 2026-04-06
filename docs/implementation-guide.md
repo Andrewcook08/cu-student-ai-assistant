@@ -376,60 +376,33 @@ export default defineConfig({
 })
 ```
 
-#### Days 2-5: Port Course Search Layout from `frontend/cu-classes.html`
+#### Days 2-3: Layout Shell + Course Search UI (Mock Data)
 
-The Course Search page is a 1:1 port of `frontend/cu-classes.html` (the static HTML reference — see ADR-31 and architecture.md § Frontend for the exact source-region → component mapping). Open `frontend/cu-classes.html` in a browser side-by-side with `http://localhost:5173` and verify pixel-level fidelity as you go.
+Use `frontend/cu-classes.html` as the **visual reference** for the Course Search page shell (ADR-31). Only the header, page frame, and welcome-pane `.glass` card are ported from the reference. The functional filter set (dept/level/time/credits) is **our own** — not CU's full filter form.
 
-**Day 2-3 — FE-002 (Layout shell):**
-1. `src/components/layout/AppHeader.vue` — port `<header class="banner">` from `cu-classes.html` lines 449-470. Replace the Font Awesome 4.7.0 CDN link (line 7) with `lucide-vue-next` icons: `fa-question-circle` → `HelpCircle`, `fa-shopping-cart` → `ShoppingCart`, `fa-sign-in` → `LogIn`, `fa-sign-out` → `LogOut`. Replace `data-action="login"` / `data-action="logout"` with `@click="authStore.openLogin()"` / `@click="authStore.logout()"`. Replace the `.user-anon .anon-only` / `.authed-only` CSS toggle with `v-if="!authStore.isAuthenticated"` / `v-if="authStore.isAuthenticated"` against a stub Pinia `authStore`.
-2. `src/views/CourseSearchView.vue` — wraps `<main class="panels">` from line 472 as a flex container holding the left `.panel` (370px) and right `.empty-space` slot.
-3. `src/components/layout/AppFooter.vue` — minimal copyright line.
+Build these components against hardcoded mock data (no API calls yet):
 
-**Day 3-5 — FE-003 (Filter sidebar + welcome pane):**
-Port the four `<form id="search-form">` sections and the welcome pane:
+1. `src/components/layout/AppHeader.vue` — port `<header class="banner">` from `cu-classes.html` lines 449-470 (50px black bar, gold `CLASS SEARCH` title, help/cart icons, login/logout link). Replace Font Awesome icons with `lucide-vue-next` (`HelpCircle`, `ShoppingCart`, `LogIn`, `LogOut`). Replace `data-action` handlers with `@click` against a stub Pinia `authStore`.
+2. `src/views/CourseSearchView.vue` — ports `<main class="panels">` (line 472) flex layout: 370px left `.panel` + flex:1 right `.empty-space` with `min-height: calc(100vh - 50px)`.
+3. `src/components/layout/FilterBar.vue` — our minimum-viable filter sidebar (not a port of CU's form). A single `.section` titled "Search Classes" with four form controls: **Department** dropdown, **Level** dropdown, **Time** range, **Credit Hours** dropdown, plus a SEARCH CLASSES `.btn--full` submit button. Uses the ported `.section` / `.section__title` / `.form-group` / `.form-control` / `.btn--full` classes from `src/assets/cu-classes.css` so it visually matches the reference panel styling.
+4. `src/components/course-search/WelcomePane.vue` — ports the `.glass` welcome card from `cu-classes.html` lines 1114-1138 (three intro paragraphs may be lightly edited for our app).
+5. `src/components/course-search/CourseTable.vue` + `CourseRow.vue` — course listing table rendered in the right `.empty-space` slot after a search runs (`v-if="hasSearched"`).
+6. `src/components/course-search/CourseDetail.vue` — expanded detail panel when a course row is clicked.
+7. `src/components/layout/AppFooter.vue` — minimal copyright line.
 
-| Source in `cu-classes.html` | Vue component |
-|----------------------------|---------------|
-| `<div class="panel">` lines 473-1113 | `src/components/course-search/FilterSidebar.vue` |
-| Section 1 lines 480-744 (keyword/term/subject/campus/career/checkboxes/SEARCH) | `src/components/course-search/SearchCriteriaForm.vue` |
-| Section 2 lines 745-859 (eight gen-ed selects, collapsed) | `src/components/course-search/GenEdFilters.vue` |
-| Section 3 lines 860-1095 (advanced: location/session/class type/etc. + RESET) | `src/components/course-search/AdvancedFilters.vue` |
-| Section 4 lines 1096-1108 (CARTS, authed only) | `src/components/course-search/CartsPanel.vue` |
-| `<div class="empty-space">` lines 1114-1138 (welcome glass card) | `src/components/course-search/WelcomePane.vue` |
-
-**Transformations to apply during the port** (do not skip any):
-1. Replace `<form action=...>` + `data-action="search"` submit button with `<form @submit.prevent="onSearch">`
-2. Replace `data-action="toggle-section-collapse"` buttons with `ref<boolean>` collapsed state and `:aria-expanded="!collapsed"`
-3. Replace static `<option>` blocks with `v-for` loops over typed constants in `src/constants/filters.ts`, `genEdAttributes.ts`, `advancedFilters.ts`. Skip every `<option ... hidden="">` from the reference — those are inactive
-4. Replace the seligo-wrapped `#crit-subject` (lines 496) with shadcn-vue `<Combobox>` for searchable subject filtering. Drop all `seligo-container`/`seligo-cover`/`seligo-original`/`seligo-drop` markup
-5. Delete the `<div id="sam-login">` SAM Login modal (lines 1151-1168) — replaced by `LoginModal.vue` in a later auth ticket
-6. Delete the three external `<script>` tags: `/sam/core.js`, `fose.js`, `/js/lfjs.js` (lines 1143-1145)
-7. Drop all `data-swipe-key`, `data-srcdb`, `data-group`, `data-key`, `data-action="result-detail"` attributes
-8. Drop inline `style=""` attributes; move to scoped component styles
-9. Hardcode Term options (`Fall 2026 = 2267`, `Spring 2026 = 2261`, etc.) and visible Subject options in `src/constants/filters.ts` for now — FE-004 moves these to `GET /api/terms` and `GET /api/subjects`
-
-**Mock filter data** (FE-004 wires the SEARCH button to a real API call):
+Use mock data:
 ```ts
-// src/constants/filters.ts — exact values from cu-classes.html line 491
-export const TERMS = [
-  { value: '2267', label: 'Fall 2026' },
-  { value: '2264', label: 'Summer 2026' },
-  { value: '2261', label: 'Spring 2026' },
-  { value: '9993', label: 'Summer & Fall 2026' },
-  { value: '9990', label: 'Academic Year 2025-2026' },
-  { value: '9991', label: 'Academic Year 2024-2025' },
-] as const
-
-// SUBJECTS: copy the visible options from cu-classes.html lines 497-708
-// (skip every <option ... hidden="">)
-export const SUBJECTS = [
-  { value: 'ACCT', label: 'Accounting (ACCT)' },
-  { value: 'APRD', label: 'Advertising, PR, Media Design (APRD)' },
-  // ... ~280 entries — see cu-classes.html
-] as const
+// src/mocks/courses.ts
+export const mockCourses = [
+  { code: 'CSCI 1300', title: 'Computer Science 1: Starting Computing', credits: '4', dept: 'CSCI', instruction_mode: 'In Person', status: 'Open' },
+  { code: 'CSCI 2270', title: 'Computer Science 2: Data Structures', credits: '4', dept: 'CSCI', instruction_mode: 'In Person', status: 'Open' },
+  // ... 15+ mock courses to test layout
+]
 ```
 
-**Verification**: Open `frontend/cu-classes.html` in one browser tab and `http://localhost:5173` in another. The header, sidebar, section ordering, brand colors, and welcome pane must match. `frontend/cu-classes.html` is **never modified** during this work — it's a frozen baseline per ADR-31.
+`FilterBar.vue`'s four controls filter `mockCourses` locally in FE-003. FE-004 wires them to `GET /api/courses`.
+
+**Verification**: Open `frontend/cu-classes.html` next to `http://localhost:5173` — the header, panel framing, brand colors, fonts, and welcome pane match. `frontend/cu-classes.html` is **never modified** — it's a frozen baseline per ADR-31.
 
 #### Days 4-5: Chat Widget UI (Mock Data)
 
@@ -958,7 +931,7 @@ export async function fetchCourses(params: Record<string, string>): Promise<Pagi
 }
 ```
 
-Wire up `courseStore.ts` (Pinia) to call `courseApi.ts` and populate `CourseResults.vue` (the new component built in FE-004 — see architecture.md § Frontend). Wire up `SearchCriteriaForm.vue`'s `@submit.prevent="onSearch"` handler to call `useCourses().search(filters)` and swap `WelcomePane.vue` for `CourseResults.vue` in `CourseSearchView.vue` via `v-if="hasSearched"`.
+Wire up `courseStore.ts` (Pinia) to call `courseApi.ts` and populate `CourseTable.vue`. Wire `FilterBar.vue`'s four controls (dept/level/time/credits) to query params and refetch on change.
 
 ---
 

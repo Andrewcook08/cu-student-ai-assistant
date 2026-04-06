@@ -313,21 +313,19 @@ Person B owns both the frontend and the Course Search API endpoints, giving full
 
 **Typical session:**
 ```
-You: Implement FE-003. Open frontend/cu-classes.html in your browser
-     and use it as the visual reference (it's the design baseline per
-     ADR-31). Create FilterSidebar.vue, SearchCriteriaForm.vue,
-     GenEdFilters.vue, AdvancedFilters.vue, CartsPanel.vue, and
-     WelcomePane.vue in frontend/src/components/course-search/. Port
-     the markup from cu-classes.html sections (lines 480-744 for
-     SearchCriteriaForm, 745-859 for GenEdFilters, 860-1095 for
-     AdvancedFilters, 1096-1108 for CartsPanel, 1114-1138 for
-     WelcomePane). Strip the seligo widget, the SAM login modal, and
-     the external <script> tags. Move static <option> blocks to typed
-     constants in src/constants/. Do not modify cu-classes.html — it's
-     frozen.
+You: Implement FE-003: Course table and detail panel. Use
+     frontend/cu-classes.html as the visual reference for the page
+     shell (ADR-31 — visual shell only, not the full filter set).
+     Create WelcomePane.vue (ports .glass card from cu-classes.html
+     lines 1114-1138), CourseTable.vue, CourseRow.vue, and
+     CourseDetail.vue in frontend/src/components/course-search/.
+     Use mock data from frontend/src/mocks/courses.ts. The FilterBar
+     built in FE-002 has four controls (dept/level/time/credits) —
+     wire them to filter the mock data locally. Do not modify
+     cu-classes.html — it's frozen.
 
-You: Now open http://localhost:5173 next to frontend/cu-classes.html
-     in two browser tabs and verify the layout matches.
+You: Now open http://localhost:5173 and verify it looks right.
+     [paste a screenshot if needed]
 
 You: Implement FE-008: WebSocket integration with useChat composable.
      Follow the WebSocket protocol defined in docs/implementation-guide.md
@@ -339,7 +337,7 @@ You: Implement FE-008: WebSocket integration with useChat composable.
 
 | Phase | Person B Focus | Key Prompt Patterns |
 |-------|---------------|-------------------|
-| 1 | Vue setup, port `frontend/cu-classes.html` to components | "Port [section] from cu-classes.html lines X-Y to [Component].vue. Apply the ADR-31 transformations (strip Font Awesome CDN, replace data-action attrs, move options to constants). Use Tailwind CU brand tokens." |
+| 1 | Vue setup, layout (visual shell from cu-classes.html), mock components | "Create [Component].vue with Tailwind styling. Use mock data. Match the panel/section/form-control styling from cu-classes.html (ADR-31)." |
 | 2 | Course Search API endpoints, WebSocket integration, wire frontend to API | "Implement GET /api/courses with filters. Use SQLAlchemy queries against the Course model." |
 | 3 | Auth backend (register/login) + Auth UI, structured responses | "Implement POST /api/auth/register. Hash password with shared/auth.py. Return JWT." |
 | 4 | CI/CD, branding polish | "Create .github/workflows/ci.yml that runs lint, format, typecheck, and tests on PR." |

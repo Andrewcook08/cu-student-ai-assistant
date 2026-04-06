@@ -693,23 +693,19 @@ The `suggested_actions` field lets the AI tell the frontend to render structured
 
 ## Frontend
 
-See [ADR-11](decisions.md#adr-11-vue-frontend) for why Vue + Vite + Tailwind, and [ADR-31](decisions.md#adr-31-cu-classes-html-as-design-baseline) for why we anchor the Course Search page to a static HTML reference.
+See [ADR-11](decisions.md#adr-11-vue-frontend) for why Vue + Vite + Tailwind, and [ADR-31](decisions.md#adr-31-cu-classes-html-as-design-baseline) for why the Course Search page's **visual shell** is anchored to a static HTML reference.
 
 ### Main Page
 
-The Course Search page is a 1:1 visual recreation of CU Boulder's class search UI. The canonical design source is checked into the repo at **`frontend/cu-classes.html`** — a 1170-line static HTML mockup captured from the live CU Class Search page (markup, embedded CSS, brand tokens, sample option lists). All Vue components for the Course Search page must match this file's layout, class names where they aid traceability, brand colors, spacing, and section structure.
+The Course Search page is the home page and visually mirrors CU Boulder's class search page. The visual reference is **`frontend/cu-classes.html`** — a 1170-line static HTML mockup of the live CU Class Search page (markup, embedded CSS, brand tokens). **Only the visual shell is ported from this file** — the header, the two-pane layout, brand tokens, and the welcome/empty-state card. We do **not** port CU's full filter set — our functional scope is a small filter sidebar (department, level, time, credits) plus a course results table. The AI chat widget is the primary discovery mechanism; the filter sidebar is a minimum-viable fallback.
 
-**Layout (from `frontend/cu-classes.html`):**
-- `<header class="banner">` (50px tall, `#000` background) — title `CLASS SEARCH` in CU gold (`#CFB87C`), help icon, primary cart icon, login/logout in `.banner__auth` / `.banner__logout_icon`
-- `<main class="panels">` is a flex row:
-  - **Left panel** (`.panel`, fixed 370px, `#f5f5f5`, scrollable) — `<form id="search-form">` containing four collapsible `.section` blocks:
-    1. **Search criteria (default open)** — Class Search Info button, keyword input (`#crit-keyword`), Term select (`#crit-srcdb`), Subject select (`#crit-subject`, ~280 options), Campus (`#crit-camp`), Career/Course Level (`#crit-career_or_level`), "Avoid Schedule Conflicts" checkbox, "Avoid Certain Time Periods" checkbox, **SEARCH CLASSES** submit button
-    2. **GEN EDUC / CORE / HUM & SOC SCI SEARCH** (collapsed) — eight gen-ed attribute selects: A&S, BUSN, CMDI, EDUC, ENGR, ENVD, MUSC GenEd
-    3. **ADVANCED SEARCH** — Course Material Cost, Location, Session, Open/Waitlisted/Closed, Waitlist Type, Class Type, Instruction Mode, Credit Hours, MAPS, Other Attributes selects + RESET ALL FILTERS button
-    4. **CARTS** — MY PRIMARY CART button + Other Carts select
-  - **Right pane** (`.empty-space`, flex:1, `#fafafa`) — welcome `.glass` card on initial load; replaced by results table after search
+**What the page actually has (functional scope — unchanged from original FE-002/003/004):**
+- **Header** (from `cu-classes.html` lines 449-470): black `.banner` with CU gold `CLASS SEARCH` title, help icon, cart icon, login/logout link
+- **Left filter sidebar** (`.panel`, 370px): a single `.section` titled "Search Classes" with four `<select>`/input controls — **Department**, **Level**, **Time**, **Credit Hours** — plus a **SEARCH CLASSES** primary button styled with `.btn--full`
+- **Right pane** (`.empty-space`): shows a welcome `.glass` card (ported from `cu-classes.html` lines 1114-1138) on initial load; replaced by `CourseTable.vue` + `CourseRow.vue` + `CourseDetail.vue` after a search runs
+- **Chat widget** floating bottom-right (Epic 6) — the primary product
 
-**Brand tokens (extracted from `frontend/cu-classes.html` `<style>` block):**
+**Brand tokens (extracted from `frontend/cu-classes.html` `<style>` block, lines 8-445):**
 | Token | Value | Used for |
 |-------|-------|----------|
 | CU Gold | `#CFB87C` | Banner title, primary buttons (`.btn--full`), focus rings |
@@ -727,54 +723,34 @@ The Course Search page is a 1:1 visual recreation of CU Boulder's class search U
 | Banner height | `50px` | `.banner` |
 | Panel width | `370px` | `.panel` |
 
-These colors are added to `tailwind.config.ts` as `cu-gold`, `cu-gold-hover`, `cu-black`, `cu-panel`, `cu-pane`, `cu-section-head`, `cu-border`, `cu-link`, `cu-text`, `cu-muted` so that classes like `bg-cu-gold` and `text-cu-black` map exactly to the reference file.
+These are added to `tailwind.config.ts` as `cu-gold`, `cu-gold-hover`, `cu-black`, `cu-panel`, `cu-pane`, `cu-section-head`, `cu-border`, `cu-link`, `cu-text`, `cu-muted`.
 
-**Exact conversion from `frontend/cu-classes.html` → Vue components (Course Search page):**
+**What IS ported from `cu-classes.html` (visual shell only):**
 
-| Source region in `cu-classes.html` | Target Vue file | Notes |
-|-----------------------------------|-----------------|-------|
-| `<header class="banner">` lines 449-470 | `src/components/layout/AppHeader.vue` | Static markup; `data-action="login"` becomes `@click="authStore.openLogin()"`, `data-action="logout"` becomes `@click="authStore.logout()"`. `.anon-only` / `.authed-only` become `v-if="!authStore.isAuthenticated"` / `v-if="authStore.isAuthenticated"` |
-| `<main class="panels">` wrapper line 472 | `src/views/CourseSearchView.vue` | Flex container for sidebar + results pane |
-| `<div class="panel">` lines 473-1113 | `src/components/course-search/FilterSidebar.vue` | Wraps the four section components below |
-| Section 1 (`crit-section-1464624409188`) lines 480-744 | `src/components/course-search/SearchCriteriaForm.vue` | Default-open. `<form id="search-form">` becomes `<form @submit.prevent="search">`; `<select>` `value`s become `v-model` bindings on a `reactive` filters object |
-| Section 2 (`crit-section-1638389551179`) lines 745-859 | `src/components/course-search/GenEdFilters.vue` | Collapsible. Toggle controlled by a `ref<boolean>` instead of `data-action="toggle-section-collapse"` |
-| Section 3 (`crit-section-1464797400962`) lines 860-1095 | `src/components/course-search/AdvancedFilters.vue` | Always-open section |
-| Section 4 (`crit-section-1493317115924`) lines 1096-1108 | `src/components/course-search/CartsPanel.vue` | Renders only when `authStore.isAuthenticated` |
-| `<div class="empty-space">` lines 1114-1138 | `src/components/course-search/WelcomePane.vue` | Initial-state right pane |
-| **Replaces** `.empty-space` after first search | `src/components/course-search/CourseResults.vue` | Shows `CourseRow.vue` list, pagination, loading + error states |
-| `<div id="sam-login">` lines 1151-1168 | **Delete** | SAM login modal is CU's auth flow; replaced by `LoginModal.vue` (JWT) |
-| `<div class="seligo-drop">` line 1169 | **Delete** | Seligo is a custom CU select widget; we use shadcn-vue `<Select>` instead |
+| Source region | Target Vue file | Notes |
+|---------------|-----------------|-------|
+| Embedded `<style>` block lines 8-445 | `src/assets/cu-classes.css` | Copied verbatim and imported from `main.ts` — provides `.banner`, `.panel`, `.section`, `.section__title`, `.form-control`, `.btn--full`, `.empty-space`, `.glass` styling out of the gate |
+| `<header class="banner">` lines 449-470 | `src/components/layout/AppHeader.vue` | Replace `data-action="login"` / `data-action="logout"` with `@click` handlers against `authStore`. Replace Font Awesome CDN icons with `lucide-vue-next` (`HelpCircle`, `ShoppingCart`, `LogIn`, `LogOut`) |
+| `<main class="panels">` wrapper line 472 | `src/views/CourseSearchView.vue` | Flex container: 370px left `.panel` + flex:1 right `.empty-space` |
+| `<div class="empty-space">` + `.glass` welcome card lines 1114-1138 | `src/components/course-search/WelcomePane.vue` | Initial right-pane state. Three intro paragraphs may be lightly edited for our app |
 
-**Static `<select>` option lists become typed enums / API-fetched data:**
+**What is NOT ported from `cu-classes.html`:**
+- The keyword input (`#crit-keyword`), Term select (`#crit-srcdb`), Subject select (`#crit-subject`, ~280 options), Campus (`#crit-camp`), Career/Course Level select (`#crit-career_or_level`), "Avoid Schedule Conflicts" / "Avoid Certain Time Periods" checkboxes — **not in our functional scope**
+- The collapsible **GEN EDUC / CORE / HUM & SOC SCI SEARCH** section (lines 745-859) and its eight gen-ed attribute selects — **not in our functional scope**
+- The **ADVANCED SEARCH** section (lines 860-1095): Course Material Cost, Location, Session, Open/Waitlisted/Closed, Waitlist Type, Class Type, Instruction Mode, MAPS, Other Attributes, RESET button — **not in our functional scope**
+- The **CARTS** section (lines 1096-1108) — **not in our functional scope**
+- The SAM login modal (lines 1151-1168), seligo custom-select widget (line 1169), and external scripts `/sam/core.js`, `fose.js`, `/js/lfjs.js` (lines 1143-1145) — replaced by our own components or deleted outright
+- All `data-swipe-key`, `data-srcdb`, `data-group`, `data-key`, `data-action="result-detail"` attributes — CU's bespoke SPA metadata
+- Inline `style=""` attributes and the `transition-duration: 300ms` panel animation
 
-| Reference file selects | Source after conversion |
-|------------------------|------------------------|
-| `#crit-srcdb` (Term, lines 491) | `GET /api/terms` (or hardcoded `TERMS` const if static) — Fall 2026 = `2267`, Spring 2026 = `2261`, etc. |
-| `#crit-subject` (Subject, lines 496-709, ~280 options) | `GET /api/subjects` — derived from `cu_classes.json` ingestion (152 unique departments per `architecture.md` § Datasets). Hidden options (`hidden=""`) are inactive subjects and must be excluded from API output |
-| `#crit-camp`, `#crit-career_or_level` (lines 714-731) | Hardcoded TS const in `src/constants/filters.ts` — values rarely change |
-| All gen-ed selects (lines 754-855) | Hardcoded TS const in `src/constants/genEdAttributes.ts` — keyed by college (asgened, business_gened, cmcigened, educgened, engrgened, envdgened, muscgened) |
-| `#crit-location`, `#crit-session`, `#crit-stat`, `#crit-waitlist_type`, `#crit-schd`, `#crit-instmode`, `#crit-hours`, `#crit-maps`, `#crit-othattrs` (lines 874-1088) | Hardcoded TS const in `src/constants/advancedFilters.ts` |
+**What we build inside the ported shell (functional scope — same as original FE-002/003/004):**
 
-**Exact transformations to apply when porting:**
-1. **Strip the Font Awesome CDN link** (`cu-classes.html` line 7) — install `@fortawesome/fontawesome-free` via npm or replace each `<i class="fa fa-*">` with a `lucide-vue-next` icon (`fa-question-circle` → `HelpCircle`, `fa-shopping-cart` → `ShoppingCart`, `fa-sign-in` → `LogIn`, `fa-sign-out` → `LogOut`)
-2. **Move the entire embedded `<style>` block** (lines 8-445) into `src/assets/cu-classes.css` and import once from `main.ts`. **Do not** rewrite the CSS into Tailwind utilities yet — preserving the original selectors makes it possible to diff visual output against the reference file. Tailwind utility migration happens incrementally per component
-3. **Replace `<form action=...>` + `data-action="search"` submit button** with `<form @submit.prevent="onSearch">` calling `useCourseSearch().search(filters.value)`
-4. **Replace every `data-action="toggle-section-collapse"` button** with a Vue `ref<boolean>` collapsed state and a `@click="collapsed = !collapsed"` handler. Drop the `aria-controls` / `aria-expanded` strings — bind them reactively via `:aria-expanded="!collapsed"`
-5. **Replace `<select class="form-control seligo-original">`** (the seligo widget on `#crit-subject`) with shadcn-vue `<Select>` + `<Combobox>` for searchable subject filtering. Drop the `seligo-cover`, `seligo-drop`, and `seligo-container` markup entirely
-6. **Delete the SAM login modal** (lines 1151-1168) and the trailing `<div class="seligo-drop">` (line 1169) — neither is used
-7. **Delete the three external `<script>` tags** (`/sam/core.js`, `fose.js`, `/js/lfjs.js`, lines 1143-1145) — no JavaScript from the reference is reused
-8. **Replace `<body class="user-anon">` and `.user-anon .anon-only { display: inline-flex; }`** with Pinia-driven `v-if` on `authStore.isAuthenticated`. Drop `.user-anon`, `.anon-only`, `.authed-only` CSS classes
-9. **Search results UI is not present in the reference file** — `CourseResults.vue` is a new component built from scratch that replaces `<div class="empty-space">` after a search runs. It must reuse the same outer wrapper class (`empty-space`) so the right-pane background and padding match
-10. **Hardcoded Term options in line 491 (`Fall 2026 = 2267`, `Summer 2026 = 2264`, `Spring 2026 = 2261`, etc.)** must be moved to `GET /api/terms` so they update each registration cycle without a frontend redeploy
-
-**What is intentionally NOT preserved from the reference:**
-- The `data-swipe-key`, `data-srcdb`, `data-group`, `data-key` data-attributes — these were used by CU's bespoke `fose.js` SPA and have no purpose in our app
-- The `#welcome-text-button` "Class Search Info" button — replaced by a static link or omitted
-- The `transition-duration: 300ms; transform: translateX(0px);` inline panel transition — replaced by Vue `<Transition>` if needed
-- Inline `style=""` attributes throughout — moved to scoped component styles or Tailwind classes
-- The `#deep-link-tag` anchor (line 1110) — link sharing handled by Vue Router
-
-### Chat Widget
+| Component | Role |
+|-----------|------|
+| `src/components/layout/FilterBar.vue` | The single "Search Classes" filter section. Uses the ported `.section` + `.section__title` + `.form-group` + `.form-control` + `.btn--full` classes so it visually matches CU's panel styling. Contains **four** controls: Department dropdown, Level dropdown, Time range, Credit Hours dropdown. Submits via `<form @submit.prevent="onSearch">` |
+| `src/components/course-search/CourseTable.vue` | Renders results (code, title, credits, status) in the right `.empty-space` slot after a search |
+| `src/components/course-search/CourseRow.vue` | Individual row |
+| `src/components/course-search/CourseDetail.vue` | Expanded detail panel (CRN, time, instructor, status, prerequisites, description) shown when a row is clicked |
 
 ### Chat Widget
 - Floating panel in bottom-right corner (like Intercom/Drift)
@@ -1008,19 +984,14 @@ cu-student-ai-assistant/
 │       ├── components/
 │       │   ├── layout/
 │       │   │   ├── AppHeader.vue   # Ports <header class="banner"> from cu-classes.html lines 449-470
+│       │   │   ├── FilterBar.vue   # "Search Classes" section: dept / level / time / credits + SEARCH button.
+│       │   │   │                   #   Styled with the ported .section / .form-control / .btn--full CSS
 │       │   │   └── AppFooter.vue
 │       │   ├── course-search/
-│       │   │   ├── FilterSidebar.vue       # Ports <div class="panel"> from cu-classes.html lines 473-1113
-│       │   │   ├── SearchCriteriaForm.vue  # Ports section 1 (lines 480-744): keyword, term, subject,
-│       │   │   │                           #   campus, career, conflict checkboxes, SEARCH button
-│       │   │   ├── GenEdFilters.vue        # Ports section 2 (lines 745-859): collapsible gen-ed selects
-│       │   │   ├── AdvancedFilters.vue     # Ports section 3 (lines 860-1095): location, session,
-│       │   │   │                           #   class type, instruction mode, credit hours, MAPS, etc.
-│       │   │   ├── CartsPanel.vue          # Ports section 4 (lines 1096-1108), authed users only
-│       │   │   ├── WelcomePane.vue         # Ports <div class="empty-space"> initial state (lines 1114-1138)
-│       │   │   ├── CourseResults.vue       # NEW — replaces empty-space after a search runs
-│       │   │   ├── CourseRow.vue           # Individual result row
-│       │   │   └── CourseDetail.vue        # Expanded detail panel for a selected course
+│       │   │   ├── WelcomePane.vue  # Ports <div class="empty-space"> + .glass card (lines 1114-1138)
+│       │   │   ├── CourseTable.vue  # Results table (right pane after search)
+│       │   │   ├── CourseRow.vue    # Individual result row
+│       │   │   └── CourseDetail.vue # Expanded detail panel for a selected course
 │       │   ├── chat/
 │       │   │   ├── ChatWindow.vue       # Floating chat panel (bottom-right), expand/collapse
 │       │   │   ├── ChatMessage.vue      # Individual message bubble (user or AI)
