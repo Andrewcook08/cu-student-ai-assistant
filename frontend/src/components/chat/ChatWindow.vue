@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
-import { MessageCircle, X } from 'lucide-vue-next'
+import { ref, nextTick, watch, onMounted } from 'vue'
+import { MessageCircle, X, WifiOff } from 'lucide-vue-next'
 import ChatInput from './ChatInput.vue'
 import ChatMessage from './ChatMessage.vue'
-import type { ChatMessage as ChatMessageType, Action } from '@/types/index'
-import { mockMessages } from '@/mocks/chat'
+import { useChat } from '@/composables/useChat'
+import { useChatStore } from '@/stores/chatStore'
+import type { Action } from '@/types/index'
+
+const store = useChatStore()
+const { connect, send } = useChat()
 
 const isOpen = ref(false)
-const isTyping = ref(false)
-const messages = ref<ChatMessageType[]>([...mockMessages])
 const messagesEnd = ref<HTMLElement | null>(null)
 
 function toggle() {
@@ -16,26 +18,20 @@ function toggle() {
 }
 
 function sendMessage(text: string) {
-  messages.value.push({ role: 'user', content: text })
-  isTyping.value = true
-  // Mock response after delay — replaced by WebSocket in FE-008
-  setTimeout(() => {
-    isTyping.value = false
-    messages.value.push({
-      role: 'assistant',
-      content: `I heard you say: "${text}". WebSocket integration coming soon!`,
-    })
-  }, 1200)
+  send(text)
 }
 
 function handleActionSelected(action: Action) {
-  // In FE-008 this will send to WebSocket with context
-  sendMessage(action.label)
+  send(action.label, { action_response: { type: action.type, value: action.label } })
 }
 
-watch(() => messages.value.length, async () => {
+watch(() => store.messages.length, async () => {
   await nextTick()
   messagesEnd.value?.scrollIntoView({ behavior: 'smooth' })
+})
+
+onMounted(() => {
+  connect()
 })
 </script>
 
@@ -43,29 +39,37 @@ watch(() => messages.value.length, async () => {
   <!-- Collapsed: icon button only -->
   <div v-if="!isOpen" class="chat-bubble" @click="toggle" title="Open AI assistant">
     <MessageCircle :size="24" />
+    <div v-if="store.isReconnecting" class="chat-bubble__reconnect-dot" title="Reconnecting..." />
   </div>
 
   <!-- Expanded: full chat panel -->
   <div v-else class="chat-panel">
     <div class="chat-panel__header" @click="toggle">
       <span class="chat-panel__title">CU AI Advisor</span>
+      <span v-if="store.isReconnecting" class="reconnect-badge">
+        <WifiOff :size="12" />
+        Reconnecting...
+      </span>
       <button class="chat-panel__close" title="Close chat" @click.stop="toggle">
         <X :size="16" />
       </button>
     </div>
     <div class="chat-panel__messages">
+      <div v-if="store.messages.length === 0" class="chat-empty">
+        Hi! I'm your CU academic advisor. Ask me about courses, prerequisites, or degree requirements.
+      </div>
       <ChatMessage
-        v-for="(msg, i) in messages"
+        v-for="(msg, i) in store.messages"
         :key="i"
         :message="msg"
         @action-selected="handleActionSelected"
       />
-      <div v-if="isTyping" class="chat-msg chat-msg--ai chat-msg--typing">
+      <div v-if="store.isTyping" class="chat-msg--typing">
         <span></span><span></span><span></span>
       </div>
       <div ref="messagesEnd" />
     </div>
-    <ChatInput :disabled="isTyping" @send="sendMessage" />
+    <ChatInput :disabled="store.isTyping" @send="sendMessage" />
   </div>
 </template>
 
@@ -91,6 +95,16 @@ watch(() => messages.value.length, async () => {
 .chat-bubble:hover {
   transform: scale(1.06);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}
+.chat-bubble__reconnect-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
+  background: #ff9800;
+  border-radius: 50%;
+  border: 2px solid #000;
 }
 
 /* Expanded panel */
@@ -139,6 +153,18 @@ watch(() => messages.value.length, async () => {
 }
 .chat-panel__close:hover { opacity: 1; }
 
+.reconnect-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #ff9800;
+  background: rgba(255, 152, 0, 0.15);
+  padding: 2px 7px;
+  border-radius: 8px;
+  margin-right: 8px;
+}
+
 .chat-panel__messages {
   flex: 1;
   overflow-y: auto;
@@ -149,12 +175,26 @@ watch(() => messages.value.length, async () => {
   background: #fafafa;
 }
 
+.chat-empty {
+  font-size: 13px;
+  color: #888;
+  text-align: center;
+  padding: 24px 16px;
+  font-style: italic;
+}
+
 /* Typing indicator */
 .chat-msg--typing {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  border-bottom-left-radius: 3px;
+  align-self: flex-start;
+  max-width: 80px;
 }
 .chat-msg--typing span {
   width: 6px;
