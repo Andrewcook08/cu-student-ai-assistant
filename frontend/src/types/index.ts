@@ -82,8 +82,8 @@ export interface Action {
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
-  content?: string
-  reply?: string
+  content?: string        // set for user-typed messages
+  reply?: string          // set for AI WebSocket responses (WsServerMessage.reply)
   structured_data?: CourseCard[]
   suggested_actions?: Action[]
 }
