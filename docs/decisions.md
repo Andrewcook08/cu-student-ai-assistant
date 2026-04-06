@@ -28,6 +28,9 @@
 - [ADR-21: Ollama Auto-Scaling via Managed Instance Group](#adr-21-ollama-auto-scaling-via-managed-instance-group)
 - [ADR-22: Cloud SQL for Production PostgreSQL Scaling](#adr-22-cloud-sql-for-production-postgresql-scaling)
 - [ADR-23: Network Security — Private Subnet + IAP Over Bastion](#adr-23-network-security-private-subnet--iap-over-bastion)
+- [ADR-26: gpt-oss:20b as Default LLM](#adr-26-gpt-oss20b-as-default-llm)
+- [ADR-27: Normalize Course Attributes into a Join Table (CUAI-20 / DATA-001)](#adr-27-normalize-course-attributes-into-a-join-table-cuai-20--data-001)
+- [ADR-31: cu-classes.html as Design Baseline for the Course Search Page](#adr-31-cu-classeshtml-as-design-baseline-for-the-course-search-page)
 
 ---
 
@@ -771,3 +774,37 @@ Storing as a TEXT blob requires `LIKE` scans to answer "what courses satisfy Eng
 - `CourseCard` schema gains `attributes: list[str] | None` field
 - `lookup_course` tool returns attributes from the join table
 - ~105 distinct attribute values across ~1,358 courses
+
+---
+
+## ADR-31: cu-classes.html as Design Baseline for the Course Search Page
+
+### Decision
+Check `frontend/cu-classes.html` — a 1170-line static HTML file scraped from CU Boulder's live class search page (markup, embedded `<style>` block, brand tokens, sample option lists for terms/subjects/gen-eds/sessions/etc.) — into the repo as the **canonical visual and structural reference** for the Vue Course Search page. All Course Search Vue components (`AppHeader.vue`, `FilterSidebar.vue`, `SearchCriteriaForm.vue`, `GenEdFilters.vue`, `AdvancedFilters.vue`, `CartsPanel.vue`, `WelcomePane.vue`) must match the layout, brand colors, spacing, and section structure of `cu-classes.html`.
+
+### Alternatives Considered
+1. **Free-form Vue build** — let the frontend developer recreate CU's class search look from screenshots
+2. **Wireframes in Figma** — design the page in Figma first, then translate to Vue
+3. **Static HTML reference checked into the repo** (chosen)
+4. **Iframe CU's live page** — embed the real page
+
+### Why
+The Course Search page must look and feel like CU's class search to be useful to students — it's the first thing they see and the legitimacy signal that anchors the AI experience. Recreating CU's design from screenshots invites drift: spacing is wrong, the gold isn't quite right, the section ordering changes, the filter labels diverge from what students expect.
+
+**Static HTML in the repo** gives us exact pixel- and class-level fidelity for free:
+- The file contains the live brand tokens (`#CFB87C` gold, `#000` black, `#0277BD` link, `#f5f5f5` panel) — no eyeballing
+- The file contains every option value for every filter select (`Fall 2026 = 2267`, all 280 subjects, all gen-ed attributes per college) — no transcription errors
+- The file is reviewable in a browser at `file://...frontend/cu-classes.html` so the developer can diff visual output side-by-side with the target
+- The file is committed once and never edited, so it's an immutable reference point
+
+**Figma was rejected** because nobody on the team is a designer and the goal isn't original design — it's faithful reproduction. Figma adds a translation step (design → Tailwind) where mistakes happen.
+
+**Iframe was rejected** because (a) CU's page requires authentication for some features, (b) it's tied to CU's backend, (c) it introduces a runtime dependency on a third-party site, and (d) we couldn't customize the chat widget integration.
+
+### Consequences
+- `frontend/cu-classes.html` is **never edited** after import — it's a frozen baseline. If CU updates their page in the future, we can drop in a new snapshot and re-diff
+- `tailwind.config.ts` defines brand tokens (`cu-gold`, `cu-black`, `cu-panel`, etc.) extracted from `cu-classes.html`'s `<style>` block, so utility classes map exactly to the reference
+- `src/assets/cu-classes.css` is a one-time copy of the embedded `<style>` block from the reference, imported globally in `main.ts`. Components may incrementally migrate to Tailwind utilities, but the reference CSS provides correct defaults out of the gate
+- Three things in the reference are deleted during conversion: (1) the SAM Login modal markup at the bottom, (2) the seligo custom-select widget markup, (3) the external `<script>` tags for `core.js`/`fose.js`/`lfjs.js`. None are reused
+- Static `<select>` options for terms and subjects are moved to `GET /api/terms` and `GET /api/subjects` so they update without a frontend redeploy. Other filter selects (campus, career, sessions, gen-eds, MAPS, etc.) are hardcoded in `src/constants/`
+- See [architecture.md § Frontend](architecture.md#frontend) for the exact source-region → component mapping and the full list of transformations to apply during porting

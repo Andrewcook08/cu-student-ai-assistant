@@ -83,7 +83,8 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 - Composables in `src/composables/` (useChat, useCourses, useAuth)
 - API clients in `src/services/` (courseApi, chatApi, studentApi)
 - Types in `src/types/index.ts`
-- CU branding: gold (#CFB87C), black (#000000)
+- **Course Search page is anchored to `frontend/cu-classes.html`** — a frozen 1170-line static HTML reference (ADR-31). Never modify it. All Course Search components port markup from specific line ranges in this file. See architecture.md § Frontend for the source-region → component mapping.
+- CU brand tokens (extracted from `cu-classes.html`'s `<style>` block): `cu-gold` `#CFB87C`, `cu-gold-hover` `#c4a94f`, `cu-black` `#000000`, `cu-text` `#333`, `cu-muted` `#555`, `cu-section-head` `#eee`, `cu-panel` `#f5f5f5`, `cu-pane` `#fafafa`, `cu-border` `#ddd`, `cu-link` `#0277BD`
 
 ### Testing
 - pytest + pytest-asyncio for backend
