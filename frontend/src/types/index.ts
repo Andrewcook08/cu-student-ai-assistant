@@ -2,7 +2,7 @@
 export interface Course {
   code: string
   title: string
-  credits: string
+  credits: string // text field; can be "3", "1-3", or "Varies by section"
   dept: string
   description?: string
   prerequisites_raw?: string
@@ -59,7 +59,7 @@ export interface StudentProfile {
 export interface CourseCard {
   code: string
   title: string
-  credits: string
+  credits: string // text field; can be "3", "1-3", or "Varies by section"
   description?: string
   topic_titles?: string
   instruction_mode?: string
