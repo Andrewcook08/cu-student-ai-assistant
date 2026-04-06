@@ -293,7 +293,8 @@ npm install -D tailwindcss @tailwindcss/vite
 npm install markdown-it
 ```
 
-Set up Tailwind with CU branding in `tailwind.config.ts`:
+Set up Tailwind with CU branding tokens **extracted directly from `frontend/cu-classes.html`'s embedded `<style>` block** (see ADR-31 — `cu-classes.html` is the design baseline; these tokens come from its CSS variables and color literals):
+
 ```ts
 import type { Config } from 'tailwindcss'
 
@@ -302,19 +303,51 @@ export default {
   theme: {
     extend: {
       colors: {
-        'cu-gold': '#CFB87C',
-        'cu-black': '#000000',
-        'cu-dark-gray': '#565A5C',
-        'cu-light-gray': '#A2A4A3',
+        'cu-gold':         '#CFB87C', // banner title, primary buttons (.btn--full), focus rings
+        'cu-gold-hover':   '#c4a94f', // primary button hover
+        'cu-black':        '#000000', // banner, panel head
+        'cu-text':         '#333333', // body text
+        'cu-muted':        '#555555', // form labels, secondary text
+        'cu-section-head': '#eeeeee', // .section__title background
+        'cu-panel':        '#f5f5f5', // left filter panel background
+        'cu-pane':         '#fafafa', // right empty-space background
+        'cu-border':       '#dddddd', // section dividers
+        'cu-border-strong':'#cccccc', // form-control borders
+        'cu-link':         '#0277BD', // links and .btn--primary
       },
       fontFamily: {
-        sans: ['"Proxima Nova"', 'Helvetica', 'Arial', 'sans-serif'],
+        // Reference uses the system Helvetica Neue stack — keep it identical
+        sans: ['"Helvetica Neue"', 'Helvetica', 'Arial', 'sans-serif'],
+      },
+      fontSize: {
+        // Reference baseline: 14px / 1.42857 line-height
+        base: ['14px', '1.42857'],
+      },
+      spacing: {
+        'banner': '50px', // .banner height
+        'panel':  '370px', // .panel width
       },
     },
   },
   plugins: [],
 } satisfies Config
 ```
+
+Then copy the embedded `<style>` block from `frontend/cu-classes.html` (lines 8-445) verbatim into `src/assets/cu-classes.css` and import it once from `main.ts`:
+
+```ts
+// frontend/src/main.ts
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import App from './App.vue'
+import router from './router'
+import './assets/cu-classes.css' // Reference CSS from cu-classes.html — see ADR-31
+import './assets/index.css'      // Tailwind directives
+
+createApp(App).use(createPinia()).use(router).mount('#app')
+```
+
+This keeps the reference styling available to every component out of the gate. Components migrate to Tailwind utilities incrementally; for any pre-migration component, the reference selectors (`.banner`, `.panel`, `.section`, `.section__title`, `.form-control`, `.btn--full`, `.empty-space`, `.glass`) already produce the correct visuals.
 
 `vite.config.ts` — proxy API calls to backend services:
 ```ts
@@ -343,24 +376,60 @@ export default defineConfig({
 })
 ```
 
-#### Days 2-3: Layout Shell + Course Search UI (Mock Data)
+#### Days 2-5: Port Course Search Layout from `frontend/cu-classes.html`
 
-Build these components against hardcoded mock data (no API calls yet):
+The Course Search page is a 1:1 port of `frontend/cu-classes.html` (the static HTML reference — see ADR-31 and architecture.md § Frontend for the exact source-region → component mapping). Open `frontend/cu-classes.html` in a browser side-by-side with `http://localhost:5173` and verify pixel-level fidelity as you go.
 
-1. `AppHeader.vue` — CU-branded header (black background, gold accents, logo, search bar, login button)
-2. `AppSidebar.vue` / `FilterBar.vue` — filter controls (department dropdown, level, time, credits)
-3. `CourseTable.vue` + `CourseRow.vue` — course listing table
-4. `CourseDetail.vue` — expanded detail panel when a course row is clicked
+**Day 2-3 — FE-002 (Layout shell):**
+1. `src/components/layout/AppHeader.vue` — port `<header class="banner">` from `cu-classes.html` lines 449-470. Replace the Font Awesome 4.7.0 CDN link (line 7) with `lucide-vue-next` icons: `fa-question-circle` → `HelpCircle`, `fa-shopping-cart` → `ShoppingCart`, `fa-sign-in` → `LogIn`, `fa-sign-out` → `LogOut`. Replace `data-action="login"` / `data-action="logout"` with `@click="authStore.openLogin()"` / `@click="authStore.logout()"`. Replace the `.user-anon .anon-only` / `.authed-only` CSS toggle with `v-if="!authStore.isAuthenticated"` / `v-if="authStore.isAuthenticated"` against a stub Pinia `authStore`.
+2. `src/views/CourseSearchView.vue` — wraps `<main class="panels">` from line 472 as a flex container holding the left `.panel` (370px) and right `.empty-space` slot.
+3. `src/components/layout/AppFooter.vue` — minimal copyright line.
 
-Use mock data:
+**Day 3-5 — FE-003 (Filter sidebar + welcome pane):**
+Port the four `<form id="search-form">` sections and the welcome pane:
+
+| Source in `cu-classes.html` | Vue component |
+|----------------------------|---------------|
+| `<div class="panel">` lines 473-1113 | `src/components/course-search/FilterSidebar.vue` |
+| Section 1 lines 480-744 (keyword/term/subject/campus/career/checkboxes/SEARCH) | `src/components/course-search/SearchCriteriaForm.vue` |
+| Section 2 lines 745-859 (eight gen-ed selects, collapsed) | `src/components/course-search/GenEdFilters.vue` |
+| Section 3 lines 860-1095 (advanced: location/session/class type/etc. + RESET) | `src/components/course-search/AdvancedFilters.vue` |
+| Section 4 lines 1096-1108 (CARTS, authed only) | `src/components/course-search/CartsPanel.vue` |
+| `<div class="empty-space">` lines 1114-1138 (welcome glass card) | `src/components/course-search/WelcomePane.vue` |
+
+**Transformations to apply during the port** (do not skip any):
+1. Replace `<form action=...>` + `data-action="search"` submit button with `<form @submit.prevent="onSearch">`
+2. Replace `data-action="toggle-section-collapse"` buttons with `ref<boolean>` collapsed state and `:aria-expanded="!collapsed"`
+3. Replace static `<option>` blocks with `v-for` loops over typed constants in `src/constants/filters.ts`, `genEdAttributes.ts`, `advancedFilters.ts`. Skip every `<option ... hidden="">` from the reference — those are inactive
+4. Replace the seligo-wrapped `#crit-subject` (lines 496) with shadcn-vue `<Combobox>` for searchable subject filtering. Drop all `seligo-container`/`seligo-cover`/`seligo-original`/`seligo-drop` markup
+5. Delete the `<div id="sam-login">` SAM Login modal (lines 1151-1168) — replaced by `LoginModal.vue` in a later auth ticket
+6. Delete the three external `<script>` tags: `/sam/core.js`, `fose.js`, `/js/lfjs.js` (lines 1143-1145)
+7. Drop all `data-swipe-key`, `data-srcdb`, `data-group`, `data-key`, `data-action="result-detail"` attributes
+8. Drop inline `style=""` attributes; move to scoped component styles
+9. Hardcode Term options (`Fall 2026 = 2267`, `Spring 2026 = 2261`, etc.) and visible Subject options in `src/constants/filters.ts` for now — FE-004 moves these to `GET /api/terms` and `GET /api/subjects`
+
+**Mock filter data** (FE-004 wires the SEARCH button to a real API call):
 ```ts
-// src/mocks/courses.ts
-export const mockCourses = [
-  { code: 'CSCI 1300', title: 'Computer Science 1: Starting Computing', credits: '4', dept: 'CSCI', instruction_mode: 'In Person', status: 'Open' },
-  { code: 'CSCI 2270', title: 'Computer Science 2: Data Structures', credits: '4', dept: 'CSCI', instruction_mode: 'In Person', status: 'Open' },
-  // ... 10-15 mock courses to test layout
-]
+// src/constants/filters.ts — exact values from cu-classes.html line 491
+export const TERMS = [
+  { value: '2267', label: 'Fall 2026' },
+  { value: '2264', label: 'Summer 2026' },
+  { value: '2261', label: 'Spring 2026' },
+  { value: '9993', label: 'Summer & Fall 2026' },
+  { value: '9990', label: 'Academic Year 2025-2026' },
+  { value: '9991', label: 'Academic Year 2024-2025' },
+] as const
+
+// SUBJECTS: copy the visible options from cu-classes.html lines 497-708
+// (skip every <option ... hidden="">)
+export const SUBJECTS = [
+  { value: 'ACCT', label: 'Accounting (ACCT)' },
+  { value: 'APRD', label: 'Advertising, PR, Media Design (APRD)' },
+  // ... ~280 entries — see cu-classes.html
+] as const
 ```
+
+**Verification**: Open `frontend/cu-classes.html` in one browser tab and `http://localhost:5173` in another. The header, sidebar, section ordering, brand colors, and welcome pane must match. `frontend/cu-classes.html` is **never modified** during this work — it's a frozen baseline per ADR-31.
 
 #### Days 4-5: Chat Widget UI (Mock Data)
 
@@ -889,7 +958,7 @@ export async function fetchCourses(params: Record<string, string>): Promise<Pagi
 }
 ```
 
-Wire up `courseStore.ts` (Pinia) to call `courseApi.ts` and populate the table. Wire up `FilterBar.vue` to update query params and re-fetch.
+Wire up `courseStore.ts` (Pinia) to call `courseApi.ts` and populate `CourseResults.vue` (the new component built in FE-004 — see architecture.md § Frontend). Wire up `SearchCriteriaForm.vue`'s `@submit.prevent="onSearch"` handler to call `useCourses().search(filters)` and swap `WelcomePane.vue` for `CourseResults.vue` in `CourseSearchView.vue` via `v-if="hasSearched"`.
 
 ---
 
