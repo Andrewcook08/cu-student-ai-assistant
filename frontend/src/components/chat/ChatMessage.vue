@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import type { ChatMessage } from '@/types/index'
 import StructuredResponse from './StructuredResponse.vue'
 import SuggestedActions from './SuggestedActions.vue'
@@ -18,7 +19,7 @@ const md = new MarkdownIt({ linkify: true, breaks: true })
 
 const renderedContent = computed(() => {
   const text = props.message.content ?? props.message.reply ?? ''
-  return md.render(text)
+  return DOMPurify.sanitize(md.render(text))
 })
 
 const isUser = computed(() => props.message.role === 'user')
