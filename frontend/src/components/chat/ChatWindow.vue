@@ -2,16 +2,13 @@
 import { ref, nextTick, watch } from 'vue'
 import { MessageCircle, X } from 'lucide-vue-next'
 import ChatInput from './ChatInput.vue'
-import type { ChatMessage } from '@/types/index'
+import ChatMessage from './ChatMessage.vue'
+import type { ChatMessage as ChatMessageType, Action } from '@/types/index'
+import { mockMessages } from '@/mocks/chat'
 
 const isOpen = ref(false)
 const isTyping = ref(false)
-const messages = ref<ChatMessage[]>([
-  {
-    role: 'assistant',
-    content: 'Hi! I\'m your CU academic advisor. Ask me about courses, prerequisites, or degree requirements.',
-  },
-])
+const messages = ref<ChatMessageType[]>([...mockMessages])
 const messagesEnd = ref<HTMLElement | null>(null)
 
 function toggle() {
@@ -29,6 +26,11 @@ function sendMessage(text: string) {
       content: `I heard you say: "${text}". WebSocket integration coming soon!`,
     })
   }, 1200)
+}
+
+function handleActionSelected(action: Action) {
+  // In FE-008 this will send to WebSocket with context
+  sendMessage(action.label)
 }
 
 watch(() => messages.value.length, async () => {
@@ -52,13 +54,12 @@ watch(() => messages.value.length, async () => {
       </button>
     </div>
     <div class="chat-panel__messages">
-      <div
+      <ChatMessage
         v-for="(msg, i) in messages"
         :key="i"
-        :class="['chat-msg', msg.role === 'user' ? 'chat-msg--user' : 'chat-msg--ai']"
-      >
-        {{ msg.content }}
-      </div>
+        :message="msg"
+        @action-selected="handleActionSelected"
+      />
       <div v-if="isTyping" class="chat-msg chat-msg--ai chat-msg--typing">
         <span></span><span></span><span></span>
       </div>
@@ -146,29 +147,6 @@ watch(() => messages.value.length, async () => {
   flex-direction: column;
   gap: 8px;
   background: #fafafa;
-}
-
-/* Message bubbles */
-.chat-msg {
-  max-width: 80%;
-  padding: 8px 12px;
-  border-radius: 12px;
-  font-size: 13px;
-  line-height: 1.5;
-  word-break: break-word;
-}
-.chat-msg--user {
-  align-self: flex-end;
-  background: #000;
-  color: #CFB87C;
-  border-bottom-right-radius: 3px;
-}
-.chat-msg--ai {
-  align-self: flex-start;
-  background: #fff;
-  color: #333;
-  border: 1px solid #ddd;
-  border-bottom-left-radius: 3px;
 }
 
 /* Typing indicator */
