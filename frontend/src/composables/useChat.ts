@@ -5,12 +5,15 @@ import type { WsClientMessage, WsServerMessage } from '@/types/index'
 const WS_BASE = '/ws/chat'
 const MAX_RECONNECT_DELAY_MS = 30_000
 
+// Module-level state: only one WebSocket instance exists for the lifetime of the app.
+// useChat() may be called from multiple components but they all share this socket.
+let ws: WebSocket | null = null
+let reconnectAttempt = 0
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let destroyed = false
+
 export function useChat() {
   const store = useChatStore()
-  let ws: WebSocket | null = null
-  let reconnectAttempt = 0
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  let destroyed = false
 
   function getToken(): string {
     return localStorage.getItem('token') ?? ''
@@ -90,6 +93,8 @@ export function useChat() {
   }
 
   function send(message: string, context?: WsClientMessage['context']) {
+    // Always record the user's message so it isn't lost on disconnect
+    store.addMessage({ role: 'user', content: message })
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       store.addMessage({
         role: 'system',
@@ -97,7 +102,6 @@ export function useChat() {
       })
       return
     }
-    store.addMessage({ role: 'user', content: message })
     const payload: WsClientMessage = {
       type: 'chat_message',
       message,
