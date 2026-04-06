@@ -28,17 +28,17 @@ export function useCourses() {
     }
   }
 
-  function nextPage(filters: CourseFilters = {}) {
+  async function nextPage(filters: CourseFilters = {}) {
     if (offset.value + limit.value < total.value) {
       offset.value += limit.value
-      fetch(filters)
+      await fetch(filters)
     }
   }
 
-  function prevPage(filters: CourseFilters = {}) {
+  async function prevPage(filters: CourseFilters = {}) {
     if (offset.value > 0) {
       offset.value = Math.max(0, offset.value - limit.value)
-      fetch(filters)
+      await fetch(filters)
     }
   }
 
