@@ -55,6 +55,13 @@ export interface StudentProfile {
   decisions: StudentDecision[]
 }
 
+export interface FilterValues {
+  dept: string
+  level: string
+  time: string
+  credits: string
+}
+
 // Chat types
 export interface CourseCard {
   code: string

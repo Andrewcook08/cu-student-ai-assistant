@@ -1,14 +1,6 @@
-<script lang="ts">
-export interface FilterValues {
-  dept: string
-  level: string
-  time: string
-  credits: string
-}
-</script>
-
 <script setup lang="ts">
 import { ref } from 'vue'
+import type { FilterValues } from '@/types/index'
 
 const emit = defineEmits<{
   search: [filters: FilterValues]
