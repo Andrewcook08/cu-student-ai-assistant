@@ -1,3 +1,86 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session, joinedload
+
+from app.dependencies import get_db
+from shared.models import Course, Section
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
+
+
+@router.get("")
+def list_courses(
+    dept: str | None = Query(None, description="Department code, e.g. CSCI"),
+    instruction_mode: str | None = Query(None),
+    status: str | None = Query(None, description="Filter by section status"),
+    credits: str | None = Query(None),
+    q: str | None = Query(None, description="Text search on title/description"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> dict:
+    query = db.query(Course).options(joinedload(Course.sections))
+
+    if dept:
+        query = query.filter(Course.dept == dept.upper())
+    if instruction_mode:
+        query = query.filter(Course.instruction_mode == instruction_mode)
+    if credits:
+        query = query.filter(Course.credits == credits)
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            Course.title.ilike(search) | Course.description.ilike(search)
+        )
+    if status:
+        query = query.join(Course.sections).filter(Section.status == status)
+
+    total = query.count()
+    courses = query.offset(offset).limit(limit).all()
+
+    return {
+        "items": [_course_to_dict(c) for c in courses],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@router.get("/{code:path}")
+def get_course(code: str, db: Session = Depends(get_db)) -> dict:
+    course = (
+        db.query(Course)
+        .options(joinedload(Course.sections), joinedload(Course.attributes))
+        .filter(Course.code == code)
+        .first()
+    )
+    if not course:
+        raise HTTPException(status_code=404, detail=f"Course '{code}' not found")
+    return _course_to_dict(course, include_attributes=True)
+
+
+def _course_to_dict(course: Course, *, include_attributes: bool = False) -> dict:
+    result: dict = {
+        "code": course.code,
+        "title": course.title,
+        "credits": course.credits,
+        "dept": course.dept,
+        "description": course.description,
+        "prerequisites_raw": course.prerequisites_raw,
+        "instruction_mode": course.instruction_mode,
+        "status": course.status,
+        "topic_titles": course.topic_titles,
+        "sections": [
+            {
+                "crn": s.crn,
+                "meets": s.meets,
+                "instructor": s.instructor,
+                "status": s.status,
+            }
+            for s in (course.sections or [])
+        ],
+    }
+    if include_attributes:
+        result["attributes"] = [
+            f"{a.college}: {a.category}" for a in (course.attributes or [])
+        ]
+    return result
