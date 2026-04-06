@@ -31,10 +31,10 @@ function sendMessage(text: string) {
   }, 1200)
 }
 
-watch(messages, async () => {
+watch(() => messages.value.length, async () => {
   await nextTick()
   messagesEnd.value?.scrollIntoView({ behavior: 'smooth' })
-}, { deep: true })
+})
 </script>
 
 <template>
