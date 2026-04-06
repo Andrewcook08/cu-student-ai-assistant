@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cu-gold: #CFB87C;
+  --color-cu-gold-hover: #c4a94f;
+  --color-cu-black: #000000;
+  --color-cu-text: #333333;
+  --color-cu-muted: #555555;
+  --color-cu-section-head: #eeeeee;
+  --color-cu-panel: #f5f5f5;
+  --color-cu-pane: #fafafa;
+  --color-cu-border: #dddddd;
+  --color-cu-border-strong: #cccccc;
+  --color-cu-link: #0277BD;
+  --spacing-banner: 50px;
+  --spacing-panel: 370px;
+}

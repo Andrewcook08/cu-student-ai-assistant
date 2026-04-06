@@ -3,7 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "echo 'Frontend dev server placeholder'",
-    "build": "mkdir -p dist && cp index.html dist/"
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "type-check": "vue-tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-vue-next": "^0.469.0",
+    "markdown-it": "^14.1.0",
+    "pinia": "^2.3.0",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/tsconfig": "^0.9.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.6",
+    "vue-tsc": "^2.2.0"
   }
 }
