@@ -6,12 +6,9 @@
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "type-check": "vue-tsc --noEmit",
-    "preview": "vite preview",
-    "test": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "dompurify": "^3.3.3",
     "lucide-vue-next": "^0.469.0",
     "markdown-it": "^14.1.0",
     "pinia": "^2.3.0",
@@ -20,17 +17,12 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
-    "@types/dompurify": "^3.0.5",
     "@types/markdown-it": "^14.1.2",
     "@vitejs/plugin-vue": "^5.2.1",
-    "@vitest/coverage-v8": "^4.1.2",
-    "@vue/test-utils": "^2.4.6",
     "@vue/tsconfig": "^0.9.1",
-    "jsdom": "^28.1.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.6",
-    "vitest": "^4.1.2",
     "vue-tsc": "^2.2.0"
   }
 }

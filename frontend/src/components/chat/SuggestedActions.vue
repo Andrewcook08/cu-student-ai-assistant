@@ -14,7 +14,7 @@ const emit = defineEmits<{
   <div class="suggested-actions">
     <button
       v-for="action in actions"
-      :key="`${action.type}-${action.label}`"
+      :key="action.label"
       class="action-btn"
       @click="emit('actionSelected', action)"
     >
