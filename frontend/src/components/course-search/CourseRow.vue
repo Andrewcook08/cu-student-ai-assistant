@@ -61,16 +61,4 @@ function toggle() {
   font-size: 12px;
   color: #555;
 }
-.status-chip {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-.status-chip.open { background: #e8f5e9; color: #2e7d32; }
-.status-chip.closed { background: #fce4ec; color: #c62828; }
-.status-chip.waitlist { background: #fff3e0; color: #e65100; }
-.status-chip.unknown { background: #eeeeee; color: #555; }
 </style>

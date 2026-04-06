@@ -35,7 +35,7 @@ defineProps<{
                 <td>{{ section.meets || '—' }}</td>
                 <td>{{ section.instructor || '—' }}</td>
                 <td>
-                  <span :class="['status-chip', section.status.toLowerCase()]">
+                  <span :class="['status-chip', (section.status || 'unknown').toLowerCase()]">
                     {{ section.status }}
                   </span>
                 </td>
@@ -98,15 +98,4 @@ defineProps<{
   border-bottom: 1px solid #eee;
   color: #333;
 }
-.status-chip {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-.status-chip.open { background: #e8f5e9; color: #2e7d32; }
-.status-chip.closed { background: #fce4ec; color: #c62828; }
-.status-chip.waitlist { background: #fff3e0; color: #e65100; }
 </style>
