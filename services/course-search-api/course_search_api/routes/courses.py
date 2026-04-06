@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, distinct
 from sqlalchemy.orm import Session, joinedload
 
 from app.dependencies import get_db
@@ -18,7 +19,8 @@ def list_courses(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> dict:
-    query = db.query(Course).options(joinedload(Course.sections))
+    # Base query — no eager loading yet (applied after count)
+    query = db.query(Course)
 
     if dept:
         query = query.filter(Course.dept == dept.upper())
@@ -32,10 +34,21 @@ def list_courses(
             Course.title.ilike(search) | Course.description.ilike(search)
         )
     if status:
+        # Explicit join for filtering; use distinct to avoid row fan-out on count
         query = query.join(Course.sections).filter(Section.status == status)
 
-    total = query.count()
-    courses = query.offset(offset).limit(limit).all()
+    # Count distinct course IDs to avoid fan-out from joins
+    total = query.with_entities(func.count(distinct(Course.id))).scalar() or 0
+
+    # Fetch with eager loading after count
+    course_ids_query = query.with_entities(Course.id).offset(offset).limit(limit)
+    course_ids = [row[0] for row in course_ids_query.all()]
+    courses = (
+        db.query(Course)
+        .options(joinedload(Course.sections))
+        .filter(Course.id.in_(course_ids))
+        .all()
+    ) if course_ids else []
 
     return {
         "items": [_course_to_dict(c) for c in courses],

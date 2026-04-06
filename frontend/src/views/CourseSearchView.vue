@@ -16,6 +16,7 @@ const activeFilters = ref<FilterValues>({ dept: '', level: '', time: '', credits
 const useMockData = ref(false)
 
 async function onSearch(filters: FilterValues) {
+  useMockData.value = false  // reset on each new search
   activeFilters.value = { ...filters }
   hasSearched.value = true
   resetPage()
@@ -23,6 +24,7 @@ async function onSearch(filters: FilterValues) {
   await fetchCourses({
     dept: filters.dept || undefined,
     credits: filters.credits || undefined,
+    // level and time are not yet supported by GET /api/courses — filtered locally by CourseTable
   })
   // Fall back to mock data if API is unavailable
   if (error.value) {
