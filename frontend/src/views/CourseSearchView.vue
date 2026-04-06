@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
 import FilterBar from '@/components/layout/FilterBar.vue'
-import type { FilterValues } from '@/components/layout/FilterBar.vue'
+import type { FilterValues } from '@/types/index'
 
 const hasSearched = ref(false)
 const activeFilters = ref<FilterValues>({ dept: '', level: '', time: '', credits: '' })

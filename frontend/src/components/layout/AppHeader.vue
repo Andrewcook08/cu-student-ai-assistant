@@ -23,7 +23,7 @@ const auth = useAuthStore()
         <LogIn :size="16" aria-hidden="true" />
         Login
       </a>
-      <div v-else class="authed-only" style="display: inline-flex; align-items: center; color: #fff; padding: 8px 10px; font-size: 13px;">
+      <div v-else class="banner__auth-welcome">
         Welcome, <span class="user-name" style="margin-left: 4px;">{{ auth.userName }}</span>
       </div>
     </div>
@@ -35,3 +35,13 @@ const auth = useAuthStore()
     </div>
   </header>
 </template>
+
+<style scoped>
+.banner__auth-welcome {
+  display: inline-flex;
+  align-items: center;
+  color: #fff;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+</style>
