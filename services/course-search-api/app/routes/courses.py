@@ -80,7 +80,6 @@ def _course_to_dict(course: Course, *, include_attributes: bool = False) -> dict
         "description": course.description,
         "prerequisites_raw": course.prerequisites_raw,
         "instruction_mode": course.instruction_mode,
-        "status": course.status,
         "topic_titles": course.topic_titles,
         "sections": [
             {
