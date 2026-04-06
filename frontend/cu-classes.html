@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Class Search - University of Colorado Boulder</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<style>
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+	font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+	font-size: 14px;
+	line-height: 1.42857;
+	color: #333;
+	background: #fff;
+	-webkit-font-smoothing: antialiased;
+}
+
+a { color: #0277BD; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ===== Screen reader only ===== */
+.sr-only {
+	position: absolute; width: 1px; height: 1px;
+	padding: 0; margin: -1px; overflow: hidden;
+	clip: rect(0,0,0,0); border: 0;
+}
+
+/* ===== Banner / Header ===== */
+.banner {
+	background: #000;
+	color: #fff;
+	display: flex;
+	align-items: center;
+	padding: 0 16px;
+	height: 50px;
+	position: relative;
+	z-index: 100;
+}
+
+.banner__title {
+	font-size: 18px;
+	font-weight: 700;
+	letter-spacing: 1.5px;
+	color: #CFB87C;
+	flex: 1;
+	margin: 0;
+}
+
+.banner__icons {
+	display: flex;
+	gap: 4px;
+}
+
+.banner__icons .header-icon,
+.banner__logout_icon .header-icon {
+	color: #fff;
+	font-size: 18px;
+	padding: 8px 10px;
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	text-decoration: none;
+	opacity: 0.85;
+	transition: opacity 0.15s;
+}
+
+.banner__icons .header-icon:hover,
+.banner__logout_icon .header-icon:hover {
+	opacity: 1;
+	text-decoration: none;
+}
+
+.banner__auth {
+	margin-left: 8px;
+	font-size: 13px;
+}
+
+.banner__auth a {
+	color: #fff;
+	padding: 8px 10px;
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	text-decoration: none;
+	opacity: 0.85;
+}
+
+.banner__auth a:hover { opacity: 1; }
+
+.banner__logout_icon { display: inline-flex; }
+.banner__logout_icon .logout-btn { font-size: 13px; }
+
+.authed-only { display: none; }
+.user-anon .anon-only { display: inline-flex; }
+
+/* ===== Main / Panels ===== */
+.panels {
+	display: flex;
+	min-height: calc(100vh - 50px);
+}
+
+.panel {
+	width: 370px;
+	min-width: 370px;
+	background: #f5f5f5;
+	border-right: 1px solid #ddd;
+	overflow-y: auto;
+	max-height: calc(100vh - 50px);
+}
+
+.panel__head {
+	background: #000;
+	color: #fff;
+	padding: 12px 16px;
+}
+
+.panel__head h2 {
+	font-size: 16px;
+	font-weight: 600;
+	letter-spacing: 0.5px;
+	margin: 0;
+}
+
+.panel__body {
+	padding: 0;
+}
+
+/* ===== Search Form ===== */
+#search-form {
+	padding: 0;
+}
+
+.section {
+	border-bottom: 1px solid #ddd;
+}
+
+.section__title {
+	display: block;
+	width: 100%;
+	padding: 12px 16px;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 1px;
+	color: #555;
+	text-transform: uppercase;
+	background: #eee;
+	border: none;
+	cursor: pointer;
+	text-align: left;
+}
+
+.section__title .fa {
+	margin-right: 4px;
+}
+
+button.section__title:hover {
+	background: #e5e5e5;
+}
+
+.section__content {
+	padding: 12px 16px;
+}
+
+.section--collapsed .section__content {
+	display: none;
+}
+
+.form-group {
+	margin-bottom: 12px;
+}
+
+.form-group:last-child {
+	margin-bottom: 0;
+}
+
+/* ===== Form Controls ===== */
+.form-control {
+	display: block;
+	width: 100%;
+	height: 36px;
+	padding: 6px 12px;
+	font-size: 14px;
+	line-height: 1.42857;
+	color: #555;
+	background: #fff;
+	border: 1px solid #ccc;
+	border-radius: 3px;
+	transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.form-control:focus {
+	border-color: #CFB87C;
+	outline: 0;
+	box-shadow: 0 0 0 2px rgba(207, 184, 124, 0.25);
+}
+
+select.form-control {
+	appearance: auto;
+}
+
+input[type="text"].form-control::placeholder {
+	color: #999;
+}
+
+input[type="checkbox"] {
+	margin-right: 6px;
+	vertical-align: middle;
+}
+
+label {
+	font-weight: normal;
+	font-size: 13px;
+	color: #555;
+	cursor: pointer;
+}
+
+/* ===== Seligo (custom select) ===== */
+.seligo-container {
+	position: relative;
+}
+
+.seligo-cover {
+	position: absolute;
+	z-index: 1;
+	cursor: pointer;
+}
+
+.seligo-drop {
+	display: none;
+}
+
+/* ===== Buttons ===== */
+.btn {
+	display: inline-block;
+	padding: 8px 16px;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.42857;
+	text-align: center;
+	white-space: nowrap;
+	vertical-align: middle;
+	cursor: pointer;
+	border: 1px solid transparent;
+	border-radius: 3px;
+	transition: background 0.15s, border-color 0.15s;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.btn--full {
+	display: block;
+	width: 100%;
+	background: #CFB87C;
+	color: #000;
+	border-color: #CFB87C;
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 1px;
+	padding: 10px 16px;
+}
+
+.btn--full:hover {
+	background: #c4a94f;
+	border-color: #c4a94f;
+	text-decoration: none;
+}
+
+.btn--primary {
+	background: transparent;
+	color: #0277BD;
+	border: none;
+	padding: 2px 8px;
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: lowercase;
+}
+
+.btn--primary:hover {
+	text-decoration: underline;
+}
+
+#search-button-sticky-container {
+	display: none;
+}
+
+#welcome-text-button {
+	background: #eee;
+	color: #555;
+	border-color: #ccc;
+	font-size: 12px;
+	letter-spacing: 0.5px;
+}
+
+#welcome-text-button:hover {
+	background: #e0e0e0;
+}
+
+#reset-button {
+	background: #fff;
+	color: #333;
+	border-color: #ccc;
+}
+
+#reset-button:hover {
+	background: #f5f5f5;
+}
+
+#primary-cart-button {
+	background: #fff;
+	color: #333;
+	border-color: #ccc;
+}
+
+#primary-cart-button:hover {
+	background: #f5f5f5;
+}
+
+/* ===== Notes ===== */
+.note {
+	font-size: 12px;
+	color: #888;
+	font-style: italic;
+}
+
+/* ===== Meet pattern ===== */
+.meet-pat-rec {
+	display: flex;
+	align-items: center;
+}
+
+.meet-pat-rec label {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex: 1;
+}
+
+.edit-meet-pat-button {
+	margin-left: auto;
+}
+
+/* ===== Empty Space / Welcome ===== */
+.empty-space {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 40px;
+	background: #fafafa;
+}
+
+.empty-space__content {
+	max-width: 600px;
+	width: 100%;
+}
+
+.glass {
+	background: #fff;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	padding: 32px;
+	margin-bottom: 24px;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+.glass__content h2 {
+	font-size: 22px;
+	font-weight: 600;
+	color: #000;
+	margin-bottom: 16px;
+}
+
+.glass__content p {
+	font-size: 14px;
+	line-height: 1.6;
+	color: #555;
+	margin-bottom: 12px;
+}
+
+.glass__content p:last-child {
+	margin-bottom: 0;
+}
+
+.glass__content a {
+	color: #0277BD;
+}
+
+.glass__content a:hover {
+	text-decoration: underline;
+}
+
+/* ===== Promoted (hidden by default) ===== */
+.promoted--removed {
+	display: none;
+}
+
+/* ===== Version ===== */
+.empty-space__version {
+	margin-top: 40px;
+	font-size: 11px;
+	color: #bbb;
+	text-align: center;
+}
+
+/* ===== Modal ===== */
+.modal {
+	display: none;
+}
+
+/* ===== SAM Login ===== */
+.sam-login {
+	display: none;
+}
+
+.sam-login.screen {
+	display: none;
+}
+
+/* ===== Scrollbar ===== */
+.panel::-webkit-scrollbar {
+	width: 6px;
+}
+
+.panel::-webkit-scrollbar-track {
+	background: #f0f0f0;
+}
+
+.panel::-webkit-scrollbar-thumb {
+	background: #ccc;
+	border-radius: 3px;
+}
+
+.panel::-webkit-scrollbar-thumb:hover {
+	background: #aaa;
+}
+
+/* ===== Hidden options ===== */
+option[hidden] {
+	display: none;
+}
+</style>
+</head>
+<body class="user-anon" data-swipe-key="16ac7edbe21c0f3c2c7938ca2c459f68">
+		<div id="modal" class="modal"><div id="modal__content" class="modal__content"></div></div>
+		<header class="banner" role="banner">
+			<h1 class="banner__title">CLASS SEARCH</h1>
+			<div class="banner__icons">
+<a href="https://www.colorado.edu/registrar/students/registration/search-classes" class="header-icon" target="_blank">
+	<i class="fa fa-question-circle" aria-hidden="true"></i>
+	<span class="sr-only">Help</span>
+</a>
+<a href="#" class="header-icon" data-action="login,primary-cart">
+	<i class="fa fa-shopping-cart" aria-hidden="true"></i>
+	<span class="sr-only">Primary Cart</span>
+</a>
+			</div>
+
+			<div class="banner__auth">
+				<a href="#" data-action="login" class="anon-only">
+					<i class="fa fa-sign-in" aria-hidden="true"></i>
+					Login
+				</a>
+				<div class="authed-only">Welcome, <span class="user-name"></span></div>
+			</div><div class="banner__logout_icon"><a href="#" data-action="logout" class="header-icon logout-btn"><i class="fa fa-sign-out" aria-hidden="true"></i>Logout</a><div></div></div>
+
+		</header>
+
+		<main class="panels" style="transition-duration: 300ms; transform: translateX(0px);">
+			<div class="panel panel--visible panel--kind-root" data-panel-id="0">
+				<div class="panel__content" tabindex="0">
+					<div class="panel__head">
+						<h2>Search Classes</h2>
+					</div>
+					<div class="panel__body" data-search-data-provider="search-panel">
+						<form id="search-form"><div id="search-button-sticky-container" style="width: 349px;"><button class="btn btn--full" id="search-button-sticky" data-action="search" type="submit">SEARCH CLASSES</button></div>
+	<div id="crit-section-1464624409188" class="section"><div id="crit-content-1464624409188" class="section__content">
+		<div class="form-group">
+<button class="btn btn--full" id="welcome-text-button" data-action="show-welcome-text" type="button">Class Search Info</button>
+
+		</div>
+		<div class="form-group">
+<label for="crit-keyword" class="sr-only">Title, Subject, Instructor or Keyword</label><input type="text" id="crit-keyword" class="form-control" placeholder="Title, Subject, Instructor or Keyword">
+		</div>
+		<div class="form-group">
+<label for="crit-srcdb" class="sr-only">Term</label>
+<select id="crit-srcdb" class="form-control" data-type="single-column">
+	<option value="2267">Fall 2026</option>	<option value="2264">Summer 2026</option>	<option value="2261">Spring 2026</option>	<option value="9993">Summer &amp; Fall 2026</option>	<option value="9990">Academic Year 2025-2026</option>	<option value="9991">Academic Year 2024-2025</option></select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-subject" class="sr-only">Subject</label>
+<div class="seligo-container" data-mode="inline"><div class="seligo-cover" aria-label="Any Subject, Subject" tabindex="0" role="popupbutton" style="height: 34px; left: 0px; top: 0px; width: 329px;"></div><select id="crit-subject" class="form-control seligo-desktop seligo-original" data-type="single-column" data-seligo-label="Subject" tabindex="-1">
+<option value="">Any Subject</option>
+	<option value="ACCT">Accounting (ACCT)</option>
+	<option value="APRD">Advertising, PR, Media Design (APRD)</option>
+	<option value="ASEN">Aerospace Engineering (ASEN)</option>
+	<option value="AIRR">Air Force Aerospace Studies (AIRR)</option>
+	<option value="ASLC">American Sign Lang &amp; Culture (ASLC)</option>
+	<option value="ANTH">Anthropology (ANTH)</option>
+	<option value="APPM">Applied Math (APPM)</option>
+	<option value="APPA" hidden="">Applied Mathematics (APPA)</option>
+	<option value="ARAB">Arabic (ARAB)</option>
+	<option value="AREN">Architectural Engineering (AREN)</option>
+	<option value="ARCH">Architecture (ARCH)</option>
+	<option value="ARTF">Art Film Studies (ARTF)</option>
+	<option value="ARTH">Art History (ARTH)</option>
+	<option value="ARTS">Art Studio and Non-Studio (ARTS)</option>
+	<option value="AHUM">Arts &amp; Humanities (AHUM)</option>
+	<option value="ARSC">Arts &amp; Sciences Courses (ARSC)</option>
+	<option value="ASIA">Asian Studies (ASIA)</option>
+	<option value="ASTR">Astrophysical &amp; Planetary Sci (ASTR)</option>
+	<option value="ATLS">ATLAS (ATLS)</option>
+	<option value="ATOC">Atmospheric &amp; Oceanic Sciences (ATOC)</option>
+	<option value="BAKR" hidden="">Baker Residential Acad Prgm (BAKR)</option>
+	<option value="BASE">BCOR Applied Semester Exper (BASE)</option>
+	<option value="BCHM">Biochemistry (BCHM)</option>
+	<option value="BIEN">Biological Engineering (BIEN)</option>
+	<option value="BMEN">Biomedical Engineering (BMEN)</option>
+	<option value="BADM">Business Administration (BADM)</option>
+	<option value="BCOR">Business Core (BCOR)</option>
+	<option value="BPOL">Business Environment &amp; Policy (BPOL)</option>
+	<option value="BSLW">Business Law (BSLW)</option>
+	<option value="BUSM">Business Minor (BUSM)</option>
+	<option value="BUSO">Business of Nonprofits (BUSO)</option>
+	<option value="CSVC">Career Services (CSVC)</option>
+	<option value="CLDR" hidden="">Center for Leadership (CLDR)</option>
+	<option value="CWCV">Center for Western Civilizatio (CWCV)</option>
+	<option value="CAMW">Center of the American West (CAMW)</option>
+	<option value="CEES" hidden="">Central &amp; East European Stdy (CEES)</option>
+	<option value="CHEN">Chemical Engineering (CHEN)</option>
+	<option value="CHEM">Chemistry (CHEM)</option>
+	<option value="CHIN">Chinese (CHIN)</option>
+	<option value="CINE">Cinema Stds/Moving Image Arts (CINE)</option>
+	<option value="CVEN">Civil Engineering (CVEN)</option>
+	<option value="GREK">Classical Greek Language (GREK)</option>
+	<option value="CLAS">Classics (CLAS)</option>
+	<option value="CMDI">Coll of Comm, Media, Des &amp;Info (CMDI)</option>
+	<option value="COEN">Coll of Engineerng&amp;App Sci Adm (COEN)</option>
+	<option value="CMCI" hidden="">Coll of Media,Commncation,Info (CMCI)</option>
+	<option value="COMM">Communication (COMM)</option>
+	<option value="COMR" hidden="">Communication Res Acad Prgm (COMR)</option>
+	<option value="COML">Comparative Literature (COML)</option>
+	<option value="CSCI">Computer Science (CSCI)</option>
+	<option value="CSCA" hidden="">Computer Science (CSCA)</option>
+	<option value="CSPB">Computer Science Post Bacc (CSPB)</option>
+	<option value="CNCR" hidden="">Concurrent Placeholder (CNCR)</option>
+	<option value="CCOM">Corporate Communication (CCOM)</option>
+	<option value="CMDP">Critical Media Practices (CMDP)</option>
+	<option value="CESR">Curr Emphasis in Soc Respnsbly (CESR)</option>
+	<option value="DNCE">Dance (DNCE)</option>
+	<option value="DANE" hidden="">Danish (DANE)</option>
+	<option value="DTSC">Data Science (DTSC)</option>
+	<option value="DTSA" hidden="">Data Science (DTSA)</option>
+	<option value="DHUM">Digital Humanities (DHUM)</option>
+	<option value="ERTH">Earth Science (ERTH)</option>
+	<option value="EALC" hidden="">East Asian Langs &amp; Civilzatns (EALC)</option>
+	<option value="EBIO">Ecology &amp; Evolutionary Biology (EBIO)</option>
+	<option value="ECON">Economics (ECON)</option>
+	<option value="EDUC">Education (EDUC)</option>
+	<option value="EDUA">Education (EDUA)</option>
+	<option value="ECEN">Electrical &amp; Computer Engr (ECEN)</option>
+	<option value="ECEA" hidden="">Electrical &amp; Computer Engr (ECEA)</option>
+	<option value="ENEN" hidden="">Energy Engineering (ENEN)</option>
+	<option value="ENED">Engineering Education (ENED)</option>
+	<option value="EHON">Engineering Honors (EHON)</option>
+	<option value="ENLP">Engineering Leadership Program (ENLP)</option>
+	<option value="EMEN">Engineering Management (EMEN)</option>
+	<option value="EMEA" hidden="">Engineering Management (EMEA)</option>
+	<option value="ENES">Engineering, Ethics &amp; Society (ENES)</option>
+	<option value="ENGL">English (ENGL)</option>
+	<option value="ESLG">English as a Second Language (ESLG)</option>
+	<option value="EDEN" hidden="">Engr for Developng Communities (EDEN)</option>
+	<option value="ESBM">Entrepren &amp; Small Bus Mgmt (ESBM)</option>
+	<option value="ENST" hidden="">Environment and Sustainability (ENST)</option>
+	<option value="ENVD">Environmental Design (ENVD)</option>
+	<option value="EVEN">Environmental Engineering (EVEN)</option>
+	<option value="EPOD">Environmental Prod of Design (EPOD)</option>
+	<option value="ENVS">Environmental Studies (ENVS)</option>
+	<option value="ETHN">Ethnic Studies (ETHN)</option>
+	<option value="TDXD" hidden="">Experience Design (TDXD)</option>
+	<option value="FARR" hidden="">Farrand Residential Acad Prgm (FARR)</option>
+	<option value="FRSI" hidden="">Farsi (FRSI)</option>
+	<option value="FILM" hidden="">Film Studies (FILM)</option>
+	<option value="FNCE">Finance (FNCE)</option>
+	<option value="FINN" hidden="">Finnish (FINN)</option>
+	<option value="FYXP">First Year Exploration (FYXP)</option>
+	<option value="FYSM" hidden="">First Year Seminar (FYSM)</option>
+	<option value="FREN">French (FREN)</option>
+	<option value="GEEN">General Engineering (GEEN)</option>
+	<option value="GEOG">Geography (GEOG)</option>
+	<option value="GEOL" hidden="">Geological Sciences (GEOL)</option>
+	<option value="GRMN">German (GRMN)</option>
+	<option value="GSLL">Germanic &amp; Slavic Lang &amp; Lit (GSLL)</option>
+	<option value="GRAD">Graduate School (GRAD)</option>
+	<option value="GRTE" hidden="">Graduate Teacher Education (GRTE)</option>
+	<option value="HEBR">Hebrew (HEBR)</option>
+	<option value="HIND">Hindi/Urdu (HIND)</option>
+	<option value="HIST">History (HIST)</option>
+	<option value="HONR">Honors (HONR)</option>
+	<option value="HUMN">Humanities (HUMN)</option>
+	<option value="HUEN" hidden="">Humanities for Engineers (HUEN)</option>
+	<option value="INDO" hidden="">Indonesian (INDO)</option>
+	<option value="BAIM">Infm Mgmt/Business Analytics (BAIM)</option>
+	<option value="INFO">Information Science (INFO)</option>
+	<option value="IPHY">Integrative Physiology (IPHY)</option>
+	<option value="IMUS" hidden="">Intensive Music (IMUS)</option>
+	<option value="INST" hidden="">Interdisciplinary Studies (INST)</option>
+	<option value="IAFS">International Affairs (IAFS)</option>
+	<option value="INBU">International Business Cert (INBU)</option>
+	<option value="IAWP">Intrmedia Art,Wrtg,Performance (IAWP)</option>
+	<option value="INVS" hidden="">INVST Community Studies (INVS)</option>
+	<option value="ITAL">Italian (ITAL)</option>
+	<option value="JPNS">Japanese (JPNS)</option>
+	<option value="JWST">Jewish Studies (JWST)</option>
+	<option value="JRNL">Journalism (JRNL)</option>
+	<option value="KREN">Korean (KREN)</option>
+	<option value="LAND">Landscape Architecture (LAND)</option>
+	<option value="LGTC" hidden="">Language Technology (LGTC)</option>
+	<option value="LAMS">Latin American Studies (LAMS)</option>
+	<option value="LATN">Latin Language (LATN)</option>
+	<option value="LAWS">Law School (LAWS)</option>
+	<option value="LEAD">Leadership (LEAD)</option>
+	<option value="LDSP" hidden="">Leadership Res Acad Prgrm (LDSP)</option>
+	<option value="LGBT">Lesbn/Gay/Bisexual Stdys (LGBT)</option>
+	<option value="LIBB" hidden="">Libby Residential Acad Prgm (LIBB)</option>
+	<option value="LIBR">Libraries (LIBR)</option>
+	<option value="LING">Linguistics (LING)</option>
+	<option value="MGMT">Management (MGMT)</option>
+	<option value="MKTG">Marketing (MKTG)</option>
+	<option value="ENVM">Master of the Environment (ENVM)</option>
+	<option value="MSEN">Materials Science&amp;Engineering (MSEN)</option>
+	<option value="MATH">Mathematics (MATH)</option>
+	<option value="MBAX">MBA Advanced Electives (MBAX)</option>
+	<option value="MBAC">MBA Core (MBAC)</option>
+	<option value="MBAE" hidden="">MBA Executive (MBAE)</option>
+	<option value="MCEN">Mechanical Engineering (MCEN)</option>
+	<option value="MDRP" hidden="">Media Research and Practice (MDRP)</option>
+	<option value="MDST">Media Studies (MDST)</option>
+	<option value="MEMS" hidden="">Medieval &amp; Early Modern Stdys (MEMS)</option>
+	<option value="MILR">Military Science (MILR)</option>
+	<option value="MCDB">Molecular Cell &amp; Dev Biology (MCDB)</option>
+	<option value="MSBC">MS Business Core (MSBC)</option>
+	<option value="MSBX">MS Business Electives (MSBX)</option>
+	<option value="MUSM">Museum (MUSM)</option>
+	<option value="MUSC">Music (MUSC)</option>
+	<option value="MUEL">Music Electives (MUEL)</option>
+	<option value="EMUS">Music Ensemble (EMUS)</option>
+	<option value="NAVR" hidden="">Naval Science (NAVR)</option>
+	<option value="NEPL" hidden="">Nepali Language and Culture (NEPL)</option>
+	<option value="NRSC">Neuroscience (NRSC)</option>
+	<option value="NCBE" hidden="">Non-credit Business Education (NCBE)</option>
+	<option value="NCCS" hidden="">Non-credit CyberSecurity (NCCS)</option>
+	<option value="NCEN" hidden="">Non-credit Engineering (NCEN)</option>
+	<option value="NCGR" hidden="">Non-credit German (NCGR)</option>
+	<option value="NCIE" hidden="">Non-credit Internat'l English (NCIE)</option>
+	<option value="NCEV" hidden="">Non-credit Masters of Environm (NCEV)</option>
+	<option value="NCMU" hidden="">Non-credit Music (NCMU)</option>
+	<option value="NCTM" hidden="">Non-credit Technology &amp; Media (NCTM)</option>
+	<option value="NCTP" hidden="">Non-credit Test Preparation (NCTP)</option>
+	<option value="NCTH" hidden="">Non-credit Theater (NCTH)</option>
+	<option value="NRLN">Norlin Scholars (NRLN)</option>
+	<option value="OPIM">Operations &amp; Information MGMT (OPIM)</option>
+	<option value="ORMG">Organization Management (ORMG)</option>
+	<option value="ORGN">Organizational Behavior (ORGN)</option>
+	<option value="ORGL">Organizational Leadership (ORGL)</option>
+	<option value="OREC">Outdoor Recreation Economy (OREC)</option>
+	<option value="PACS">Peace &amp; Conflict Studies (PACS)</option>
+	<option value="PMUS">Performance Music (PMUS)</option>
+	<option value="PHIL">Philosophy (PHIL)</option>
+	<option value="PHYS">Physics (PHYS)</option>
+	<option value="PLAN">Planning and Urban Design (PLAN)</option>
+	<option value="PSCI">Political Science (PSCI)</option>
+	<option value="PORT">Portuguese (PORT)</option>
+	<option value="PRLC">Presidents Leadership Class (PRLC)</option>
+	<option value="PSYC">Psychology (PSYC)</option>
+	<option value="PBHL">Public Health (PBHL)</option>
+	<option value="QUEC">Quechua Language Courses (QUEC)</option>
+	<option value="REAL">Real Estate (REAL)</option>
+	<option value="RCPR" hidden="">Reciprocal Exchange (RCPR)</option>
+	<option value="RLST">Religious Studies (RLST)</option>
+	<option value="ROBO">Robotics (ROBO)</option>
+	<option value="RUSS">Russian (RUSS)</option>
+	<option value="REES">Russian/Eastern European Stds (REES)</option>
+	<option value="SNSK" hidden="">Sanskrit (SNSK)</option>
+	<option value="SCAN">Scandinavian (SCAN)</option>
+	<option value="SEWL" hidden="">Sewall Residential Acad Prgm (SEWL)</option>
+	<option value="SSCI">Social Sciences (SSCI)</option>
+	<option value="SOCY">Sociology (SOCY)</option>
+	<option value="SPAN">Spanish (SPAN)</option>
+	<option value="SLHS">Speech, Language &amp; Hearing Sci (SLHS)</option>
+	<option value="STAT">Statistics (STAT)</option>
+	<option value="STDY" hidden="">Study Abroad (STDY)</option>
+	<option value="SCMG">Supply Chain Management (SCMG)</option>
+	<option value="SUST" hidden="">Sustainability by Design RAP (SUST)</option>
+	<option value="SSIR" hidden="">Sustainablty&amp;Soc Innovtn  RAP (SSIR)</option>
+	<option value="SWED" hidden="">Swedish (SWED)</option>
+	<option value="CYBR" hidden="">Technology, Cybersec &amp; Policy (CYBR)</option>
+	<option value="TLEN" hidden="">Telecommunications (TLEN)</option>
+	<option value="THDN" hidden="">Theater &amp; Dance (THDN)</option>
+	<option value="THTR">Theatre (THTR)</option>
+	<option value="TMUS">Thesis Music (TMUS)</option>
+	<option value="TBTN" hidden="">Tibetan (TBTN)</option>
+	<option value="WGST">Women and Gender Studies (WGST)</option>
+	<option value="WRTG">Writing and Rhetoric (WRTG)</option>
+</select></div>
+
+		</div>
+		<div class="form-group">
+<label for="crit-camp" class="sr-only">Campus</label>
+<select id="crit-camp" class="form-control" data-type="single-column">
+<option value="">Any Campus</option>
+	<option value="CEPS@980" hidden="">Boulder Continuing Education (Out of Country)</option>
+	<option value="BLDR">Boulder Main Campus</option>
+	<option value="CEPS">Boulder Continuing Education</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-career_or_level" class="sr-only">Career/Course Level</label>
+<select id="crit-career_or_level" class="form-control" data-type="single-column">
+<option value="">Any Career/Course Level</option>
+	<option value="UGRD_LOWER">Undergrad Lower Division</option>
+	<option value="UGRD_UPPER">Undergrad Upper Division</option>
+	<option value="GRAD">Graduate</option>
+	<option value="LAW">Law</option>
+	<option value="NOCR">Non-Credit</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<div><input type="checkbox" id="crit-no-overlap-cart" value="Y" data-action="allowdefault;login"> <label for="crit-no-overlap-cart">Avoid Schedule Conflicts</label></div>
+		</div>
+		<div class="form-group">
+<div class="meet-pat-rec"><input type="checkbox" id="crit-custom-meeting-pattern" value="" data-action="allowdefault;custom-meet"> <label for="crit-custom-meeting-pattern"><span class="label-text">Avoid Certain Time Periods</span><button class="edit-meet-pat-button btn btn--primary" data-action="custom-meet" type="button" aria-label="Edit custom meeting pattern">edit</button></label></div>
+		</div>
+		<div class="form-group">
+<button class="btn btn--full" id="search-button" data-action="search" type="submit">SEARCH CLASSES</button>
+
+		</div>
+	</div></div>
+	<div id="crit-section-1638389551179" class="section section--collapsed section--collapsable"><button type="button" class="section__title" data-action="toggle-section-collapse" aria-controls="crit-content-1638389551179" aria-expanded="false"><i class="fa" aria-hidden="true"></i> Gen Educ / Core / Hum &amp; Soc Sci Search</button><div id="crit-content-1638389551179" aria-hidden="true" class="section__content">
+		<div class="form-group">
+<div class="grid4 note">GenEd: Use additional filter(s) to limit results.</div>
+		</div>
+		<div class="form-group">
+<div class="grid4 note">GenEd: If school/college not listed contact advisor for course options</div>
+		</div>
+		<div class="form-group">
+<label for="crit-asgened" class="sr-only">A&amp;S GenEd Attributes</label>
+<select id="crit-asgened" class="form-control" data-type="multiple-column">
+<option value="">Any A&amp;S GenEd Attributes</option>
+	<option value="asgened_8A">A&amp;S GenEd: Distribution-Arts &amp; Humanities</option>
+	<option value="asgened_8F">A&amp;S GenEd: Foreign Language</option>
+	<option value="asgened_8G">A&amp;S GenEd: Diversity-Global Perspective</option>
+	<option value="asgened_8L">A&amp;S GenEd: Distribution-Natural Sci Lab</option>
+	<option value="asgened_8U">A&amp;S GenEd: Diversity-U.S. Perspective</option>
+	<option value="asgened_8N">A&amp;S GenEd: Distribution-Natural Sciences</option>
+	<option value="asgened_8Q">A&amp;S GenEd: Quantitative Reasoning &amp; Math</option>
+	<option value="asgened_8S">A&amp;S GenEd: Distribution-Social Sciences</option>
+	<option value="asgened_8WL">A&amp;S GenEd: Written Communication-Lower</option>
+	<option value="asgened_8WU">A&amp;S GenEd: Written Communication-Upper</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-business_gened_attributes" class="sr-only">BUSN GenEd Attributes</label>
+<select id="crit-business_gened_attributes" class="form-control" data-type="multiple-column">
+<option value="">Any BUSN GenEd Attributes</option>
+	<option value="business_gened_attributes_BAH">BUSN GenEd: Arts &amp; Humanities</option>
+	<option value="business_gened_attributes_BDG">BUSN GenEd: Diversity-Global Perspective</option>
+	<option value="business_gened_attributes_BDU">BUSN GenEd: Diversity-U.S. Perspective</option>
+	<option value="business_gened_attributes_BNS">BUSN GenEd: Natural Science</option>
+	<option value="business_gened_attributes_BWC">BUSN GenEd: Written Communication</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-cmcigened" class="sr-only">CMDI Core Attributes</label>
+<select id="crit-cmcigened" class="form-control" data-type="multiple-column">
+<option value="">Any CMDI Core Attributes</option>
+	<option value="cmcigened_CCG">CMDI Core: Diversity &amp; Global Cult-CMDI</option>
+	<option value="cmcigened_CCL">CMDI Core: Composition &amp; Expression-Lower</option>
+	<option value="cmcigened_CCP">CMDI Core: Computing</option>
+	<option value="cmcigened_CCU">CMDI Core: Composition &amp; Expression-Upper</option>
+	<option value="cmcigened_CCV">CMDI Core: Historical Views-CMDI</option>
+	<option value="cmcigened_CDG">CMDI Core: Diversity &amp; Global Cult-NonCMDI</option>
+	<option value="cmcigened_CFL">CMDI Core: Foreign Language</option>
+	<option value="cmcigened_CHA">CMDI Core: Humanitites and the Arts</option>
+	<option value="cmcigened_CHV">CMDI Core: Historical Views-NonCMDI</option>
+	<option value="cmcigened_CNL">CMDI Core: Natural World Lab</option>
+	<option value="cmcigened_CNW">CMDI Core: Natural World</option>
+	<option value="cmcigened_CPS">CMDI Core: People and Society</option>
+	<option value="cmcigened_CQT">CMDI Core: Quantitative Thinking</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-educgened" class="sr-only">EDUC GenEd Attributes</label>
+<select id="crit-educgened" class="form-control" data-type="multiple-column">
+<option value="">Any EDUC GenEd Attributes</option>
+	<option value="educgened_EBS">EDUC GenEd: Biological Science</option>
+	<option value="educgened_ECG">EDUC GenEd: Cultural Geography</option>
+	<option value="educgened_EFL">EDUC GenEd: Foreign Language</option>
+	<option value="educgened_EGP">EDUC GenEd: Diversity-Global Perspective</option>
+	<option value="educgened_ELA">EDUC GenEd: Arts and Humanities </option>
+	<option value="educgened_EPH">EDUC GenEd: Physical Science</option>
+	<option value="educgened_EQR">EDUC GenEd: Mathematics</option>
+	<option value="educgened_ESL">EDUC GenEd: Science Lab</option>
+	<option value="educgened_ESS">EDUC GenEd: Social Science</option>
+	<option value="educgened_EUP">EDUC GenEd: Diversity-U.S. Perspective</option>
+	<option value="educgened_EUS">EDUC GenEd: U.S. History </option>
+	<option value="educgened_EWH">EDUC GenEd: World History  </option>
+	<option value="educgened_EWL">EDUC GenEd: Written Communication-Lower</option>
+	<option value="educgened_EWU">EDUC GenEd: Written Communication-Upper</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-engrgened" class="sr-only">ENGR Writing, Hum &amp; Soc Sci</label>
+<select id="crit-engrgened" class="form-control" data-type="multiple-column">
+<option value="">Any ENGR Writing, Hum &amp; Soc Sci</option>
+	<option value="engrgened_EWR">ENGR GenEd: Writing Requirement </option>
+	<option value="engrgened_HSS">ENGR GenEd: Humanities &amp; Social Science</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-envdgened" class="sr-only">ENVD GenEd Attributes</label>
+<select id="crit-envdgened" class="form-control" data-type="multiple-column">
+<option value="">Any ENVD GenEd Attributes</option>
+	<option value="envdgened_DHL">ENVD GenEd: Humanities-Lower</option>
+	<option value="envdgened_DHU">ENVD GenEd: Humanities-Upper</option>
+	<option value="envdgened_DSL">ENVD GenEd: Social Science-Lower</option>
+	<option value="envdgened_DSU">ENVD GenEd: Social Science-Upper</option>
+	<option value="envdgened_DWL">ENVD GenEd: Writing-Lower</option>
+	<option value="envdgened_DWU">ENVD GenEd: Writing-Upper</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-muscgened" class="sr-only">MUSC GenEd Attributes</label>
+<select id="crit-muscgened" class="form-control" data-type="multiple-column">
+<option value="">Any MUSC GenEd Attributes</option>
+	<option value="muscgened_MAH">MUSC GenEd:  Arts &amp; Humanities</option>
+	<option value="muscgened_MBS">MUSC GenEd: Social Science</option>
+	<option value="muscgened_MDG">MUSC GenEd: Diversity-Global Perspective</option>
+	<option value="muscgened_MDU">MUSC GenEd: Diversity-U.S. Perspective</option>
+	<option value="muscgened_MFL">MUSC GenEd: Foreign Language</option>
+	<option value="muscgened_MNS">MUSC GenEd: Natural Science</option>
+	<option value="muscgened_MQR">MUSC GenEd: Quantitative Reasoning</option>
+	<option value="muscgened_MWC">MUSC GenEd: Written Communication</option>
+</select>
+
+		</div>
+	</div></div>
+	<div id="crit-section-1464797400962" class="section"><h3 class="section__title">ADVANCED SEARCH</h3><div id="crit-content-1464797400962" class="section__content">
+		<div class="form-group">
+<label for="crit-course_material_cost" class="sr-only">Course Material Cost</label>
+<select id="crit-course_material_cost" class="form-control" data-type="multiple-column">
+<option value="">Any Course Material Cost</option>
+	<option value="course_material_cost_oer">OER (Open Educational Resources)</option>
+	<option value="course_material_cost_low_cost">Low Cost (&lt;$20)</option>
+	<option value="course_material_cost_no_cost">No Cost ($0)</option>
+	<option value="course_material_cost_any_or">No Cost, Low Cost, or OER</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-location" class="sr-only">Location</label>
+<select id="crit-location" class="form-control" data-type="single-column">
+<option value="">Any Location</option>
+	<option value="M-EAST">Bldr East Campus (Sum 20 &amp; beyond)</option>
+	<option value="OWCU">Western Colorado University</option>
+	<option value="EAST">Bldr East Campus (Spr 20 &amp; earlier)</option>
+	<option value="MAIN">Boulder Main Campus</option>
+	<option value="OCMU">Colorado Mesa University</option>
+	<option value="OCUDC">CU in DC</option>
+	<option value="OCUSODEN">CU South Denver Campus</option>
+	<option value="OLPOSTBAC">Online Post Bac</option>
+	<option value="ONLINE">Online</option>
+	<option value="OFCO">Off Campus within Colorado</option>
+	<option value="OREMOTE">Remote</option>
+	<option value="OFOS">Off Campus/Out-of-State</option>
+	<option value="STDY">Study Abroad</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-session" class="sr-only">Session</label>
+<select id="crit-session" class="form-control" data-type="single-column">
+<option value="">Any Session</option>
+	<option value="BAC">Applied Comp Science 13-Week</option>
+	<option value="BAS" hidden="">Boulder A Session/1st 5 Weeks</option>
+	<option value="BGS" hidden="">Boulder Augmester/3 Weeks</option>
+	<option value="BBS" hidden="">Boulder B Session/ 2nd 5-Weeks</option>
+	<option value="BCS" hidden="">Boulder C Session/ 8 Weeks</option>
+	<option value="B41" hidden="">Boulder Campus 4-Wk Session 1</option>
+	<option value="B42" hidden="">Boulder Campus 4-Wk Session 2</option>
+	<option value="B44" hidden="">Boulder Campus 4-Wk Session 4</option>
+	<option value="B51">Boulder Campus 5-Wk Session 1</option>
+	<option value="B52">Boulder Campus 5-Wk Session 2</option>
+	<option value="B53">Boulder Campus 5-Wk Session 3</option>
+	<option value="B71">Boulder Campus 7-Wk Session 1</option>
+	<option value="B72">Boulder Campus 7-Wk Session 2</option>
+	<option value="B81" hidden="">Boulder Campus 8-Wk Session 1</option>
+	<option value="B82" hidden="">Boulder Campus 8-Wk Session 2</option>
+	<option value="BPS" hidden="">Boulder Campus Pre-Semester</option>
+	<option value="BVS">Boulder Campus Variable Sess</option>
+	<option value="BD2" hidden="">Boulder D (w/B Drop/Add Dates)</option>
+	<option value="BD1" hidden="">Boulder D Session/ 10 Weeks</option>
+	<option value="BES" hidden="">Boulder E Session/1st 5 Weeks</option>
+	<option value="BFS" hidden="">Boulder F Session/2nd 5 Weeks</option>
+	<option value="BLW">Boulder LAW Full Term Session</option>
+	<option value="B">Boulder Main Campus Semester</option>
+	<option value="BAM" hidden="">Boulder Maymester/3 Weeks</option>
+	<option value="BS1" hidden="">Boulder Sum Session-1st 6 Wks</option>
+	<option value="BS2" hidden="">Boulder Sum Session-2nd 6 Wks</option>
+	<option value="B1S" hidden="">Boulder Summer Main Campus</option>
+	<option value="BM9" hidden="">CE Applied Music</option>
+	<option value="BCM" hidden="">CE Capital Media Program</option>
+	<option value="BET">CE Evening 10-Week Session</option>
+	<option value="BEF">CE Evening 13-Week Session</option>
+	<option value="BE1" hidden="">CE Evening 6-Week Session 1</option>
+	<option value="BE2" hidden="">CE Evening 6-Week Session 2</option>
+	<option value="BM3">CE Evening MBA 15-week Session</option>
+	<option value="BM1">CE Evening MBA Session 1</option>
+	<option value="BM2">CE Evening MBA Session 2</option>
+	<option value="BCE" hidden="">CE Extraordinary Program</option>
+	<option value="BSE" hidden="">CE Extraordinary Special</option>
+	<option value="B16">CE Grad 15-Week Session</option>
+	<option value="B15" hidden="">CE Grad 5-Week Session 1</option>
+	<option value="B25" hidden="">CE Grad 5-Week Session 2</option>
+	<option value="B35" hidden="">CE Grad 5-Week Session 3</option>
+	<option value="B10" hidden="">CE Grad Summer 10 Week Session</option>
+	<option value="BIT">CE IEC ESL Credit 10 Week</option>
+	<option value="BIV" hidden="">CE IEC Variable Session</option>
+	<option value="BII" hidden="">CE Individ Instruction</option>
+	<option value="BL4">CE Online 10-Week Session</option>
+	<option value="BL3">CE Online 13-Week Session</option>
+	<option value="BL1">CE Online Credit Session 1</option>
+	<option value="BL2">CE Online Credit Session 2</option>
+	<option value="BSO" hidden="">CE Online Flexible</option>
+	<option value="BL5" hidden="">CE Online Sum 8-Week Session</option>
+	<option value="BWS" hidden="">CE Winter Session</option>
+	<option value="BMU">Colorado Mesa Univ Session</option>
+	<option value="BEM" hidden="">Cont Ed-Evening MBA</option>
+	<option value="BI1" hidden="">Cont Ed-Intern'l Engl Session1</option>
+	<option value="BI2" hidden="">Cont Ed-Intern'l Engl Session2</option>
+	<option value="BNC" hidden="">Cont Ed-Non-Credit</option>
+	<option value="BMV" hidden="">Graduate Online Variable</option>
+	<option value="BG1">Online Grad 7-Week Session 1</option>
+	<option value="BG2">Online Grad 7-Week Session 2</option>
+	<option value="BGF">Online Graduate Flex</option>
+	<option value="OEE" hidden="">Open Entry/Open Exit</option>
+	<option value="BWU">Western Colorado Univ</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-stat" class="sr-only">Open, Waitlisted, or Closed</label>
+<select id="crit-stat" class="form-control" data-type="single-column">
+<option value="">Open, Waitlisted, or Closed</option>
+	<option value="A,W">Open or Waitlist Available</option>
+	<option value="A">Open Only</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-waitlist_type" class="sr-only">Waitlist Type</label>
+<select id="crit-waitlist_type" class="form-control" data-type="single-column">
+<option value="">Any Waitlist Type</option>
+	<option value="A">Auto-Enroll from Waitlist</option>
+	<option value="R">Waitlist Resequencing</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-schd" class="sr-only">Class Type</label>
+<select id="crit-schd" class="form-control" data-type="single-column">
+<option value="">Any Class Type</option>
+	<option value="CLN" hidden="">Clinical</option>
+	<option value="DSC" hidden="">Discussion</option>
+	<option value="DIS">Dissertation</option>
+	<option value="FLD">Field Studies</option>
+	<option value="IND">Independent Study</option>
+	<option value="INT">Internship</option>
+	<option value="LAB">Laboratory</option>
+	<option value="LEC">Lecture</option>
+	<option value="MLS">Main Lab Section</option>
+	<option value="OTH">Other</option>
+	<option value="PRA">Practicum</option>
+	<option value="REC">Recitation</option>
+	<option value="RSC">Research</option>
+	<option value="SEM">Seminar</option>
+	<option value="STU">Studio</option>
+	<option value="WKS">Workshop</option>
+	<option value="THE">Thesis</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-instmode" class="sr-only">Instruction Mode</label>
+<select id="crit-instmode" class="form-control" data-type="single-column">
+<option value="">Any Instruction Mode</option>
+	<option value="CD">Candidate for Degree</option>
+	<option value="HN">Honors Thesis Courses</option>
+	<option value="HY">Hybrid InPrsn/OL-Remote</option>
+	<option value="HR">Hybrid Remote/Online</option>
+	<option value="P">In Person</option>
+	<option value="IS">Independent Study</option>
+	<option value="OL">Online</option>
+	<option value="OS">Online Flex</option>
+	<option value="R">Remote</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-hours" class="sr-only">Credit Hours</label>
+<select id="crit-hours" class="form-control" data-type="single-column">
+<option value="">Any Credit Hours</option>
+	<option value="0">0 Hours</option>
+	<option value="1">1 Hour</option>
+	<option value="2">2 Hours</option>
+	<option value="3">3 Hours</option>
+	<option value="4">4 Hours</option>
+	<option value="5">5 Hours</option>
+	<option value="6+">6+ Hours</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-maps" class="sr-only">MAPS Requirement</label>
+<select id="crit-maps" class="form-control" data-type="multiple-column">
+<option value="">Any MAPS Requirement</option>
+	<option value="maps_MEN">MAPS: English</option>
+	<option value="maps_MMA">MAPS: Mathematics</option>
+	<option value="maps_MNC">MAPS: Chemistry</option>
+	<option value="maps_MNL">MAPS: Nat Sci Lab or Lab/Lec</option>
+	<option value="maps_MNN">MAPS: Natural Science</option>
+	<option value="maps_MNP">MAPS: Physics</option>
+	<option value="maps_MSG">MAPS: Geography</option>
+	<option value="maps_MSS">MAPS: Social Science</option>
+	<option value="maps_MSU">MAPS: Social Science US Context</option>
+	<option value="maps_MSW">MAPS: Social Science World Context</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<label for="crit-othattrs" class="sr-only">Other Attributes</label>
+<select id="crit-othattrs" class="form-control" data-type="multiple-column">
+<option value="">Other Attributes</option>
+	<option value="othattrs_ASIA">Asia Content Course (ASIA)</option>
+	<option value="othattrs_BUHR">Business Honors Course (BUHR)</option>
+	<option value="othattrs_CUBO">Online Programs CU Boulder (CUBO)</option>
+	<option value="othattrs_ENHR">Engineering Honors Course (ENHR)</option>
+	<option value="othattrs_HONR">Arts &amp; Sciences Honors Course (HONR)</option>
+	<option value="othattrs_GT_AH1">Arts &amp; Hum: Arts &amp; Expression (GT-AH1)</option>
+	<option value="othattrs_GT_AH2">Arts &amp; Hum: Lit &amp; Humanities (GT-AH2)</option>
+	<option value="othattrs_GT_AH3">Arts &amp; Hum: Ways of Thinking (GT-AH3)</option>
+	<option value="othattrs_GT_AH4">Arts &amp; Hum: Foreign Languages (GT-AH4)</option>
+	<option value="othattrs_GT_CO2">Comm: Intermediate Writing Course (GT-CO2)</option>
+	<option value="othattrs_GT_CO3">Comm: Advanced Writing Course (GT-CO3)</option>
+	<option value="othattrs_GT_HI1">History (GT-HI1)</option>
+	<option value="othattrs_GT_MA1">Mathematics (GT-MA1)</option>
+	<option value="othattrs_GT_SC1">Nat &amp; Phy Sci:Course w/Req Lab (GT-SC1)</option>
+	<option value="othattrs_GT_SC2">Nat &amp; Phy Sci:Lec w/o Req Lab (GT-SC2)</option>
+	<option value="othattrs_GT_SS1">Soc &amp; Behav Sci:Econ or Pol (GT-SS1)</option>
+	<option value="othattrs_GT_SS2">Soc &amp; Behav Sci: Geography (GT-SS2)</option>
+	<option value="othattrs_GT_SS3">Soc &amp; Behav Sci:Hmn Behav, Cul (GT-SS3)</option>
+	<option value="othattrs_CUDC">CU in D.C. (CUDC)</option>
+	<option value="othattrs_CUSD">CU South Denver (CUSD)</option>
+	<option value="othattrs_AD">A&amp;S Core: Human Diversity (AD)</option>
+	<option value="othattrs_AF">A&amp;S Core: Foreign Language (AF)</option>
+	<option value="othattrs_AH">A&amp;S Core Historical Context (AH)</option>
+	<option value="othattrs_AI">A&amp;S Core: Ideals &amp; Values (AI)</option>
+	<option value="othattrs_AL">A&amp;S Core: Literature and the Arts (AL)</option>
+	<option value="othattrs_AQ">A&amp;S Core: Quantitative Reasoning (AQ)</option>
+	<option value="othattrs_AS">A&amp;S Core: Contemporary Societies (AS)</option>
+	<option value="othattrs_AU">A&amp;S Core: United States Context (AU)</option>
+	<option value="othattrs_AW">A&amp;S Core: Written Communication (AW)</option>
+	<option value="othattrs_AX">A&amp;S Core: Natural Science Sequence (AX)</option>
+	<option value="othattrs_AY">A&amp;S Core: Natural Sci Non-Sequence (AY)</option>
+	<option value="othattrs_AZ">A&amp;S Core: Natural Science Lab (AZ)</option>
+</select>
+
+		</div>
+		<div class="form-group">
+<button class="btn btn--full" id="reset-button" data-action="panel-home" type="button">RESET ALL FILTERS</button>
+
+		</div>
+	</div></div>
+	<div id="crit-section-1493317115924" class="section"><h3 class="section__title">CARTS</h3><div id="crit-content-1493317115924" class="section__content">
+		<div class="form-group">
+<button class="btn btn--full" id="primary-cart-button" data-action="login,primary-cart" type="button">MY PRIMARY CART</button>
+
+		</div>
+		<div class="form-group">
+<label for="crit-other-carts" class="sr-only">Other Carts</label>
+<select id="crit-other-carts" class="form-control" data-action="allowdefault;login,onchange:other-cart">
+<option value="">Select a Cart...</option>
+</select>
+
+		</div>
+	</div></div>
+						</form>
+						<a href="#" id="deep-link-tag" data-group="" data-key="" data-srcdb="" data-action="result-detail" style="display: none;"></a>
+					</div>
+				</div>
+			</div>
+			<div class="empty-space" style="transition-duration: 300ms; transform: translateX(0px);">
+				<div class="empty-space__content">
+					<div class="glass">
+						<div class="glass__content">
+							<h2>Welcome to CU Boulder Class Search</h2>
+							<p>Search for classes, add classes to your cart, drop classes and change your grade mode here.&nbsp;<a href="https://portal.prod.cu.edu/psc/epprod/UCB3/HRMS/s/WEBLIB_CU_SS_FL.ISCRIPT1.FieldFormula.iScript_SR_General_FL?COMP=SSR_CLSRCH_MAIN_FL" target="_blank">Classic registration is also still available.</a></p>
+							<p>CU’s Grade Replacement policy has been updated to benefit more students. <u><a href="https://bit.ly/32QTceF" target="_blank" title="https://www.colorado.edu/buffportaladvising/">Schedule an advising appointment</a></u>&nbsp;to discuss or read more about <u><a href="https://bit.ly/3hWBwEI" target="_blank" title="https://www.colorado.edu/registrar/students/degree-planning/grade-replacement">retaking a course for grade replacement</a></u>.</p>
+							<p>Having trouble? See the Office of the Registrar webpage on <a href="https://www.colorado.edu/registrar/students/registration/register-classes/add-class/enrollment-errors">common enrollment errors &amp; troubleshooting tips</a>.</p>
+						</div>
+					</div>
+
+					<div class="promoted promoted--removed">
+						<h3 class="promoted__header">
+								Featured Courses
+								<a href="#" class="promoted__show-all" data-action="search-promoted" data-screen="empty-space" data-srcdb="">Show All</a>
+							</h3>
+						<div class="promoted__content">
+						</div>
+					</div>
+
+				</div>
+				<div class="empty-space__version">
+150.178.151
+				</div>
+			</div>
+		</main>
+
+
+
+		<script src="/sam/core.js?1774948996031"></script>
+		<script src="fose.js?1774948996031"></script>
+		<script src="/js/lfjs.js"></script>
+
+
+
+
+
+<div id="sam-login" class="sam-login screen noscript inactivescreen" role="dialog">
+			<div class="sam-login-header">
+				SAM Login
+			</div>
+
+			<div class="sam-login-body">
+				<div class="login-section message">
+					<p>Area for a message of some kind</p>
+				</div>
+
+				<div class="login-section debug" id="debug-area"><p>Some Text</p></div>
+			</div>
+			<div class="buttons clearfix">
+				<div class="cancel">
+					<button class="btn-cancel inline-btn btn">Cancel</button>
+					<button class="inline-btn btn-login btn">Login</button>
+				</div>
+			</div>
+		</div><div class="seligo-drop" role="application" data-mode="inline"><div class="seligo-remove"></div><div class="seligo-current"></div><label for="seligo-search-1" class="sr-only">Search</label><input type="text" id="seligo-search-1" class="seligo-search"><div class="seligo-options"></div><div class="seligo-aria-message sr-only" aria-live="polite"></div></div></body>
+</html>
