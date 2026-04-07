@@ -107,10 +107,7 @@ async def search_courses(
 
     return {
         "query": q,
-        "items": [
-            {"code": r["code"], "title": r["title"], "score": r["score"]}
-            for r in results
-        ],
+        "items": [{"code": r["code"], "title": r["title"], "score": r["score"]} for r in results],
     }
 
 
