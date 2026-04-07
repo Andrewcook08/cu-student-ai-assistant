@@ -192,15 +192,16 @@
 - **Blocked by**: DATA-001 (courses in PostgreSQL)
 - **Assignee**: Person B
 - **Status**: ✅ Done (Sprint 1)
-- **Description**: Implement course listing with filters: dept, instruction_mode, status, credits, text search (q). Offset/limit pagination (default 50). Returns `{items, total, offset, limit}`.
+- **Description**: Implement course listing with filters: dept, level, instruction_mode, status, credits, text search (q). Offset/limit pagination (default 50). Returns `{items, total, offset, limit}`.
 - **Acceptance criteria**:
   - [x] `GET /api/courses?dept=CSCI` returns only CSCI courses
   - [x] `GET /api/courses?q=machine+learning` returns relevant courses
   - [x] `GET /api/courses?limit=10&offset=20` paginates correctly
+  - [x] `GET /api/courses?level=undergrad-upper` returns only 3xxx-4xxx courses
   - [x] Multiple filters can be combined
   - [x] Response includes `total` count for pagination UI
   - [x] Response time < 100ms
-  - [x] pytest tests in `services/course-search-api/tests/test_courses_list.py` cover: dept filter, q text search, offset+limit pagination, multiple-filter combination, empty result set. `uv run pytest services/course-search-api/tests/test_courses_list.py -v` passes.
+  - [x] pytest tests in `services/course-search-api/tests/test_courses_list.py` cover: dept filter, level filter, q text search, offset+limit pagination, multiple-filter combination, empty result set. `uv run pytest services/course-search-api/tests/test_courses_list.py -v` passes.
 
 ### API-002: GET /api/courses/{code} — course detail with sections
 - **Points**: 3
@@ -243,21 +244,34 @@
   - [x] OR alternatives are grouped with their parent requirement
   - [x] pytest tests in `services/course-search-api/tests/test_programs.py` cover: list programs, get requirements ordered by sort_order, 404 for unknown program id. Tests pass.
 
-### API-005: Student profile endpoints
+### API-005: GET /api/students/me (student profile read)
 - **Points**: 4
 - **Phase**: 2-3 (Day 8-9)
 - **Blocked by**: INFRA-002 (User model)
 - **Assignee**: Person B
-- **Status**: 🟡 Partially done — GET /api/students/me shipped (Sprint 1). PUT /api/students/me/completed-courses remains. Remaining PUT work may be split into a follow-up ticket or folded into Epic 7 (auth UI), team's call.
-- **Description**: `GET /api/students/me` (returns profile, completed courses with grades, decisions). `PUT /api/students/me/completed-courses` (update completed course list with optional grades). All endpoints require JWT auth. Use test JWTs from `shared/auth.py` for development and testing; real login/register flow comes in Phase 3 (AUTH-001/002).
+- **Status**: ✅ Done (Sprint 1) — GET only. PUT /api/students/me/completed-courses split into sibling story API-005b.
+- **Description**: `GET /api/students/me` returns the authenticated student's profile, completed courses with grades, and decisions. Requires JWT auth. Use test JWTs from `shared/auth.py` for development and testing; real login/register flow comes in Phase 3 (AUTH-001/002).
 - **Acceptance criteria**:
   - [x] Endpoints require valid JWT (401 without)
   - [x] `GET /api/students/me` returns program, completed courses (with grades), decisions
-  - [ ] `PUT /api/students/me/completed-courses` accepts `[{course_code, grade}]`
-  - [x] User can only see/modify their own data (for GET /me; PUT still pending)
-  - [x] pytest tests in `services/course-search-api/tests/test_students.py` cover: GET /me with valid JWT (200), GET /me without JWT (401), GET /me accessing another user's data (403). PUT /me/completed-courses test still pending.
+  - [x] User can only see their own data
+  - [x] pytest tests in `services/course-search-api/tests/test_students.py` cover: GET /me with valid JWT (200), GET /me without JWT (401), GET /me accessing another user's data (403). Tests pass.
 
-> **Note**: API-006 was deleted. Its test coverage is folded into API-001, API-002, API-004, and API-005 per the "tests ship with code" policy (see `docs/development-workflow.md` § Testing Strategy).
+### API-005b: PUT /api/students/me/completed-courses
+- **Points**: 2
+- **Phase**: 2 (Sprint 2)
+- **Blocked by**: INFRA-002 (User model), API-005 (GET /me shipped Sprint 1)
+- **Assignee**: Person B
+- **Status**: 📋 Planned
+- **Description**: `PUT /api/students/me/completed-courses` lets an authenticated student update their self-reported completed course list with optional grades. Split out of API-005 so the GET work could close cleanly at the end of Sprint 1. Tracked as CUAI-78.
+- **Acceptance criteria**:
+  - [ ] Endpoint requires valid JWT (401 without)
+  - [ ] Accepts `[{course_code, grade}]` payload
+  - [ ] Persists completed courses for the authenticated user only (no cross-user writes)
+  - [ ] Returns the updated profile or a 204 on success
+  - [ ] pytest tests in `services/course-search-api/tests/test_students.py` cover: PUT with valid JWT, PUT without JWT (401), payload validation, cross-user write rejected. Tests pass.
+
+> **Note**: API-006 (CUAI-31) was marked Done in Sprint 1 as a no-op — its standalone test coverage had already been folded into API-001, API-002, API-004, and API-005 per the "tests ship with code" policy (see `docs/development-workflow.md` § Testing Strategy).
 
 ---
 
@@ -462,19 +476,19 @@
 - **Description**: Build the Course Search page visual shell using `frontend/cu-classes.html` as a reference (ADR-31 — visual shell only, not the full CU filter set). Port only the header and page frame:
   1. `src/components/layout/AppHeader.vue` — port the `<header class="banner">` markup from `cu-classes.html` lines 449-470 (50px black bar, `CLASS SEARCH` title in CU gold, help icon, cart icon, login/logout area). Replace Font Awesome CDN icons with `lucide-vue-next` (`HelpCircle`, `ShoppingCart`, `LogIn`, `LogOut`). Replace `data-action="login"` / `data-action="logout"` with `@click` handlers against a stub Pinia `authStore`. Replace `.user-anon .anon-only` / `.authed-only` with `v-if` on `authStore.isAuthenticated`.
   2. `src/views/CourseSearchView.vue` — port the `<main class="panels">` flex layout (left `.panel` 370px, right `.empty-space` flex:1, `min-height: calc(100vh - 50px)`)
-  3. `src/components/layout/FilterBar.vue` — our minimum-viable filter sidebar (not a port of CU's full form). Single `.section` titled "Search Classes" containing four form controls styled with the ported `.form-group` / `.form-control` / `.btn--full` classes: **Department** dropdown, **Level** dropdown (Undergrad Lower/Upper/Graduate/Law/Non-Credit), **Time** range control, **Credit Hours** dropdown, plus a SEARCH CLASSES submit button
+  3. `src/components/layout/FilterBar.vue` — our minimum-viable filter sidebar (not a port of CU's full form). Single `.section` titled "Search Classes" containing three form controls styled with the ported `.form-group` / `.form-control` / `.btn--full` classes: **Department** dropdown, **Level** dropdown (Undergrad Lower/Upper/Graduate), **Credit Hours** dropdown, plus a SEARCH CLASSES submit button
   4. `src/components/layout/AppFooter.vue` — minimal copyright line
 - **Status**: ✅ Done (Sprint 1)
 - **Acceptance criteria**:
   - [x] Header displays CU logo/branding with gold/black colors matching `cu-classes.html` lines 449-470 side-by-side
   - [x] No Font Awesome CDN link in rendered HTML; icons come from `lucide-vue-next`
   - [x] Login button is visible when `authStore.isAuthenticated === false`; logout link when `true`
-  - [x] Filter sidebar has four working dropdown/input controls: department, level, time, credits
+  - [x] Filter sidebar has three working dropdown/input controls: department, level, credits
   - [x] Filter sidebar is visually styled with the reference `.section` / `.form-control` / `.btn--full` classes (uses `src/assets/cu-classes.css` imported in FE-001)
   - [x] `CourseSearchView.vue` mounts at route `/` with the flex layout (370px left panel + flex:1 right pane)
   - [x] Login button visible (non-functional until auth is wired)
   - [x] Not required to be responsive (desktop-first, matching the reference)
-  - [x] Vitest specs pass for: `AppHeader.spec.ts` (unauthenticated branch, authenticated branch, logout calls `auth.logout()`, aria-labels present on all icon buttons), `FilterBar.spec.ts` (v-model on each of the 4 controls, `@search` emits exactly `{ dept, level, time, credits }` with no extra fields), `CourseSearchView.spec.ts` (layout mounts header + 370px panel + right pane + footer)
+  - [x] Vitest specs pass for: `AppHeader.spec.ts` (unauthenticated branch, authenticated branch, logout calls `auth.logout()`, aria-labels present on all icon buttons), `FilterBar.spec.ts` (v-model on each of the 3 controls, `@search` emits exactly `{ dept, level, credits }` with no extra fields), `CourseSearchView.spec.ts` (layout mounts header + 370px panel + right pane + footer)
 
 ### FE-003: Course table + detail panel (mock data)
 - **Points**: 4
@@ -497,7 +511,7 @@
   - [x] Detail shows sections (CRN, time, instructor, status)
   - [x] `FilterBar.vue` controls filter the mock data locally (e.g. selecting a department narrows the visible rows)
   - [x] After a search runs, `CourseSearchView.vue` swaps `WelcomePane.vue` for `CourseTable.vue` via `v-if="hasSearched"`
-  - [x] Vitest specs pass for: `CourseTable.spec.ts` (filter by dept, level, credits, AND time, empty-results state, row count), `CourseRow.spec.ts` (click expands, Enter key expands, Space key expands, aria-expanded toggles), `CourseDetail.spec.ts` (renders sections, prerequisites, description, status chips), `WelcomePane.spec.ts` (renders .glass card matching cu-classes.html lines 1114-1138)
+  - [x] Vitest specs pass for: `CourseTable.spec.ts` (filter by dept, level, credits, empty-results state, row count), `CourseRow.spec.ts` (click expands, Enter key expands, Space key expands, aria-expanded toggles), `CourseDetail.spec.ts` (renders sections, prerequisites, description, status chips), `WelcomePane.spec.ts` (renders .glass card matching cu-classes.html lines 1114-1138)
   - [x] `frontend/cu-classes.html` is **not modified** by this ticket — it remains an immutable reference per ADR-31
 
 ### FE-004: Wire course search to real API
@@ -506,7 +520,7 @@
 - **Blocked by**: API-001, API-002, FE-003
 - **Assignee**: Person B
 - **Status**: ✅ Done (Sprint 1)
-- **Description**: Replace the mock course data from FE-003 with real API calls. Create `src/services/courseApi.ts`, `src/composables/useCourses.ts` composable, `src/stores/courseStore.ts` Pinia store. Wire `FilterBar.vue`'s four controls (department, level, time, credits) to query params on `GET /api/courses` and refetch on change. Implement pagination.
+- **Description**: Replace the mock course data from FE-003 with real API calls. Create `src/services/courseApi.ts`, `src/composables/useCourses.ts` composable, `src/stores/courseStore.ts` Pinia store. Wire `FilterBar.vue`'s three controls (department, level, credits) to query params on `GET /api/courses` and refetch on change. Implement pagination.
 - **Acceptance criteria**:
   - [x] `CourseTable.vue` loads real data from `GET /api/courses` on page load (or on first search)
   - [x] Changing department filter re-fetches from API
@@ -1057,6 +1071,7 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | API-003 | 3 | Person B | 7-8 |
 | API-004 | 3 | Person B | 8 |
 | API-005 | 4 | Person B | 8-9 |
+| API-005b | 2 | Person B | Sprint 2 |
 | FE-004 | 4 | Person B | 9-10 |
 | FE-008 | 5 | Person B | 8-12 |
 | CHAT-001 | 2 | Person C | 6-7 |
