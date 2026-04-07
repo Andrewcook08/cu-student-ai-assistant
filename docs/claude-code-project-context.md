@@ -23,6 +23,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 ```
 
 ### Docker
+Prefer `scripts/dev.sh up --seed` for day-to-day startup (see Data ingestion). Raw `docker compose` below is the escape hatch.
 ```bash
 docker compose up -d                       # Start all 7 services
 docker compose up -d postgres neo4j redis ollama  # Data services only
@@ -43,10 +44,16 @@ cd frontend && npm run dev
 ```
 
 ### Data ingestion
+Ollama models (`gpt-oss:20b`, `nomic-embed-text`) are pre-provisioned on the dev host's disk — no runtime pulls needed. `scripts/dev.sh` is the canonical orchestrator: starts containers, waits for health, seeds data.
 ```bash
-docker compose exec ollama ollama pull gpt-oss:20b         # Pull LLM model
-docker compose exec ollama ollama pull nomic-embed-text    # Pull embedding model
-uv run --package data-ingest python -m data.ingest.run_all # Run all ingestion
+scripts/dev.sh up --seed                   # Start containers + wait for health + seed (primary entry point)
+scripts/dev.sh down                        # Stop containers (keep data)
+scripts/dev.sh reset                       # Stop + wipe volumes + restart clean
+scripts/dev.sh seed                        # Re-run seeding against already-running containers
+scripts/dev.sh status                      # Show container + health status
+
+# Manual fallback (if containers are already up and you just want to re-ingest):
+uv run --package data-ingest python -m data.ingest.run_all
 ```
 
 ### Verify databases
@@ -80,8 +87,9 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 ### Frontend
 - Vue 3 Composition API with `<script setup lang="ts">`
 - Pinia for state management
-- Composables in `src/composables/` (useChat, useCourses, useAuth)
-- API clients in `src/services/` (courseApi, chatApi, studentApi)
+- Composables in `src/composables/` — currently `useCourses.ts`. Planned: `useChat.ts` (Epic 4), `useAuth.ts` (Epic 7).
+- API clients in `src/services/` — currently `courseApi.ts`. Planned: `chatApi.ts` (Epic 4), `studentApi.ts` (Epic 7).
+- Pinia stores in `src/stores/` — `authStore.ts` (token plumbing only; login flow lands with AUTH-003/004), `courseStore.ts`. Planned: `chatStore.ts` (Epic 4).
 - Types in `src/types/index.ts`
 - **Course Search page is anchored to `frontend/cu-classes.html`** — a frozen 1170-line static HTML reference (ADR-31). Never modify it. All Course Search components port markup from specific line ranges in this file. See architecture.md § Frontend for the source-region → component mapping.
 - CU brand tokens (extracted from `cu-classes.html`'s `<style>` block): `cu-gold` `#CFB87C`, `cu-gold-hover` `#c4a94f`, `cu-black` `#000000`, `cu-text` `#333`, `cu-muted` `#555`, `cu-section-head` `#eee`, `cu-panel` `#f5f5f5`, `cu-pane` `#fafafa`, `cu-border` `#ddd`, `cu-link` `#0277BD`

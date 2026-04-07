@@ -6,6 +6,7 @@
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
+- [Day-to-day: use `scripts/dev.sh`](#day-to-day-use-scriptsdevsh)
 - [First-Time Setup](#first-time-setup)
 - [Running the Stack](#running-the-stack)
 - [Data Ingestion](#data-ingestion)
@@ -33,6 +34,36 @@ Install these before starting:
 - **RAM**: 16GB minimum, 32GB recommended (Neo4j and Ollama are memory-hungry)
 - **Disk**: ~20GB free (Docker images + database data + Ollama model)
 - **GPU**: Optional but recommended. On **Apple Silicon Macs**, run Ollama natively via [Ollama.app](https://ollama.com/download) for Metal GPU acceleration (~5-10s per response). Docker on Mac runs CPU-only (~60-90s per response) because Docker's Linux VM cannot access Metal. On **Linux with NVIDIA GPU**, Docker can use GPU passthrough (`--gpus all`).
+
+---
+
+## Day-to-day: use `scripts/dev.sh`
+
+`scripts/dev.sh` is the canonical dev environment manager and is how the team runs the stack day-to-day. It wraps `docker compose`, waits for container healthchecks (120s timeout), verifies that required Ollama models (`nomic-embed-text`, `gpt-oss:20b`) are present on disk, and drives the full data ingestion pipeline. Prefer it over raw `docker compose` commands.
+
+| Command | Description |
+|---------|-------------|
+| `scripts/dev.sh up [--seed]` | Start containers and wait until healthy. With `--seed`, also runs data ingestion. |
+| `scripts/dev.sh down` | Stop containers, preserve data volumes. |
+| `scripts/dev.sh reset` | Wipe volumes, rebuild containers, and re-seed from scratch. |
+| `scripts/dev.sh seed` | Run the 4-step data ingestion pipeline (containers must already be running). |
+| `scripts/dev.sh status` | Show container status, health, and exposed ports. |
+
+Typical first run after cloning:
+
+```bash
+scripts/dev.sh up --seed
+```
+
+Typical daily loop:
+
+```bash
+scripts/dev.sh up         # start
+scripts/dev.sh status     # sanity check
+scripts/dev.sh down       # stop when done
+```
+
+The raw `docker compose` commands below still work and are useful as an escape hatch for debugging — see [Running the Stack](#running-the-stack).
 
 ---
 
@@ -70,7 +101,7 @@ OLLAMA_URL=http://ollama:11434
 # Auth
 JWT_SECRET_KEY=local-development-secret-change-in-production
 
-# Ollama model (pulled on first startup)
+# Ollama models (pre-provisioned on disk — not pulled at runtime)
 OLLAMA_MODEL=gpt-oss:20b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 
@@ -80,11 +111,19 @@ CORS_ORIGINS=http://localhost:5173
 
 ### 3. Start all services
 
+Preferred (uses the dev script — waits for healthchecks, verifies models):
+
+```bash
+scripts/dev.sh up
+```
+
+Manual alternative:
+
 ```bash
 docker compose up -d
 ```
 
-This starts 7 containers:
+Either starts 7 containers:
 
 | Container | Port | URL |
 |-----------|------|-----|
@@ -96,15 +135,15 @@ This starts 7 containers:
 | `chat-service` | 8001 | http://localhost:8001/api/chat/health |
 | `frontend` | 5173 | http://localhost:5173 |
 
-### 4. Pull the Ollama model (first time only, ~13GB download)
+### 4. Ollama models
+
+The required models (`gpt-oss:20b`, `nomic-embed-text`) are **pre-provisioned on disk** — `scripts/dev.sh` verifies they're present before seeding and there is no runtime `ollama pull` step. If a model is missing, the script will report it so you can provision it once manually.
 
 **Apple Silicon Mac (recommended):** Run Ollama natively for Metal GPU acceleration.
 
 ```bash
 # Install Ollama.app from https://ollama.com/download (or brew install ollama)
 # Launch Ollama.app (NOT `ollama serve` — the app enables Metal GPU)
-ollama pull gpt-oss:20b
-ollama pull nomic-embed-text
 ```
 
 Then update your `.env` to point at native Ollama instead of Docker:
@@ -117,22 +156,23 @@ And start Docker **without** the Ollama container:
 docker compose up -d postgres neo4j redis
 ```
 
-**Linux / other platforms:** Use the Docker container.
-
-```bash
-docker compose exec ollama ollama pull gpt-oss:20b
-docker compose exec ollama ollama pull nomic-embed-text
-```
-
-Models are cached (in a Docker volume or `~/.ollama/`) and persist across restarts.
+**Linux / other platforms:** Use the Docker container (models are mounted/cached in the `ollama_data` volume and persist across restarts).
 
 ### 5. Run data ingestion
+
+Preferred:
+
+```bash
+scripts/dev.sh seed
+```
+
+Manual alternative:
 
 ```bash
 uv run --package data-ingest python -m data.ingest.run_all
 ```
 
-This parses the JSON datasets and loads them into both PostgreSQL and Neo4j. See [Data Ingestion](#data-ingestion) for details.
+Either parses the JSON datasets and loads them into both PostgreSQL and Neo4j. See [Data Ingestion](#data-ingestion) for details.
 
 ### 6. Verify everything works
 
@@ -200,10 +240,17 @@ docker compose up -d --build course-search-api chat-service frontend
 Ingestion loads the 2 JSON datasets into both PostgreSQL (for structured queries) and Neo4j (for graph + vector search).
 
 ### Prerequisites
-- All Docker services must be running (`docker compose up -d`)
+- All Docker services must be running (`scripts/dev.sh up` or `docker compose up -d`)
 - JSON datasets must be in `data/raw/` (`cu_classes.json`, `cu_degree_requirements.json`)
 
 ### Run all ingestion steps
+
+```bash
+scripts/dev.sh seed
+```
+
+Or run the underlying command directly:
+
 ```bash
 uv run --package data-ingest python -m data.ingest.run_all
 ```
@@ -458,17 +505,18 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 
 | Task | Command |
 |------|---------|
-| Start all services | `docker compose up -d` |
-| Stop all services | `docker compose down` |
-| Fresh start (delete data) | `docker compose down -v` |
+| Start all services | `scripts/dev.sh up` (or `docker compose up -d`) |
+| Stop all services | `scripts/dev.sh down` (or `docker compose down`) |
+| Fresh start (delete data) | `scripts/dev.sh reset` (or `docker compose down -v`) |
+| Show container status | `scripts/dev.sh status` |
 | View logs | `docker compose logs -f <service>` |
 | Rebuild a service | `docker compose up -d --build <service>` |
-| Run data ingestion | `uv run --package data-ingest python -m data.ingest.run_all` |
+| Run data ingestion | `scripts/dev.sh seed` |
 | Run tests | `uv run pytest` |
 | Lint | `uv run ruff check .` |
 | Format | `uv run ruff format .` |
 | Type check | `uv run mypy .` |
-| Pull Ollama model | `docker compose exec ollama ollama pull gpt-oss:20b` |
+| List Ollama models | `docker compose exec ollama ollama list` |
 | Open Neo4j browser | `open http://localhost:7474` |
 | API docs (Search API) | `open http://localhost:8000/docs` |
 | API docs (Chat Service) | `open http://localhost:8001/docs` |
@@ -498,19 +546,26 @@ Neo4j needs ~1GB of heap memory. If Docker is constrained:
 - Docker Desktop → Settings → Resources → increase memory to at least 24GB
 
 ### Ollama model not found
+
+Models are pre-provisioned on disk (in the `ollama_data` volume for Docker, or `~/.ollama/` for native Ollama) — they are not pulled at runtime. `scripts/dev.sh seed` verifies the required models (`gpt-oss:20b`, `nomic-embed-text`) are present before ingesting and reports if any are missing.
+
 ```bash
-# Check which models are downloaded
+# Check which models are present
 docker compose exec ollama ollama list
 
-# Pull the model
+# If a model is missing, provision it once (manual, not part of normal flow):
 docker compose exec ollama ollama pull gpt-oss:20b
 ```
 
 ### Database data is stale / want to start fresh
 ```bash
+scripts/dev.sh reset   # wipes volumes, rebuilds containers, re-seeds
+```
+
+Or manually:
+```bash
 docker compose down -v   # removes all volumes (deletes all data)
 docker compose up -d
-# Re-run ingestion:
 uv run --package data-ingest python -m data.ingest.run_all
 ```
 
@@ -550,7 +605,7 @@ No code changes are needed to deploy. The `config.py` in `shared/` reads from en
 
 Before deploying to GCP, verify locally:
 
-- [ ] `docker compose up -d` — all 7 containers start without errors
+- [ ] `scripts/dev.sh up` — all 7 containers start and reach healthy state
 - [ ] Data ingestion completes — courses visible in PostgreSQL and Neo4j
 - [ ] `GET /api/courses?dept=CSCI` returns results from Course Search API
 - [ ] `GET /api/health` and `GET /api/chat/health` both return 200
