@@ -893,7 +893,7 @@
 ```
 INFRA-001 (Andrew) ──→ INFRA-002 (Scott) ──→ INFRA-003 (Scott)
     │                       │                       │
-    │                       │                       ├──→ API-001 ──→ API-002 ──→ API-006
+    │                       │                       ├──→ API-001 ──→ API-002
     │                       │                       ├──→ API-003
     │                       │                       ├──→ API-004 ──→ AUTH-003
     │                       │                       ├──→ CHAT-001 ──→ FE-008

@@ -294,7 +294,26 @@ npm install -D @vue/test-utils jsdom @vitest/coverage-v8
 npm install markdown-it
 ```
 
-Configure Vitest with jsdom so component tests have a DOM. Create `frontend/vitest.config.ts` with `test.environment = 'jsdom'` and the same `@/` alias as Vite. Create `frontend/src/test-setup.ts` that calls `setActivePinia(createPinia())` before each test. Add `"test": "vitest"` and `"test:coverage": "vitest run --coverage"` to `package.json` scripts. A smoke test for the stub authStore (`src/stores/__tests__/authStore.spec.ts`) proves the harness works before FE-002 starts adding component tests.
+Configure Vitest with jsdom so component tests have a DOM. Create `frontend/vitest.config.ts` with `test.environment = 'jsdom'`, `test.globals = true`, `test.setupFiles = ['./src/test-setup.ts']`, and the same `@/` alias as Vite. Create `frontend/src/test-setup.ts` for global test setup (e.g., `setActivePinia(createPinia())` before each test). Add `"test": "vitest"` and `"test:coverage": "vitest run --coverage"` to `package.json` scripts; local dev uses `npm run test` (watch mode), while CI (CUAI-71 / CICD-001, Day 2) will run `npm run test -- --run` for a single non-watching pass. A smoke test for the stub authStore (`src/stores/__tests__/authStore.spec.ts`) proves the harness works before FE-002 starts adding component tests.
+
+```ts
+// frontend/vitest.config.ts
+import { fileURLToPath } from 'node:url'
+import { mergeConfig, defineConfig } from 'vitest/config'
+import viteConfig from './vite.config'
+
+export default mergeConfig(
+  viteConfig,
+  defineConfig({
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: ['./src/test-setup.ts'],
+      root: fileURLToPath(new URL('./', import.meta.url)),
+    },
+  }),
+)
+```
 
 Set up Tailwind with CU branding tokens **extracted directly from `frontend/cu-classes.html`'s embedded `<style>` block** (see ADR-31 — `cu-classes.html` is the design baseline; these tokens come from its CSS variables and color literals):
 

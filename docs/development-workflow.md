@@ -185,21 +185,13 @@ gh pr merge --squash
 
 ### When to Write Tests
 
-**Tests ship in the same PR as the code they verify.** This is a hard rule — no follow-up "tests for X" tickets, no "we'll add tests next sprint." If the PR adds a component, composable, route, or service, the same PR includes its tests. "Done" means the code works, has automated tests verifying it, and CI is green.
+**Tests ship in the same PR as the code they verify.** Don't open a PR without the tests for the behavior it introduces. Don't defer tests to a "cleanup" ticket. If CI doesn't run tests on the PR, the PR isn't ready.
 
-**Not TDD.** Test-after-code is fine as long as tests are in the same PR:
-
-1. Write the code
-2. Get it working manually (curl, browser, Neo4j browser)
-3. Write tests for the categories above
-4. Run the relevant suite before pushing:
-   - Backend: `uv run pytest -x -v`
-   - Frontend: `cd frontend && npm run test -- --run`
-5. Push — CI runs the full suite on PR, and branch protection blocks merge until it's green
-
-**Why this rule exists:** we previously bundled tests into separate tickets (API-006, CHAT-007) that ran *after* the code shipped. Two runtime crashes slipped through code review because nothing was exercising the endpoints before merge. Tests-with-code is a cheap safety net; the alternative is debugging in production.
+**Why:** un-gated merges let two runtime crashes reach review in PRs #41–#46. Tests-with-code closes that gap.
 
 ### Running Tests
+
+**Backend (pytest):**
 
 ```bash
 # All backend tests
@@ -214,14 +206,20 @@ uv run pytest services/chat-service/tests/test_tools.py -v
 
 # Stop on first failure (fast feedback)
 uv run pytest -x
+```
 
-# Frontend tests (Vitest)
-cd frontend && npm run test -- --run
+**Frontend (Vitest + @vue/test-utils):**
 
-# Frontend tests in watch mode while developing
-cd frontend && npm run test
+```bash
+cd frontend
+npm run test          # watch mode
+npm run test -- --run # single run (what CI uses)
+npm run test:coverage # coverage report
+```
 
-# Full local check — mirror what CI runs before pushing
+**Full local check — mirror what CI runs before pushing:**
+
+```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run pytest
 cd frontend && npm run type-check && npm run lint && npm run test -- --run && npm run build
 ```
