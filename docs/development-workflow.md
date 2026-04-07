@@ -168,9 +168,9 @@ gh pr merge --squash
 | Category | Why | Examples |
 |----------|-----|---------|
 | **Tools + tool executor** | Contract between LLM and data. Wrong shape = broken chat. | `test_tools.py`: each tool returns expected dict shape |
-| **Auth** | Security bugs are expensive. | `test_auth.py`: JWT create/decode, password hash, user_id override |
-| **Prerequisite parser** | Regex over messy data. Edge cases will bite you. | `test_prerequisites.py`: all 5 patterns, typos, edge cases |
-| **API endpoints** | Catch 500s before they hit the frontend. | `test_courses.py`: filters, pagination, 404s, auth |
+| **Auth** | Security bugs are expensive. | `test_auth.py` (planned, AUTH-001/002): JWT create/decode, password hash, user_id override |
+| **Prerequisite parser** | Regex over messy data. Edge cases will bite you. | `data/ingest/tests/test_parse_prerequisites.py`: all 5 patterns, typos, edge cases |
+| **API endpoints** | Catch 500s before they hit the frontend. | `test_courses_list.py` / `test_courses_detail.py` / `test_programs.py` / `test_students.py`: filters, pagination, 404s, auth |
 | **Security** | Injection attempts, rate limiting, output validation. | `test_security.py`: prompt injection, tool abuse, PII scanning |
 | **Frontend components** | Catches a11y regressions, broken event wiring, and XSS in markdown rendering before users see them. Required for every FE ticket. | `AppHeader.spec.ts` (auth branches), `ChatMessage.spec.ts` (markdown XSS), `CourseTable.spec.ts` (filter logic) |
 
@@ -294,7 +294,7 @@ On the first run, Claude Code will read `CLAUDE.md` and understand the project. 
 1. **Reference the story ID**: "Implement API-001: course listing endpoint with filters"
 2. **Point to the architecture**: "Follow the API spec in docs/architecture.md"
 3. **Specify the file**: "Edit services/course-search-api/course_search_api/routes/courses.py"
-4. **Ask for tests after code**: "Now write tests for the endpoint in tests/test_courses.py"
+4. **Ask for tests after code**: "Now write tests for the endpoint in tests/test_courses_list.py"
 5. **Run checks before committing**: "Run ruff check, ruff format, mypy, and pytest"
 
 ---
@@ -359,7 +359,7 @@ You: Implement FE-003: Course table and detail panel. Use
      lines 1114-1138), CourseTable.vue, CourseRow.vue, and
      CourseDetail.vue in frontend/src/components/course-search/.
      Use mock data from frontend/src/mocks/courses.ts. The FilterBar
-     built in FE-002 has four controls (dept/level/time/credits) —
+     built in FE-002 has three controls (dept/level/credits) —
      wire them to filter the mock data locally. Do not modify
      cu-classes.html — it's frozen.
 
@@ -387,7 +387,7 @@ You: Implement FE-008: WebSocket integration with useChat composable.
 - Tell Claude Code the exact Tailwind colors from `cu-classes.html`'s `<style>` block: "Use `bg-cu-black text-cu-gold` for the header (matches `.banner` in the reference)"
 - For composables, reference the WebSocket protocol types from `src/types/index.ts`
 - When wiring API calls, say "Use the Vite proxy — call /api/courses, not http://localhost:8000/api/courses"
-- Frontend tests are required on every FE ticket — Vitest + @vue/test-utils + jsdom. Ask Claude Code to write tests alongside the component: "After implementing CourseTable.vue, write CourseTable.spec.ts covering filter logic for dept, level, credits, and time." See the ticket's acceptance criteria for exactly which specs are required.
+- Frontend tests are required on every FE ticket — Vitest + @vue/test-utils + jsdom. Ask Claude Code to write tests alongside the component: "After implementing CourseTable.vue, write CourseTable.spec.ts covering filter logic for dept, level, and credits." See the ticket's acceptance criteria for exactly which specs are required.
 
 ### Node Commands (for Claude Code context)
 

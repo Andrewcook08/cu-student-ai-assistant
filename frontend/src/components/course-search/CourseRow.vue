@@ -24,7 +24,7 @@ function toggle() {
     <td class="course-row__mode">{{ course.instruction_mode || '—' }}</td>
     <td class="course-row__status">
       <span :class="['status-chip', (course.status || 'unknown').toLowerCase()]">
-        {{ course.status || 'Unknown' }}
+        {{ course.status || '—' }}
       </span>
     </td>
   </tr>

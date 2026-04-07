@@ -8,14 +8,12 @@ const emit = defineEmits<{
 
 const dept = ref('')
 const level = ref('')
-const time = ref('')
 const credits = ref('')
 
 function handleSearch() {
   emit('search', {
     dept: dept.value,
     level: level.value,
-    time: time.value,
     credits: credits.value,
   })
 }
@@ -55,19 +53,7 @@ function handleSearch() {
               <option value="undergrad-lower">Undergrad Lower (1000–2999)</option>
               <option value="undergrad-upper">Undergrad Upper (3000–4999)</option>
               <option value="graduate">Graduate (5000+)</option>
-              <option value="law">Law</option>
-              <option value="non-credit">Non-Credit</option>
             </select>
-          </div>
-          <div class="form-group">
-            <label for="filter-time">Time</label>
-            <input
-              id="filter-time"
-              v-model="time"
-              type="text"
-              class="form-control"
-              placeholder="e.g. MWF 9:00–9:50"
-            />
           </div>
           <div class="form-group">
             <label for="filter-credits">Credit Hours</label>

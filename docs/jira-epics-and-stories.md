@@ -38,18 +38,19 @@
 - **Blocked by**: Nothing
 - **Assignee**: Person C (Andrew — bootstrapping for the team)
 - **Labels**: `critical-path`
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Create the full repo skeleton with no business logic. Root `pyproject.toml` with workspace members, `.python-version`, `.gitignore`. All directory structures for shared/, services/course-search-api/, services/chat-service/, data/, frontend/. Each workspace member gets a `pyproject.toml` and empty `__init__.py` files. Minimal `main.py` per service (FastAPI + health endpoint only — no shared imports). Dockerfiles for each service. `docker-compose.yml` with 7 services and healthchecks. `.env.example`. `data/raw/.gitkeep`.
 - **Acceptance criteria**:
-  - [ ] `uv sync` succeeds from repo root
-  - [ ] `uv run ruff check .` passes
-  - [ ] `.gitignore` covers Python, Node, Docker, Terraform, IDE, OS files
-  - [ ] `cp .env.example .env && docker compose up -d --build` starts all 7 containers
-  - [ ] `docker compose ps` shows all data services as "healthy"
-  - [ ] `curl http://localhost:8000/api/health` → 200
-  - [ ] `curl http://localhost:8001/api/chat/health` → 200
-  - [ ] PostgreSQL, Neo4j, Redis, Ollama all accessible
-  - [ ] `data/raw/` exists with `.gitkeep`, JSON files gitignored
-  - [ ] Pushed to `main` — all team members can clone and run
+  - [x] `uv sync` succeeds from repo root
+  - [x] `uv run ruff check .` passes
+  - [x] `.gitignore` covers Python, Node, Docker, Terraform, IDE, OS files
+  - [x] `cp .env.example .env && docker compose up -d --build` starts all 7 containers
+  - [x] `docker compose ps` shows all data services as "healthy"
+  - [x] `curl http://localhost:8000/api/health` → 200
+  - [x] `curl http://localhost:8001/api/chat/health` → 200
+  - [x] PostgreSQL, Neo4j, Redis, Ollama all accessible
+  - [x] `data/raw/` exists with `.gitkeep`, JSON files gitignored
+  - [x] Pushed to `main` — all team members can clone and run
 
 ### INFRA-002: Create shared Python package
 - **Points**: 5
@@ -57,13 +58,14 @@
 - **Blocked by**: INFRA-001
 - **Assignee**: Person A (Scott)
 - **Labels**: `critical-path`
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Fill in the `shared/` package with real code: `config.py` (pydantic-settings), `database.py` (SQLAlchemy engine + session + get_db), `models.py` (all ORM models), `auth.py` (JWT create/decode, password hash/verify), `schemas.py` (shared Pydantic models: CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse).
 - **Acceptance criteria**:
-  - [ ] `shared/shared/config.py` reads all env vars from `.env`
-  - [ ] `shared/shared/models.py` has all 9 tables: courses, sections, course_attributes, programs, requirements, users, completed_courses, student_decisions, tool_audit_log
-  - [ ] `shared/shared/auth.py` can create and decode JWTs, hash and verify passwords
-  - [ ] `shared/shared/schemas.py` has CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse
-  - [ ] `from shared.config import settings` works from any workspace member
+  - [x] `shared/shared/config.py` reads all env vars from `.env`
+  - [x] `shared/shared/models.py` has all 9 tables: courses, sections, course_attributes, programs, requirements, users, completed_courses, student_decisions, tool_audit_log
+  - [x] `shared/shared/auth.py` can create and decode JWTs, hash and verify passwords
+  - [x] `shared/shared/schemas.py` has CourseCard, Action, ChatRequest, ChatResponse, ErrorResponse
+  - [x] `from shared.config import settings` works from any workspace member
 
 ### INFRA-003: Wire services to shared package
 - **Points**: 3
@@ -71,16 +73,17 @@
 - **Blocked by**: INFRA-001, INFRA-002
 - **Assignee**: Person A (Scott)
 - **Labels**: `critical-path`
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Update service `main.py` files to import from shared: add CORS middleware with settings, lifespan events (create tables, connect to services). Create `dependencies.py` (get_db, get_current_user). Create empty route files and empty test files. Verify full stack works with real shared imports.
 - **Acceptance criteria**:
-  - [ ] Both services import from shared (config, database, models)
-  - [ ] CORS middleware configured with `settings.cors_origins_list`
-  - [ ] Course Search API lifespan creates tables via `Base.metadata.create_all`
-  - [ ] `dependencies.py` has `get_db` and `get_current_user`
-  - [ ] Empty route files exist: `routes/courses.py`, `routes/programs.py`, `routes/auth.py`, `routes/students.py`, `routes/chat.py`
-  - [ ] Empty test directories with `conftest.py`
-  - [ ] `docker compose up -d --build` still works with real imports
-  - [ ] `uv run ruff check . && uv run mypy .` passes
+  - [x] Both services import from shared (config, database, models)
+  - [x] CORS middleware configured with `settings.cors_origins_list`
+  - [x] Course Search API lifespan creates tables via `Base.metadata.create_all`
+  - [x] `dependencies.py` has `get_db` and `get_current_user`
+  - [x] Empty route files exist: `routes/courses.py`, `routes/programs.py`, `routes/auth.py`, `routes/students.py`, `routes/chat.py`
+  - [x] Empty test directories with `conftest.py`
+  - [x] `docker compose up -d --build` still works with real imports
+  - [x] `uv run ruff check . && uv run mypy .` passes
 
 ---
 
@@ -94,15 +97,16 @@
 - **Blocked by**: INFRA-002 (for SQLAlchemy models)
 - **Assignee**: Person C
 - **Labels**: `critical-path`
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Write `data/ingest/ingest_courses.py`. Parse the JSON structure (department code → array of course objects). Extract dept code from course code. Strip "This section is closed" prefix from CRN. Handle credits as text. Deduplicate courses by code (topics courses appear multiple times with different titles) and extract pipe-delimited topic_titles. Normalize newline-delimited attributes into `course_attributes` table (split each line on `: ` into college/category pairs). Write to PostgreSQL (`courses`, `sections`, `course_attributes` tables) and Neo4j (`Course`, `Section`, `Department`, `Attribute` nodes with `HAS_ATTRIBUTE` edges). Must be idempotent (upsert).
 - **Acceptance criteria**:
-  - [ ] PostgreSQL `courses` table count matches architecture.md § Datasets (deduplicated by course code)
-  - [ ] PostgreSQL `sections` table count matches architecture.md § Datasets
-  - [ ] PostgreSQL `course_attributes` table populated per architecture.md § Datasets
-  - [ ] Neo4j node counts match architecture.md § Datasets (`Course`, `Department`, `Attribute` nodes with `HAS_ATTRIBUTE` edges)
-  - [ ] Re-running does not create duplicates
-  - [ ] CRN values are clean numeric strings
-  - [ ] topic_titles populated for courses with multiple topic variants
+  - [x] PostgreSQL `courses` table count matches architecture.md § Datasets (deduplicated by course code)
+  - [x] PostgreSQL `sections` table count matches architecture.md § Datasets
+  - [x] PostgreSQL `course_attributes` table populated per architecture.md § Datasets
+  - [x] Neo4j node counts match architecture.md § Datasets (`Course`, `Department`, `Attribute` nodes with `HAS_ATTRIBUTE` edges)
+  - [x] Re-running does not create duplicates
+  - [x] CRN values are clean numeric strings
+  - [x] topic_titles populated for courses with multiple topic variants
 
 ### DATA-002: Parse cu_degree_requirements.json into program + requirement records
 - **Points**: 5
@@ -110,53 +114,57 @@
 - **Blocked by**: INFRA-002
 - **Assignee**: Person C
 - **Labels**: `critical-path`
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Write `data/ingest/ingest_requirements.py`. Parse the flat list per program. Detect: `or`-prefix entries, choose-N groups, `&`-bundles, `/`-cross-listed, section headers, free-text requirements, total credit hours. Classify each entry's `requirement_type`. Write to PostgreSQL (programs + requirements tables) and Neo4j (Program + Requirement nodes with HAS_REQUIREMENT, SATISFIED_BY, OR_ALTERNATIVE relationships).
 - **Acceptance criteria**:
-  - [ ] PostgreSQL `programs` table count matches architecture.md § Datasets
-  - [ ] PostgreSQL `requirements` table has correct count per program
-  - [ ] Neo4j Program node count matches architecture.md § Datasets, with HAS_REQUIREMENT edges
-  - [ ] OR alternatives are linked with OR_ALTERNATIVE relationships
-  - [ ] Choose-N groups are correctly identified
-  - [ ] Re-running does not create duplicates
+  - [x] PostgreSQL `programs` table count matches architecture.md § Datasets
+  - [x] PostgreSQL `requirements` table has correct count per program
+  - [x] Neo4j Program node count matches architecture.md § Datasets, with HAS_REQUIREMENT edges
+  - [x] OR alternatives are linked with OR_ALTERNATIVE relationships
+  - [x] Choose-N groups are correctly identified
+  - [x] Re-running does not create duplicates
 
 ### DATA-003: Prerequisite regex parser
 - **Points**: 5
 - **Phase**: 1 (Day 2-4)
 - **Blocked by**: DATA-001 (needs courses in DB)
 - **Assignee**: Person C
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Write `data/ingest/parse_prerequisites.py`. Regex patterns for: single prereq, OR alternatives, AND requirements, corequisites, restrictions. For each match, create HAS_PREREQUISITE edges in Neo4j with type, min_grade, and raw_text. For non-matching strings, preserve raw_text only (LLM fallback).
 - **Acceptance criteria**:
-  - [ ] Handles all 5 common patterns (single, OR, AND, corequisite, restriction)
-  - [ ] Neo4j HAS_PREREQUISITE count >80% of courses with prerequisites
-  - [ ] Every edge has `raw_text` preserved
-  - [ ] Matched edges have `min_grade` populated
-  - [ ] Known typos in data ("prerequsite") don't crash the parser
-  - [ ] Parse rate ≥80% of courses with prerequisite data
+  - [x] Handles all 5 common patterns (single, OR, AND, corequisite, restriction)
+  - [x] Neo4j HAS_PREREQUISITE count >80% of courses with prerequisites
+  - [x] Every edge has `raw_text` preserved
+  - [x] Matched edges have `min_grade` populated
+  - [x] Known typos in data ("prerequsite") don't crash the parser
+  - [x] Parse rate ≥80% of courses with prerequisite data
 
 ### DATA-004: Build course embeddings via Ollama
 - **Points**: 3
 - **Phase**: 1 (Day 4-5)
 - **Blocked by**: DATA-001, INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person C
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Write `data/ingest/build_embeddings.py`. For each course, generate an embedding from `"{code} {title} {topic_titles} {description} {attributes}"` via Ollama's nomic-embed-text model (attributes joined from `HAS_ATTRIBUTE` edges). Including attributes ensures gen-ed queries like "Engineering humanities requirement" surface relevant courses via vector search. Store on Neo4j Course nodes. Create vector index (`course-embeddings`, 768 dims, cosine).
 - **Acceptance criteria**:
-  - [ ] All 3,410 Course nodes have non-null `embedding` property
-  - [ ] Vector index `course-embeddings` exists in Neo4j
-  - [ ] `CALL db.index.vector.queryNodes('course-embeddings', 5, $embedding)` returns results
-  - [ ] Vector index uses 768 dimensions with cosine similarity
-  - [ ] Script is idempotent (skips courses that already have embeddings)
-  - [ ] `uv run pytest data/ingest/tests/test_build_embeddings.py -v` passes (unit tests for text builder, Ollama client, retry logic)
+  - [x] All 3,410 Course nodes have non-null `embedding` property
+  - [x] Vector index `course-embeddings` exists in Neo4j
+  - [x] `CALL db.index.vector.queryNodes('course-embeddings', 5, $embedding)` returns results
+  - [x] Vector index uses 768 dimensions with cosine similarity
+  - [x] Script is idempotent (skips courses that already have embeddings)
+  - [x] `uv run pytest data/ingest/tests/test_build_embeddings.py -v` passes (unit tests for text builder, Ollama client, retry logic)
 
 ### DATA-005: run_all.py orchestrator + validation
 - **Points**: 2
 - **Phase**: 1 (Day 5)
 - **Blocked by**: DATA-001, DATA-002, DATA-003, DATA-004
 - **Assignee**: Person C
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Write `data/ingest/run_all.py` that runs all 4 ingestion steps in order with progress logging. Also write `scripts/seed_db.sh` shell wrapper. Run full ingestion and validate all expected counts.
 - **Acceptance criteria**:
-  - [ ] `uv run --package data-ingest python -m data.ingest.run_all` completes without errors
-  - [ ] All validation queries from the implementation guide pass
-  - [ ] Total runtime < 15 minutes (embeddings are the bottleneck)
+  - [x] `uv run --package data-ingest python -m data.ingest.run_all` completes without errors
+  - [x] All validation queries from the implementation guide pass
+  - [x] Total runtime < 15 minutes (embeddings are the bottleneck)
 
 ### DATA-006: Validate LLM tool calling with chosen model
 - **Points**: 3
@@ -164,12 +172,13 @@
 - **Blocked by**: INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person B
 - **Labels**: `critical-path`
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Write `scripts/test_tool_calling.py`. Define 7 tool schemas matching the architecture. Write 20+ representative student questions with expected tool names. Test the chosen Ollama model. Report pass rate. If < 80%, test alternative models and document recommendation.
 - **Acceptance criteria**:
-  - [ ] Test script runs against Ollama and produces pass/fail per question
-  - [ ] Overall pass rate ≥ 80%
-  - [ ] If fail: recommendation for alternative model documented
-  - [ ] Model choice decision recorded (resolves open question #2)
+  - [x] Test script runs against Ollama and produces pass/fail per question
+  - [x] Overall pass rate ≥ 80%
+  - [x] If fail: recommendation for alternative model documented
+  - [x] Model choice decision recorded (resolves open question #2)
 
 ---
 
@@ -182,34 +191,38 @@
 - **Phase**: 2 (Day 6-7)
 - **Blocked by**: DATA-001 (courses in PostgreSQL)
 - **Assignee**: Person B
-- **Description**: Implement course listing with filters: dept, instruction_mode, status, credits, text search (q). Offset/limit pagination (default 50). Returns `{items, total, offset, limit}`.
+- **Status**: ✅ Done (Sprint 1)
+- **Description**: Implement course listing with filters: dept, level, instruction_mode, status, credits, text search (q). Offset/limit pagination (default 50). Returns `{items, total, offset, limit}`.
 - **Acceptance criteria**:
-  - [ ] `GET /api/courses?dept=CSCI` returns only CSCI courses
-  - [ ] `GET /api/courses?q=machine+learning` returns relevant courses
-  - [ ] `GET /api/courses?limit=10&offset=20` paginates correctly
-  - [ ] Multiple filters can be combined
-  - [ ] Response includes `total` count for pagination UI
-  - [ ] Response time < 100ms
-  - [ ] pytest tests in `services/course-search-api/tests/test_courses_list.py` cover: dept filter, q text search, offset+limit pagination, multiple-filter combination, empty result set. `uv run pytest services/course-search-api/tests/test_courses_list.py -v` passes.
+  - [x] `GET /api/courses?dept=CSCI` returns only CSCI courses
+  - [x] `GET /api/courses?q=machine+learning` returns relevant courses
+  - [x] `GET /api/courses?limit=10&offset=20` paginates correctly
+  - [x] `GET /api/courses?level=undergrad-upper` returns only 3xxx-4xxx courses
+  - [x] Multiple filters can be combined
+  - [x] Response includes `total` count for pagination UI
+  - [x] Response time < 100ms
+  - [x] pytest tests in `services/course-search-api/tests/test_courses_list.py` cover: dept filter, level filter, q text search, offset+limit pagination, multiple-filter combination, empty result set. `uv run pytest services/course-search-api/tests/test_courses_list.py -v` passes.
 
 ### API-002: GET /api/courses/{code} — course detail with sections
 - **Points**: 3
 - **Phase**: 2 (Day 7)
 - **Blocked by**: DATA-001
 - **Assignee**: Person B
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Return a single course with all its sections, prerequisite text, and attributes. Include section meeting times, instructor, status.
 - **Acceptance criteria**:
-  - [ ] `GET /api/courses/CSCI 1300` returns course + all sections
-  - [ ] Sections include crn, meets, instructor, status
-  - [ ] 404 for non-existent course codes
-  - [ ] Prerequisites_raw is included
-  - [ ] pytest tests in `services/course-search-api/tests/test_courses_detail.py` cover: course exists (200 with sections), 404 on unknown code, `prerequisites_raw` included in response. Tests pass.
+  - [x] `GET /api/courses/CSCI 1300` returns course + all sections
+  - [x] Sections include crn, meets, instructor, status
+  - [x] 404 for non-existent course codes
+  - [x] Prerequisites_raw is included
+  - [x] pytest tests in `services/course-search-api/tests/test_courses_detail.py` cover: course exists (200 with sections), 404 on unknown code, `prerequisites_raw` included in response. Tests pass.
 
 ### API-003: GET /api/courses/search — semantic search via Neo4j vectors
 - **Points**: 3
 - **Phase**: 2 (Day 7-8)
 - **Blocked by**: DATA-004 (embeddings + vector index)
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: Accept a text query, generate embedding via Ollama, search Neo4j vector index, return ranked results with similarity scores.
 - **Acceptance criteria**:
   - [ ] `GET /api/courses/search?q=data+science` returns relevant courses
@@ -222,28 +235,43 @@
 - **Phase**: 2 (Day 8)
 - **Blocked by**: DATA-002
 - **Assignee**: Person B
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: List all programs (for dropdowns). Get requirements for a specific program, structured by requirement_type.
 - **Acceptance criteria**:
-  - [ ] `GET /api/programs` returns program count matches architecture.md § Datasets, with id, name, type
-  - [ ] `GET /api/programs/1/requirements` returns structured requirements
-  - [ ] Requirements are ordered by sort_order
-  - [ ] OR alternatives are grouped with their parent requirement
-  - [ ] pytest tests in `services/course-search-api/tests/test_programs.py` cover: list programs, get requirements ordered by sort_order, 404 for unknown program id. Tests pass.
+  - [x] `GET /api/programs` returns program count matches architecture.md § Datasets, with id, name, type
+  - [x] `GET /api/programs/1/requirements` returns structured requirements
+  - [x] Requirements are ordered by sort_order
+  - [x] OR alternatives are grouped with their parent requirement
+  - [x] pytest tests in `services/course-search-api/tests/test_programs.py` cover: list programs, get requirements ordered by sort_order, 404 for unknown program id. Tests pass.
 
-### API-005: Student profile endpoints
+### API-005: GET /api/students/me (student profile read)
 - **Points**: 4
 - **Phase**: 2-3 (Day 8-9)
 - **Blocked by**: INFRA-002 (User model)
 - **Assignee**: Person B
-- **Description**: `GET /api/students/me` (returns profile, completed courses with grades, decisions). `PUT /api/students/me/completed-courses` (update completed course list with optional grades). All endpoints require JWT auth. Use test JWTs from `shared/auth.py` for development and testing; real login/register flow comes in Phase 3 (AUTH-001/002).
+- **Status**: ✅ Done (Sprint 1) — GET only. PUT /api/students/me/completed-courses split into sibling story API-005b.
+- **Description**: `GET /api/students/me` returns the authenticated student's profile, completed courses with grades, and decisions. Requires JWT auth. Use test JWTs from `shared/auth.py` for development and testing; real login/register flow comes in Phase 3 (AUTH-001/002).
 - **Acceptance criteria**:
-  - [ ] Endpoints require valid JWT (401 without)
-  - [ ] `GET /api/students/me` returns program, completed courses (with grades), decisions
-  - [ ] `PUT /api/students/me/completed-courses` accepts `[{course_code, grade}]`
-  - [ ] User can only see/modify their own data
-  - [ ] pytest tests in `services/course-search-api/tests/test_students.py` cover: GET /me with valid JWT (200), GET /me without JWT (401), GET /me accessing another user's data (403), PUT /me/completed-courses update. Tests pass.
+  - [x] Endpoints require valid JWT (401 without)
+  - [x] `GET /api/students/me` returns program, completed courses (with grades), decisions
+  - [x] User can only see their own data
+  - [x] pytest tests in `services/course-search-api/tests/test_students.py` cover: GET /me with valid JWT (200), GET /me without JWT (401), GET /me accessing another user's data (403). Tests pass.
 
-> **Note**: API-006 was deleted. Its test coverage is folded into API-001, API-002, API-004, and API-005 per the "tests ship with code" policy (see `docs/development-workflow.md` § Testing Strategy).
+### API-005b: PUT /api/students/me/completed-courses
+- **Points**: 2
+- **Phase**: 2 (Sprint 2)
+- **Blocked by**: INFRA-002 (User model), API-005 (GET /me shipped Sprint 1)
+- **Assignee**: Person B
+- **Status**: 📋 Planned
+- **Description**: `PUT /api/students/me/completed-courses` lets an authenticated student update their self-reported completed course list with optional grades. Split out of API-005 so the GET work could close cleanly at the end of Sprint 1. Tracked as CUAI-78.
+- **Acceptance criteria**:
+  - [ ] Endpoint requires valid JWT (401 without)
+  - [ ] Accepts `[{course_code, grade}]` payload
+  - [ ] Persists completed courses for the authenticated user only (no cross-user writes)
+  - [ ] Returns the updated profile or a 204 on success
+  - [ ] pytest tests in `services/course-search-api/tests/test_students.py` cover: PUT with valid JWT, PUT without JWT (401), payload validation, cross-user write rejected. Tests pass.
+
+> **Note**: API-006 (CUAI-31) was marked Done in Sprint 1 as a no-op — its standalone test coverage had already been folded into API-001, API-002, API-004, and API-005 per the "tests ship with code" policy (see `docs/development-workflow.md` § Testing Strategy).
 
 ---
 
@@ -256,6 +284,7 @@
 - **Phase**: 1 (Day 5-6)
 - **Blocked by**: INFRA-003
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Timeboxed spike to de-risk the 8-point CHAT-008. Research LangGraph StateGraph, ReAct pattern, and tool binding. Build a minimal working prototype: single tool (e.g., echo tool), no real data, hardcoded Ollama connection. Document patterns and gotchas for the team.
 - **Acceptance criteria**:
   - [ ] Minimal LangGraph StateGraph with one tool runs end-to-end
@@ -269,6 +298,7 @@
 - **Blocked by**: INFRA-003
 - **Assignee**: Person C
 - **Labels**: `critical-path`
+- **Status**: 📋 Planned
 - **Description**: Create `routes/chat.py` with WebSocket endpoint at `/ws/chat/{session_id}`. Validate JWT from query param. Accept messages, send typing indicator, echo back. This unblocks Person B's frontend work.
 - **Acceptance criteria**:
   - [ ] WebSocket connects with valid JWT
@@ -281,6 +311,7 @@
 - **Phase**: 2 (Day 7-9)
 - **Blocked by**: DATA-001, DATA-002, DATA-003 (data in Neo4j)
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `services/neo4j_service.py` with async Neo4j driver. Implement: `vector_search()`, `get_prerequisite_chain()`, `get_degree_requirements()`. Use parameterized Cypher queries.
 - **Acceptance criteria**:
   - [ ] `vector_search(embedding)` returns top-10 courses with scores
@@ -293,6 +324,7 @@
 - **Phase**: 2 (Day 7-8)
 - **Blocked by**: INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `services/ollama_service.py`. Async HTTP client (`httpx.AsyncClient`) to Ollama API. Functions: `get_embedding(text)`, `chat_completion(messages, tools)`. 120s timeout with graceful error handling.
 - **Acceptance criteria**:
   - [ ] `get_embedding("data science")` returns 768-dim vector
@@ -305,6 +337,7 @@
 - **Phase**: 2 (Day 8-9)
 - **Blocked by**: INFRA-001 (Redis from Docker Compose)
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `services/redis_service.py`. Async Redis client. Implement: session storage, conversation message caching (RPUSH/LRANGE), inference queue (LPUSH/BRPOP), result pub/sub channel. 120s timeout on queue wait with 30s progress update.
 - **Acceptance criteria**:
   - [ ] Messages stored and retrieved by session_id
@@ -318,6 +351,7 @@
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: CHAT-002, CHAT-003
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `core/tools.py`. Define 7 tools with `@tool` decorator: search_courses, lookup_course, check_prerequisites, get_degree_requirements, get_student_profile, find_schedule_conflicts, save_decision. Each tool has a clear docstring for the LLM and calls the appropriate service layer. The search_courses/lookup_course split (fuzzy search by name → exact lookup by code) was validated by the CUAI-32 LangGraph spike.
 - **Acceptance criteria**:
   - [ ] All 7 tools defined with typed parameters and descriptive docstrings
@@ -331,6 +365,7 @@
 - **Blocked by**: CHAT-005
 - **Assignee**: Person C
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Create `core/tool_executor.py`. Wraps all tool calls: always overrides `user_id` with JWT value, validates parameters via Pydantic, rate limits at 10 calls per turn, retries once on malformed JSON, logs to `tool_audit_log`.
 - **Acceptance criteria**:
   - [ ] `user_id` in params is ALWAYS replaced with JWT-authenticated value
@@ -344,6 +379,7 @@
 - **Phase**: 2 (Day 10-11)
 - **Blocked by**: CHAT-003
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `core/intent_classifier.py`. Classifies user messages into intents: `course_search`, `prereq_check`, `degree_planning`, `schedule_help`, `general_question`. Uses LLM classification or keyword heuristics. Routes to different retrieval strategies and system prompt variations.
 - **Acceptance criteria**:
   - [ ] "What CS electives are there?" → `course_search`
@@ -359,6 +395,7 @@
 - **Blocked by**: CHAT-005, CHAT-006, CHAT-007, CHAT-010
 - **Assignee**: Person C
 - **Labels**: `critical-path`
+- **Status**: 📋 Planned
 - **Description**: Create `core/llm_engine.py`. LangGraph StateGraph with nodes: classify_intent → build_context → call_llm → maybe_call_tools (loop) → validate_output → respond. Bind tools to the LLM. Handle the tool-calling loop (LLM generates tool calls → executor runs them → results fed back → LLM generates final response). Wire into the WebSocket endpoint (replace echo stub).
 - **Acceptance criteria**:
   - [ ] User sends "What CS courses are available?" → LLM calls search_courses → returns course list
@@ -374,6 +411,7 @@
 - **Phase**: 2 (Day 8)
 - **Blocked by**: INFRA-002
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `services/postgres_service.py`. Functions: `get_student_data(user_id)` — returns profile + completed courses with grades + prior decisions. `save_student_decision(user_id, course_code, decision_type, notes)`. `get_schedule_conflicts(course_codes)` — join sections, parse meeting times, find overlaps.
 - **Acceptance criteria**:
   - [ ] `get_student_data` returns program, completed courses (with grades), decisions
@@ -386,6 +424,7 @@
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: CHAT-002, CHAT-009
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `core/context_builder.py`. Assembles context for the LLM prompt from: student profile, conversation summary, retrieved graph/vector data, intent classification. Formats using delimiter tags (`<retrieved_context>`, `<user_profile>`, `<conversation_summary>`).
 - **Acceptance criteria**:
   - [ ] Context includes student profile when available
@@ -398,6 +437,7 @@
 - **Phase**: 2-3 (Day 12-13)
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: Write pytest tests for the chat service. Test: tool executor auth enforcement (user_id override), tool calling with mock LLM responses, Neo4j service queries, Redis session storage, WebSocket connect/disconnect, intent classification accuracy. Mock Ollama responses so tests run without GPU.
 - **Acceptance criteria**:
   - [ ] `uv run pytest services/chat-service/tests/ -v` passes
@@ -417,15 +457,16 @@
 - **Phase**: 1 (Day 1)
 - **Blocked by**: Nothing
 - **Assignee**: Person B
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Initialize Vue 3 project with TypeScript, Router, Pinia, Tailwind, shadcn-vue. Configure Vite proxy for `/api` and `/ws`. Configure CU branding tokens extracted from `frontend/cu-classes.html`'s embedded `<style>` block (see ADR-31 and architecture.md § Frontend for the brand-token table). Copy the embedded `<style>` block from `frontend/cu-classes.html` (lines 8-445) into `src/assets/cu-classes.css` and import it from `main.ts` so subsequent FE-002/FE-003 work has the reference styling available out of the gate. Also set up the Vitest test harness so FE-002 onward can ship component tests in the same PR as their components: install `vitest`, `@vue/test-utils`, `jsdom`, `@vitest/coverage-v8`; create `frontend/vitest.config.ts` (jsdom environment, `@/` alias matching Vite); create `frontend/src/test-setup.ts` wiring Pinia; add `"test"` and `"test:coverage"` npm scripts.
 - **Acceptance criteria**:
-  - [ ] `cd frontend && npm run dev` starts on http://localhost:5173
-  - [ ] `tailwind.config.ts` defines `cu-gold` (`#CFB87C`), `cu-gold-hover` (`#c4a94f`), `cu-black` (`#000000`), `cu-panel` (`#f5f5f5`), `cu-pane` (`#fafafa`), `cu-section-head` (`#eee`), `cu-border` (`#ddd`), `cu-link` (`#0277BD`), `cu-text` (`#333`), `cu-muted` (`#555`)
-  - [ ] `src/assets/cu-classes.css` exists, is imported from `main.ts`, and contains the unmodified `<style>` block from `frontend/cu-classes.html` lines 8-445
-  - [ ] Vite proxy routes `/api/*` to port 8000 and `/ws/*` to port 8001
-  - [ ] TypeScript compiles without errors
-  - [ ] Vitest + @vue/test-utils + jsdom installed and configured (`frontend/vitest.config.ts`, `frontend/src/test-setup.ts`)
-  - [ ] `npm run test -- --run` passes with at least one smoke test (e.g. `src/stores/__tests__/authStore.spec.ts` asserting default state + login/logout transitions)
+  - [x] `cd frontend && npm run dev` starts on http://localhost:5173
+  - [x] CU brand tokens (`cu-gold` `#CFB87C`, `cu-gold-hover` `#c4a94f`, `cu-black` `#000000`, `cu-panel` `#f5f5f5`, `cu-pane` `#fafafa`, `cu-section-head` `#eee`, `cu-border` `#ddd`, `cu-link` `#0277BD`, `cu-text` `#333`, `cu-muted` `#555`) live in `src/assets/cu-classes.css` — the project uses Tailwind v4 via the `@tailwindcss/vite` plugin, so no standalone `tailwind.config.ts` is needed
+  - [x] `src/assets/cu-classes.css` exists, is imported from `main.ts`, and contains the unmodified `<style>` block from `frontend/cu-classes.html` lines 8-445
+  - [x] Vite proxy routes `/api/*` to port 8000 and `/ws/*` to port 8001
+  - [x] TypeScript compiles without errors
+  - [x] Vitest + @vue/test-utils + jsdom installed and configured (`frontend/vitest.config.ts`, `frontend/src/test-setup.ts`)
+  - [x] `npm run test -- --run` passes with at least one smoke test (e.g. `src/stores/__tests__/authStore.spec.ts` asserting default state + login/logout transitions)
 
 ### FE-002: Layout shell (header, filter sidebar, footer)
 - **Points**: 4
@@ -435,18 +476,19 @@
 - **Description**: Build the Course Search page visual shell using `frontend/cu-classes.html` as a reference (ADR-31 — visual shell only, not the full CU filter set). Port only the header and page frame:
   1. `src/components/layout/AppHeader.vue` — port the `<header class="banner">` markup from `cu-classes.html` lines 449-470 (50px black bar, `CLASS SEARCH` title in CU gold, help icon, cart icon, login/logout area). Replace Font Awesome CDN icons with `lucide-vue-next` (`HelpCircle`, `ShoppingCart`, `LogIn`, `LogOut`). Replace `data-action="login"` / `data-action="logout"` with `@click` handlers against a stub Pinia `authStore`. Replace `.user-anon .anon-only` / `.authed-only` with `v-if` on `authStore.isAuthenticated`.
   2. `src/views/CourseSearchView.vue` — port the `<main class="panels">` flex layout (left `.panel` 370px, right `.empty-space` flex:1, `min-height: calc(100vh - 50px)`)
-  3. `src/components/layout/FilterBar.vue` — our minimum-viable filter sidebar (not a port of CU's full form). Single `.section` titled "Search Classes" containing four form controls styled with the ported `.form-group` / `.form-control` / `.btn--full` classes: **Department** dropdown, **Level** dropdown (Undergrad Lower/Upper/Graduate/Law/Non-Credit), **Time** range control, **Credit Hours** dropdown, plus a SEARCH CLASSES submit button
+  3. `src/components/layout/FilterBar.vue` — our minimum-viable filter sidebar (not a port of CU's full form). Single `.section` titled "Search Classes" containing three form controls styled with the ported `.form-group` / `.form-control` / `.btn--full` classes: **Department** dropdown, **Level** dropdown (Undergrad Lower/Upper/Graduate), **Credit Hours** dropdown, plus a SEARCH CLASSES submit button
   4. `src/components/layout/AppFooter.vue` — minimal copyright line
+- **Status**: ✅ Done (Sprint 1)
 - **Acceptance criteria**:
-  - [ ] Header displays CU logo/branding with gold/black colors matching `cu-classes.html` lines 449-470 side-by-side
-  - [ ] No Font Awesome CDN link in rendered HTML; icons come from `lucide-vue-next`
-  - [ ] Login button is visible when `authStore.isAuthenticated === false`; logout link when `true`
-  - [ ] Filter sidebar has four working dropdown/input controls: department, level, time, credits
-  - [ ] Filter sidebar is visually styled with the reference `.section` / `.form-control` / `.btn--full` classes (uses `src/assets/cu-classes.css` imported in FE-001)
-  - [ ] `CourseSearchView.vue` mounts at route `/` with the flex layout (370px left panel + flex:1 right pane)
-  - [ ] Login button visible (non-functional until auth is wired)
-  - [ ] Not required to be responsive (desktop-first, matching the reference)
-  - [ ] Vitest specs pass for: `AppHeader.spec.ts` (unauthenticated branch, authenticated branch, logout calls `auth.logout()`, aria-labels present on all icon buttons), `FilterBar.spec.ts` (v-model on each of the 4 controls, `@search` emits exactly `{ dept, level, time, credits }` with no extra fields), `CourseSearchView.spec.ts` (layout mounts header + 370px panel + right pane + footer)
+  - [x] Header displays CU logo/branding with gold/black colors matching `cu-classes.html` lines 449-470 side-by-side
+  - [x] No Font Awesome CDN link in rendered HTML; icons come from `lucide-vue-next`
+  - [x] Login button is visible when `authStore.isAuthenticated === false`; logout link when `true`
+  - [x] Filter sidebar has three working dropdown/input controls: department, level, credits
+  - [x] Filter sidebar is visually styled with the reference `.section` / `.form-control` / `.btn--full` classes (uses `src/assets/cu-classes.css` imported in FE-001)
+  - [x] `CourseSearchView.vue` mounts at route `/` with the flex layout (370px left panel + flex:1 right pane)
+  - [x] Login button visible (non-functional until auth is wired)
+  - [x] Not required to be responsive (desktop-first, matching the reference)
+  - [x] Vitest specs pass for: `AppHeader.spec.ts` (unauthenticated branch, authenticated branch, logout calls `auth.logout()`, aria-labels present on all icon buttons), `FilterBar.spec.ts` (v-model on each of the 3 controls, `@search` emits exactly `{ dept, level, credits }` with no extra fields), `CourseSearchView.spec.ts` (layout mounts header + 370px panel + right pane + footer)
 
 ### FE-003: Course table + detail panel (mock data)
 - **Points**: 4
@@ -461,40 +503,43 @@
   5. `src/mocks/courses.ts` — 15+ mock course objects used by `CourseTable.vue` in FE-003. FE-004 replaces this with a real API call.
 
   The filter controls built in FE-002 (`FilterBar.vue`) filter the mock data locally in this ticket. FE-004 wires them to the real `GET /api/courses` endpoint.
+- **Status**: ✅ Done (Sprint 1)
 - **Acceptance criteria**:
-  - [ ] `WelcomePane.vue` renders the `.glass` welcome card matching `cu-classes.html` lines 1114-1138 on initial load
-  - [ ] `CourseTable.vue` renders 15+ mock courses with code, title, credits, status
-  - [ ] Clicking a row expands `CourseDetail.vue` below it
-  - [ ] Detail shows sections (CRN, time, instructor, status)
-  - [ ] `FilterBar.vue` controls filter the mock data locally (e.g. selecting a department narrows the visible rows)
-  - [ ] After a search runs, `CourseSearchView.vue` swaps `WelcomePane.vue` for `CourseTable.vue` via `v-if="hasSearched"`
-  - [ ] Vitest specs pass for: `CourseTable.spec.ts` (filter by dept, level, credits, AND time, empty-results state, row count), `CourseRow.spec.ts` (click expands, Enter key expands, Space key expands, aria-expanded toggles), `CourseDetail.spec.ts` (renders sections, prerequisites, description, status chips), `WelcomePane.spec.ts` (renders .glass card matching cu-classes.html lines 1114-1138)
-  - [ ] `frontend/cu-classes.html` is **not modified** by this ticket — it remains an immutable reference per ADR-31
+  - [x] `WelcomePane.vue` renders the `.glass` welcome card matching `cu-classes.html` lines 1114-1138 on initial load
+  - [x] `CourseTable.vue` renders 15+ mock courses with code, title, credits, status
+  - [x] Clicking a row expands `CourseDetail.vue` below it
+  - [x] Detail shows sections (CRN, time, instructor, status)
+  - [x] `FilterBar.vue` controls filter the mock data locally (e.g. selecting a department narrows the visible rows)
+  - [x] After a search runs, `CourseSearchView.vue` swaps `WelcomePane.vue` for `CourseTable.vue` via `v-if="hasSearched"`
+  - [x] Vitest specs pass for: `CourseTable.spec.ts` (filter by dept, level, credits, empty-results state, row count), `CourseRow.spec.ts` (click expands, Enter key expands, Space key expands, aria-expanded toggles), `CourseDetail.spec.ts` (renders sections, prerequisites, description, status chips), `WelcomePane.spec.ts` (renders .glass card matching cu-classes.html lines 1114-1138)
+  - [x] `frontend/cu-classes.html` is **not modified** by this ticket — it remains an immutable reference per ADR-31
 
 ### FE-004: Wire course search to real API
 - **Points**: 4
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: API-001, API-002, FE-003
 - **Assignee**: Person B
-- **Description**: Replace the mock course data from FE-003 with real API calls. Create `src/services/courseApi.ts`, `src/composables/useCourses.ts` composable, `src/stores/courseStore.ts` Pinia store. Wire `FilterBar.vue`'s four controls (department, level, time, credits) to query params on `GET /api/courses` and refetch on change. Implement pagination.
+- **Status**: ✅ Done (Sprint 1)
+- **Description**: Replace the mock course data from FE-003 with real API calls. Create `src/services/courseApi.ts`, `src/composables/useCourses.ts` composable, `src/stores/courseStore.ts` Pinia store. Wire `FilterBar.vue`'s three controls (department, level, credits) to query params on `GET /api/courses` and refetch on change. Implement pagination.
 - **Acceptance criteria**:
-  - [ ] `CourseTable.vue` loads real data from `GET /api/courses` on page load (or on first search)
-  - [ ] Changing department filter re-fetches from API
-  - [ ] Pagination works (next/prev, showing total count)
-  - [ ] Loading state shown while fetching
-  - [ ] API errors shown as toast notification — **no silent fallback to mock data**. Errors must surface to the user with a retry affordance.
-  - [ ] Vitest specs pass for: `courseApi.spec.ts` (fetch success, fetch 4xx, fetch 5xx, network error), `useCourses.spec.ts` (loading/error/success reactive state transitions), `CourseSearchView.spec.ts` integration (mocked fetch success renders table; mocked fetch error renders toast, does NOT fall back to mock data)
+  - [x] `CourseTable.vue` loads real data from `GET /api/courses` on page load (or on first search)
+  - [x] Changing department filter re-fetches from API
+  - [x] Pagination works (next/prev, showing total count)
+  - [x] Loading state shown while fetching
+  - [x] API errors shown as toast notification — **no silent fallback to mock data**. Errors must surface to the user with a retry affordance.
+  - [x] Vitest specs pass for: `courseApi.spec.ts` (fetch success, fetch 4xx, fetch 5xx, network error), `useCourses.spec.ts` (loading/error/success reactive state transitions), `CourseSearchView.spec.ts` integration (mocked fetch success renders table; mocked fetch error renders toast, does NOT fall back to mock data)
 
 ### FE-005: TypeScript types
 - **Points**: 1
 - **Phase**: 1-2 (ongoing)
 - **Blocked by**: FE-001
 - **Assignee**: Person B
+- **Status**: ✅ Done (Sprint 1)
 - **Description**: Create `src/types/index.ts` with interfaces: Course, Section, Program, StudentProfile, ChatResponse, CourseCard, Action, WsClientMessage, WsServerMessage, PaginatedResponse.
 - **Acceptance criteria**:
-  - [ ] All API response shapes have TypeScript interfaces
-  - [ ] All WebSocket message types are defined
-  - [ ] No `any` types anywhere in `frontend/src/` (enforced by tsconfig `strict: true`; once eslint lands in CICD-001, `@typescript-eslint/no-explicit-any: error` in the ruleset)
+  - [x] All API response shapes have TypeScript interfaces
+  - [x] All WebSocket message types are defined
+  - [x] No `any` types anywhere in `frontend/src/` (enforced by tsconfig `strict: true`; once eslint lands in CICD-001, `@typescript-eslint/no-explicit-any: error` in the ruleset)
 
 ---
 
@@ -507,6 +552,7 @@
 - **Phase**: 1 (Day 4)
 - **Blocked by**: FE-001
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: ChatWindow component. Floating panel in bottom-right corner. Click to expand/collapse. Scrollable message area. Styled with CU branding.
 - **Acceptance criteria**:
   - [ ] Chat icon visible in bottom-right corner
@@ -521,6 +567,7 @@
 - **Phase**: 1 (Day 4-5)
 - **Blocked by**: FE-006
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: ChatMessage component (user vs. AI styling). Markdown rendering via markdown-it. StructuredResponse component renders CourseCard lists. SuggestedActions component renders buttons/dropdowns from Action objects.
 - **Acceptance criteria**:
   - [ ] User messages right-aligned, AI messages left-aligned
@@ -535,6 +582,7 @@
 - **Phase**: 2 (Day 8-12)
 - **Blocked by**: CHAT-001 (stub WebSocket), FE-007
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: Create `useChat.ts` composable. WebSocket connection with JWT auth. Handle message types: typing, chat_response, error, progress. Auto-reconnect with exponential backoff (1s, 2s, 4s, max 30s). Show "Reconnecting..." during retry. Create `chatStore.ts` for state management.
 - **Acceptance criteria**:
   - [ ] WebSocket connects with JWT token
@@ -550,6 +598,7 @@
 - **Phase**: 1-2 (Day 5, then wire in Day 9)
 - **Blocked by**: FE-006
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: ChatInput component. Text input + send button. Enter key sends. Input disabled while AI is responding. Character count indicator (max 2000).
 - **Acceptance criteria**:
   - [ ] Enter key sends message
@@ -570,6 +619,7 @@
 - **Phase**: 3 (Day 13)
 - **Blocked by**: INFRA-002 (User model)
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: `POST /api/auth/register` — accepts email, password, name, program_id. Hashes password with bcrypt. Returns JWT. Validates email uniqueness.
 - **Acceptance criteria**:
   - [ ] Successful registration returns JWT + user_id
@@ -582,6 +632,7 @@
 - **Phase**: 3 (Day 13)
 - **Blocked by**: AUTH-001
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: `POST /api/auth/login` — accepts email, password. Verifies against hash. Returns JWT.
 - **Acceptance criteria**:
   - [ ] Valid credentials return JWT
@@ -593,6 +644,7 @@
 - **Phase**: 3 (Day 13-14)
 - **Blocked by**: AUTH-001, API-004 (programs list)
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: RegisterModal component. Fields: email, password, name, program dropdown (fetched from API), completed courses checklist (filtered by program). On submit: register → store JWT → update auth state.
 - **Acceptance criteria**:
   - [ ] Modal opens from header login button
@@ -606,6 +658,7 @@
 - **Phase**: 3 (Day 14)
 - **Blocked by**: AUTH-002
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: LoginModal component. `useAuth.ts` composable + `authStore.ts` Pinia store. JWT stored in localStorage. Auth header automatically added to API calls. Protected routes redirect to login.
 - **Acceptance criteria**:
   - [ ] Login modal with email + password
@@ -625,6 +678,7 @@
 - **Phase**: 3 (Day 13)
 - **Blocked by**: CHAT-004
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `core/memory.py`. Store last 20 messages per session in Redis (RPUSH). Load on new WebSocket connection. 2-hour TTL per session. Messages include role, content, tool calls, and tool results.
 - **Acceptance criteria**:
   - [ ] Messages persist across WebSocket reconnects (same session_id)
@@ -637,6 +691,7 @@
 - **Phase**: 3 (Day 14-15)
 - **Blocked by**: MEM-001
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: When message count exceeds 20, trigger LLM summarization. Summary captures: student's major, completed courses, decisions made, preferences, courses being considered. Summary stored in Redis, prepended to every LLM call. After summarization, trim to last 10 messages.
 - **Acceptance criteria**:
   - [ ] Summary generated when message count > 20
@@ -650,6 +705,7 @@
 - **Phase**: 3 (Day 15-16)
 - **Blocked by**: CHAT-005 (save_decision tool), API-005 (student endpoints)
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Wire `save_decision` tool end-to-end. On new session, `get_student_profile` loads prior decisions. LLM references them: "Last time you were interested in CSCI 3104 — still planning on that?"
 - **Acceptance criteria**:
   - [ ] Student says "I want to take CSCI 3104" → LLM calls save_decision → stored in PostgreSQL
@@ -670,6 +726,7 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person C
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Write the production system prompt with behavioral boundaries: only academic advising, never reveal internals, never access other users' data. Wrap all context in delimiter tags. Add the "flagged for injection" internal warning pattern.
 - **Acceptance criteria**:
   - [ ] System prompt defines behavioral boundaries
@@ -684,6 +741,7 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Create `core/input_sanitizer.py`. Max 2000 characters. Strip zero-width characters and control characters. Flag known injection patterns ("ignore previous", "system:", "you are now") — don't block, but add internal warning to LLM context.
 - **Acceptance criteria**:
   - [ ] Messages > 2000 chars are truncated
@@ -697,6 +755,7 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Create `core/output_validator.py`. Validate `structured_data` and `suggested_actions` against Pydantic schemas before sending to frontend. Strip if invalid. PII pattern scan (email addresses, student IDs). Scope check (filter non-academic content).
 - **Acceptance criteria**:
   - [ ] Invalid structured_data stripped (only text reply sent)
@@ -709,6 +768,7 @@
 - **Blocked by**: SEC-001, SEC-002, SEC-003, CHAT-006
 - **Assignee**: Person C
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Write `tests/test_security.py`. Test: injection attempts (direct prompt, tool abuse, context tampering), auth enforcement (user_id override), rate limiting, output validation, PII scanning.
 - **Acceptance criteria**:
   - [ ] "Ignore your instructions" doesn't change LLM behavior
@@ -728,6 +788,7 @@
 - **Phase**: 4 (Day 20)
 - **Blocked by**: Nothing (infrastructure only)
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/network.tf`. VPC, private subnet (10.0.0.0/24), firewall rules (allow-vpc-connector, allow-internal, allow-iap-ssh, default-deny), Serverless VPC Connector. Create `infra/main.tf` (provider, GCS backend), `infra/variables.tf`, `infra/outputs.tf`, `infra/terraform.tfvars.example`.
 - **Acceptance criteria**:
   - [ ] `terraform plan` succeeds
@@ -741,6 +802,7 @@
 - **Phase**: 4 (Day 20-21)
 - **Blocked by**: DEPLOY-001
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/data-vm.tf`. e2-medium Compute Engine VM. Startup script installs Docker Compose, starts PostgreSQL + Neo4j + Redis. Persistent disk for data. Static internal IP (10.0.0.10). Create `infra/scripts/data-vm-startup.sh`.
 - **Acceptance criteria**:
   - [ ] VM boots and runs startup script
@@ -753,6 +815,7 @@
 - **Phase**: 4 (Day 21)
 - **Blocked by**: DEPLOY-001, DEPLOY-002 (needs Redis for queue)
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/ollama-mig.tf`. Instance template (spot g2-standard-4, L4 GPU, startup script). MIG with min 0 / max 3. Autoscaler on custom metric (Redis queue depth). Create `infra/monitoring.tf` (custom metric definition). Create `infra/scripts/ollama-worker-startup.sh` and `infra/scripts/queue-depth-exporter.py`.
 - **Acceptance criteria**:
   - [ ] Instance template creates with GPU
@@ -767,6 +830,7 @@
 - **Phase**: 4 (Day 21-22)
 - **Blocked by**: DEPLOY-001, DEPLOY-005 (Artifact Registry)
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/cloud-run.tf`. 3 Cloud Run services (course-search-api, chat-service, frontend). VPC connector attached. Env vars from Terraform. Chat service has min_instances=1. Create `infra/iam.tf` (service accounts).
 - **Acceptance criteria**:
   - [ ] All 3 Cloud Run services deploy
@@ -780,6 +844,7 @@
 - **Phase**: 4 (Day 20)
 - **Blocked by**: DEPLOY-001
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/artifact-registry.tf`. Docker repository for container images.
 - **Acceptance criteria**:
   - [ ] Registry created
@@ -790,6 +855,7 @@
 - **Phase**: 4 (Day 22)
 - **Blocked by**: DEPLOY-002, DATA-005
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Pull Ollama models. Verify data counts.
 - **Acceptance criteria**:
   - [ ] All courses, programs, requirements in GCP databases
@@ -802,6 +868,7 @@
 - **Phase**: 4 (Day 22-23)
 - **Blocked by**: DEPLOY-004, DEPLOY-006
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Test the full flow on GCP. Course search, chat with AI, auth, memory, decisions.
 - **Acceptance criteria**:
   - [ ] Frontend loads at Cloud Run URL
@@ -822,23 +889,25 @@
 - **Blocked by**: Nothing
 - **Blocks**: FE-001 merge (CI must be live before any feature PR lands, so we start with a green baseline)
 - **Assignee**: Person B
+- **Status**: ✅ Done (Sprint 1 — CUAI-71)
 - **Description**: Create `.github/workflows/ci.yml`. Runs on every PR and push to main. Jobs: (1) Python — all commands run **from the repo root** so test discovery is workspace-wide: `uv sync`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy .`, `uv run pytest` (skip gracefully if no tests exist). Because pytest is invoked from the root, it auto-discovers every service's tests via `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml` — **no `ci.yml` edits are needed when a new service is added**, contributors only update `[tool.uv.workspace].members` and `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml`. (2) Frontend — `cd frontend && npm ci && npm run type-check && npm run lint && npm run test -- --run && npm run build`. After this lands, enable branch protection on `main` requiring CI green before merge. See `docs/development-workflow.md § How CI Discovers Tests` for the canonical rule and maintenance guidance for future contributors.
 - **Acceptance criteria**:
-  - [ ] CI runs on every PR targeting main and every push to main
-  - [ ] Python job runs ruff check, ruff format --check, mypy, and pytest
-  - [ ] Frontend job runs type-check, lint, vitest, and build
-  - [ ] Fails if any step fails
-  - [ ] Status check shown on PR page
-  - [ ] Branch protection on main requires CI green before merge
-  - [ ] Python job commands run from repo root (not from a service dir) so `uv run pytest` auto-discovers all workspace test directories
-  - [ ] Does NOT gate CI on scripts that need external services (e.g. `scripts/test_tool_calling.py` which needs Ollama running) — those stay as manual QA
-  - [ ] Documented in `docs/development-workflow.md § How CI Discovers Tests` (this is the maintenance reference for future service additions)
+  - [x] CI runs on every PR targeting main and every push to main
+  - [x] Python job runs ruff check, ruff format --check, mypy, and pytest
+  - [x] Frontend job runs type-check, lint, vitest, and build
+  - [x] Fails if any step fails
+  - [x] Status check shown on PR page
+  - [x] Branch protection on main requires CI green before merge
+  - [x] Python job commands run from repo root (not from a service dir) so `uv run pytest` auto-discovers all workspace test directories
+  - [x] Does NOT gate CI on scripts that need external services (e.g. `scripts/test_tool_calling.py` which needs Ollama running) — those stay as manual QA
+  - [x] Documented in `docs/development-workflow.md § How CI Discovers Tests` (this is the maintenance reference for future service additions)
 
 ### CICD-002: GitHub Actions deploy pipeline
 - **Points**: 3
 - **Phase**: 4 (Day 21-22)
 - **Blocked by**: DEPLOY-004, DEPLOY-005
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: Create `.github/workflows/deploy.yml`. On push to main: build Docker images, push to Artifact Registry, deploy new revisions to Cloud Run.
 - **Acceptance criteria**:
   - [ ] Pushing to main triggers build + deploy
@@ -857,6 +926,7 @@
 - **Phase**: 4 (Day 22-23)
 - **Blocked by**: DEPLOY-007 (system running on GCP)
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Test 30+ conversation flows on the live system. Tune system prompt, tool descriptions, and response formatting. Document any model quirks and workarounds.
 - **Acceptance criteria**:
   - [ ] 5 core scenarios work reliably (listed in implementation guide)
@@ -869,6 +939,7 @@
 - **Phase**: 4 (Day 23-24)
 - **Blocked by**: DEMO-001
 - **Assignee**: Everyone
+- **Status**: 📋 Planned
 - **Description**: Write a 10-minute demo script with 3-4 compelling scenarios. Practice the demo. Prepare backup plan (recorded video) in case of live issues.
 - **Acceptance criteria**:
   - [ ] Demo script covers: course search, chat advising, prerequisite checking, schedule planning
@@ -882,6 +953,7 @@
 - **Phase**: 4 (Day 23-24)
 - **Blocked by**: Nothing
 - **Assignee**: Everyone
+- **Status**: 📋 Planned
 - **Description**: Prepare presentation covering: problem statement, architecture diagram, tech stack decisions, demo, scaling strategy, security model, lessons learned.
 - **Acceptance criteria**:
   - [ ] Slides cover all major architecture decisions
@@ -999,6 +1071,7 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | API-003 | 3 | Person B | 7-8 |
 | API-004 | 3 | Person B | 8 |
 | API-005 | 4 | Person B | 8-9 |
+| API-005b | 2 | Person B | Sprint 2 |
 | FE-004 | 4 | Person B | 9-10 |
 | FE-008 | 5 | Person B | 8-12 |
 | CHAT-001 | 2 | Person C | 6-7 |

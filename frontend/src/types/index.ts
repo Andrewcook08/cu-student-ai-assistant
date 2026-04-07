@@ -15,6 +15,8 @@ export interface Course {
 
 export interface Section {
   crn: string
+  type?: string // LEC, REC, LAB, SEM, etc.
+  section_number?: string
   meets?: string
   instructor?: string
   status: string
@@ -58,7 +60,6 @@ export interface StudentProfile {
 export interface FilterValues {
   dept: string
   level: string
-  time: string
   credits: string
 }
 

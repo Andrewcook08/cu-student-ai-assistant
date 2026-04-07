@@ -6,6 +6,7 @@
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
+- [Day-to-day: use `scripts/dev.sh`](#day-to-day-use-scriptsdevsh)
 - [First-Time Setup](#first-time-setup)
 - [Running the Stack](#running-the-stack)
 - [Data Ingestion](#data-ingestion)
@@ -33,6 +34,36 @@ Install these before starting:
 - **RAM**: 16GB minimum, 32GB recommended (Neo4j and Ollama are memory-hungry)
 - **Disk**: ~20GB free (Docker images + database data + Ollama model)
 - **GPU**: Optional but recommended. On **Apple Silicon Macs**, run Ollama natively via [Ollama.app](https://ollama.com/download) for Metal GPU acceleration (~5-10s per response). Docker on Mac runs CPU-only (~60-90s per response) because Docker's Linux VM cannot access Metal. On **Linux with NVIDIA GPU**, Docker can use GPU passthrough (`--gpus all`).
+
+---
+
+## Day-to-day: use `scripts/dev.sh`
+
+`scripts/dev.sh` is the canonical dev environment manager and is how the team runs the stack day-to-day. It wraps `docker compose`, waits for container healthchecks (120s timeout), verifies that required Ollama models (`nomic-embed-text`, `gpt-oss:20b`) are present on disk, and drives the full data ingestion pipeline. Prefer it over raw `docker compose` commands.
+
+| Command | Description |
+|---------|-------------|
+| `scripts/dev.sh up [--seed]` | Start containers and wait until healthy. With `--seed`, also runs data ingestion. |
+| `scripts/dev.sh down` | Stop containers, preserve data volumes. |
+| `scripts/dev.sh reset` | Wipe volumes, rebuild containers, and re-seed from scratch. |
+| `scripts/dev.sh seed` | Run the 4-step data ingestion pipeline (containers must already be running). |
+| `scripts/dev.sh status` | Show container status, health, and exposed ports. |
+
+Typical first run after cloning:
+
+```bash
+scripts/dev.sh up --seed
+```
+
+Typical daily loop:
+
+```bash
+scripts/dev.sh up         # start
+scripts/dev.sh status     # sanity check
+scripts/dev.sh down       # stop when done
+```
+
+The raw `docker compose` commands below still work and are useful as an escape hatch for debugging — see [Running the Stack](#running-the-stack).
 
 ---
 
@@ -70,7 +101,7 @@ OLLAMA_URL=http://ollama:11434
 # Auth
 JWT_SECRET_KEY=local-development-secret-change-in-production
 
-# Ollama model (pulled on first startup)
+# Ollama models (pre-provisioned on disk — not pulled at runtime)
 OLLAMA_MODEL=gpt-oss:20b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 
@@ -80,11 +111,19 @@ CORS_ORIGINS=http://localhost:5173
 
 ### 3. Start all services
 
+Preferred (uses the dev script — waits for healthchecks, verifies models):
+
+```bash
+scripts/dev.sh up
+```
+
+Manual alternative:
+
 ```bash
 docker compose up -d
 ```
 
-This starts 7 containers:
+Either starts 7 containers:
 
 | Container | Port | URL |
 |-----------|------|-----|
@@ -96,15 +135,15 @@ This starts 7 containers:
 | `chat-service` | 8001 | http://localhost:8001/api/chat/health |
 | `frontend` | 5173 | http://localhost:5173 |
 
-### 4. Pull the Ollama model (first time only, ~13GB download)
+### 4. Ollama models
+
+The required models (`gpt-oss:20b`, `nomic-embed-text`) are **pre-provisioned on disk** — `scripts/dev.sh` verifies they're present before seeding and there is no runtime `ollama pull` step. If a model is missing, the script will report it so you can provision it once manually.
 
 **Apple Silicon Mac (recommended):** Run Ollama natively for Metal GPU acceleration.
 
 ```bash
 # Install Ollama.app from https://ollama.com/download (or brew install ollama)
 # Launch Ollama.app (NOT `ollama serve` — the app enables Metal GPU)
-ollama pull gpt-oss:20b
-ollama pull nomic-embed-text
 ```
 
 Then update your `.env` to point at native Ollama instead of Docker:
@@ -117,22 +156,23 @@ And start Docker **without** the Ollama container:
 docker compose up -d postgres neo4j redis
 ```
 
-**Linux / other platforms:** Use the Docker container.
-
-```bash
-docker compose exec ollama ollama pull gpt-oss:20b
-docker compose exec ollama ollama pull nomic-embed-text
-```
-
-Models are cached (in a Docker volume or `~/.ollama/`) and persist across restarts.
+**Linux / other platforms:** Use the Docker container (models are mounted/cached in the `ollama_data` volume and persist across restarts).
 
 ### 5. Run data ingestion
+
+Preferred:
+
+```bash
+scripts/dev.sh seed
+```
+
+Manual alternative:
 
 ```bash
 uv run --package data-ingest python -m data.ingest.run_all
 ```
 
-This parses the JSON datasets and loads them into both PostgreSQL and Neo4j. See [Data Ingestion](#data-ingestion) for details.
+Either parses the JSON datasets and loads them into both PostgreSQL and Neo4j. See [Data Ingestion](#data-ingestion) for details.
 
 ### 6. Verify everything works
 
@@ -200,10 +240,17 @@ docker compose up -d --build course-search-api chat-service frontend
 Ingestion loads the 2 JSON datasets into both PostgreSQL (for structured queries) and Neo4j (for graph + vector search).
 
 ### Prerequisites
-- All Docker services must be running (`docker compose up -d`)
+- All Docker services must be running (`scripts/dev.sh up` or `docker compose up -d`)
 - JSON datasets must be in `data/raw/` (`cu_classes.json`, `cu_degree_requirements.json`)
 
 ### Run all ingestion steps
+
+```bash
+scripts/dev.sh seed
+```
+
+Or run the underlying command directly:
+
 ```bash
 uv run --package data-ingest python -m data.ingest.run_all
 ```
@@ -291,108 +338,23 @@ This gives you hot reload on all application code while databases run in Docker.
 
 ### docker-compose.yml service map
 
-```yaml
-services:
-  # ── Data Services ──────────────────────────────────────────
-  postgres:
-    image: postgres:16
-    ports: ["5432:5432"]
-    environment:
-      POSTGRES_DB: cu_assistant
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+> **Source of truth**: [`docker-compose.yml`](../docker-compose.yml) at the repo root. The table below is a summary — update the real file, not this doc, when making changes.
 
-  neo4j:
-    image: neo4j:5
-    ports: ["7474:7474", "7687:7687"]
-    environment:
-      NEO4J_AUTH: neo4j/development
-      NEO4J_PLUGINS: '["apoc"]'
-    volumes:
-      - neo4j_data:/data
-    healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "development", "RETURN 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s  # Neo4j is slow to start
+| Service | Image | Host port → container | Depends on | Persisted volume |
+|---|---|---|---|---|
+| `postgres` | `postgres:16` | `5432:5432` | — | `postgres_data` |
+| `neo4j` | `neo4j:5` (with APOC) | `7474:7474`, `7687:7687` | — | `neo4j_data` |
+| `redis` | `redis:7-alpine` | `6379:6379` | — | `redis_data` |
+| `ollama` | `ollama/ollama:latest` | `${OLLAMA_HOST_PORT:-11434}:11434` | — | `ollama_data` |
+| `course-search-api` | built from `services/course-search-api/Dockerfile` | `8000:8000` | `postgres` (healthy) | — |
+| `chat-service` | built from `services/chat-service/Dockerfile` | `8001:8001` | `postgres`, `neo4j`, `redis`, `ollama` (all healthy) | — |
+| `frontend` | built from `frontend/Dockerfile` (nginx) | `5173:80` | `course-search-api`, `chat-service` | — |
 
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+**Healthchecks**: all four data services (`postgres`, `neo4j`, `redis`, `ollama`) have healthchecks; application services use `depends_on: condition: service_healthy` so they only start once their dependencies are ready. Neo4j uses a 30s `start_period` because it's slow to boot.
 
-  ollama:
-    image: ollama/ollama:latest
-    ports: ["11434:11434"]
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    # GPU support (uncomment if you have NVIDIA GPU):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+**Credentials (local only)**: postgres `postgres/postgres`, neo4j `neo4j/development`, DB name `cu_assistant`. These are dev-only — production values come from Terraform secrets (Phase 4).
 
-  # ── Application Services ───────────────────────────────────
-  course-search-api:
-    build:
-      context: .
-      dockerfile: services/course-search-api/Dockerfile
-    ports: ["8000:8000"]
-    env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  chat-service:
-    build:
-      context: .
-      dockerfile: services/chat-service/Dockerfile
-    ports: ["8001:8001"]
-    env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      neo4j:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports: ["5173:80"]
-    depends_on: [course-search-api, chat-service]
-
-volumes:
-  postgres_data:
-  neo4j_data:
-  redis_data:
-  ollama_data:
-```
+**GPU**: the committed compose file has no GPU config. If you have an NVIDIA GPU and want Ollama to use it, add a `deploy.resources.reservations.devices` block to the `ollama` service locally (uncommitted) — or start Ollama natively on the host. See the Ollama Docker docs for the exact YAML.
 
 ### Port map
 
@@ -458,17 +420,18 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 
 | Task | Command |
 |------|---------|
-| Start all services | `docker compose up -d` |
-| Stop all services | `docker compose down` |
-| Fresh start (delete data) | `docker compose down -v` |
+| Start all services | `scripts/dev.sh up` (or `docker compose up -d`) |
+| Stop all services | `scripts/dev.sh down` (or `docker compose down`) |
+| Fresh start (delete data) | `scripts/dev.sh reset` (or `docker compose down -v`) |
+| Show container status | `scripts/dev.sh status` |
 | View logs | `docker compose logs -f <service>` |
 | Rebuild a service | `docker compose up -d --build <service>` |
-| Run data ingestion | `uv run --package data-ingest python -m data.ingest.run_all` |
+| Run data ingestion | `scripts/dev.sh seed` |
 | Run tests | `uv run pytest` |
 | Lint | `uv run ruff check .` |
 | Format | `uv run ruff format .` |
 | Type check | `uv run mypy .` |
-| Pull Ollama model | `docker compose exec ollama ollama pull gpt-oss:20b` |
+| List Ollama models | `docker compose exec ollama ollama list` |
 | Open Neo4j browser | `open http://localhost:7474` |
 | API docs (Search API) | `open http://localhost:8000/docs` |
 | API docs (Chat Service) | `open http://localhost:8001/docs` |
@@ -498,19 +461,26 @@ Neo4j needs ~1GB of heap memory. If Docker is constrained:
 - Docker Desktop → Settings → Resources → increase memory to at least 24GB
 
 ### Ollama model not found
+
+Models are pre-provisioned on disk (in the `ollama_data` volume for Docker, or `~/.ollama/` for native Ollama) — they are not pulled at runtime. `scripts/dev.sh seed` verifies the required models (`gpt-oss:20b`, `nomic-embed-text`) are present before ingesting and reports if any are missing.
+
 ```bash
-# Check which models are downloaded
+# Check which models are present
 docker compose exec ollama ollama list
 
-# Pull the model
+# If a model is missing, provision it once (manual, not part of normal flow):
 docker compose exec ollama ollama pull gpt-oss:20b
 ```
 
 ### Database data is stale / want to start fresh
 ```bash
+scripts/dev.sh reset   # wipes volumes, rebuilds containers, re-seeds
+```
+
+Or manually:
+```bash
 docker compose down -v   # removes all volumes (deletes all data)
 docker compose up -d
-# Re-run ingestion:
 uv run --package data-ingest python -m data.ingest.run_all
 ```
 
@@ -550,7 +520,7 @@ No code changes are needed to deploy. The `config.py` in `shared/` reads from en
 
 Before deploying to GCP, verify locally:
 
-- [ ] `docker compose up -d` — all 7 containers start without errors
+- [ ] `scripts/dev.sh up` — all 7 containers start and reach healthy state
 - [ ] Data ingestion completes — courses visible in PostgreSQL and Neo4j
 - [ ] `GET /api/courses?dept=CSCI` returns results from Course Search API
 - [ ] `GET /api/health` and `GET /api/chat/health` both return 200

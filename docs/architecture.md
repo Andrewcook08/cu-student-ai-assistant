@@ -327,7 +327,7 @@ We have 2 JSON datasets (degree paths deferred — see note below). Each is inge
 
 | Dataset | Size | Neo4j Use | PostgreSQL Use |
 |---------|------|-----------|----------------|
-| Course offerings (`cu_classes.json`) | ~200K lines, 152 depts, 3,410 courses (deduplicated by code; 325 topics-course duplicates merged), 9,470 sections (deduplicated by course+CRN; topics courses share sections) | Course nodes + vector embeddings + prerequisite edges | Filter by dept, time, credits, instructor, status (UI) |
+| Course offerings (`cu_classes.json`) | ~200K lines, 152 depts, 3,410 courses (deduplicated by code; 325 topics-course duplicates merged), 9,470 sections (deduplicated by course+CRN; topics courses share sections) | Course nodes + vector embeddings + prerequisite edges | Filter by dept, level, credits, status (UI) |
 | Degree requirements (`cu_degree_requirements.json`) | ~43K lines, 203 programs (54 BA, 78 minors, 42 certs, 29 BS/other) | Program → Requirement → Course graph | Lookup by program (dropdown) |
 
 **Degree paths** (deferred): Only ~101 programs have pathway data, and the dataset hasn't been acquired yet. The graph built from requirements + prerequisites provides the same planning capability — the AI can reason about "what do you need for CS BA" from the requirements data and "what are the prerequisites for CSCI 3104" from the course data. Degree paths would be supplementary context, not essential.
@@ -483,6 +483,7 @@ users (
   password_hash VARCHAR(255) NOT NULL,         -- bcrypt hash via passlib
   name VARCHAR(255) NOT NULL,
   program_id INTEGER REFERENCES programs(id),  -- their declared major/program
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,     -- soft-disable flag, required by get_current_user
   created_at TIMESTAMP DEFAULT NOW()
 )
 
@@ -546,6 +547,8 @@ For the POC, students create an account and **self-report their profile**:
 ---
 
 ## Tool Calling
+
+**Status**: Design only — not yet implemented. Target: Phase 2 (Epic 4 CHAT-*).
 
 The LLM accesses databases via **tools** (LangChain tool calling with Ollama) rather than raw RAG context injection. The model decides when to call each tool based on the conversation. See [ADR-6](decisions.md#adr-6-tool-calling-over-raw-rag) for why tool calling over pure RAG. The first two tools implement the **two-tool pattern** (validated by CUAI-32 spike): `search_courses` handles fuzzy/vector search by name or keyword, while `lookup_course` handles exact code-based retrieval. This split is necessary because even 8B models can't reliably map course names to exact codes.
 
@@ -623,6 +626,8 @@ The architecture includes several safeguards for reliable tool calling:
 
 ## Conversation Memory
 
+**Status**: Design only — not yet implemented. Target: Phase 3 (Epic 8 MEM-*).
+
 See [ADR-8](decisions.md#adr-8-two-tier-conversation-memory) and [ADR-9](decisions.md#adr-9-persistent-decision-history) for why this design.
 
 ### Inference Timeout Handling
@@ -653,25 +658,27 @@ The Chat Service sets a **120-second timeout** on inference requests through the
 
 **Course Search API** (stateless, fast):
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/api/auth/login` | JWT login |
-| `POST` | `/api/auth/register` | Create account (pick program, self-report completed courses) |
-| `GET` | `/api/courses` | Filter courses (dept, instruction_mode, status, credits) |
-| `GET` | `/api/courses/search?q=` | Semantic search via embeddings |
-| `GET` | `/api/courses/{code}` | Single course detail with sections and prerequisites |
-| `GET` | `/api/programs` | List all programs (majors, minors, certificates) |
-| `GET` | `/api/programs/{id}/requirements` | Degree requirements for a program |
-| `GET` | `/api/students/me` | Current user's profile (program, completed courses, decisions) |
-| `PUT` | `/api/students/me/completed-courses` | Update self-reported completed courses |
-| `GET` | `/api/health` | Health check |
+| Method | Path | Purpose | Status |
+|--------|------|---------|--------|
+| `POST` | `/api/auth/login` | JWT login | Planned (AUTH-002) |
+| `POST` | `/api/auth/register` | Create account (pick program, self-report completed courses) | Planned (AUTH-001) |
+| `GET` | `/api/courses` | Filter courses (dept, instruction_mode, status, credits, `q=`) | Implemented (API-001) |
+| `GET` | `/api/courses/search?q=` | Semantic search via Neo4j vector embeddings | Planned (API-003) |
+| `GET` | `/api/courses/{code}` | Single course detail with sections and prerequisites | Implemented (API-002) |
+| `GET` | `/api/programs` | List all programs (majors, minors, certificates) | Implemented (API-004) |
+| `GET` | `/api/programs/{id}/requirements` | Degree requirements for a program | Implemented (API-004) |
+| `GET` | `/api/students/me` | Current user's profile (program, completed courses, decisions) | Implemented (API-005) |
+| `PUT` | `/api/students/me/completed-courses` | Update self-reported completed courses | Planned (API-005b) |
+| `GET` | `/api/health` | Health check | Implemented |
+
+Note: the implemented `GET /api/courses` accepts a `q=` parameter that performs a PostgreSQL `ILIKE` text search over title and description. It also accepts a `level=` parameter (`undergrad-lower` for 1xxx–2xxx, `undergrad-upper` for 3xxx–4xxx, `graduate` for 5xxx–8xxx) that filters on the numeric portion of `Course.code`; invalid values return 400. Course responses include an aggregate `status` field derived from their sections (Open > Waitlist > Closed > null). True semantic search via Neo4j vector embeddings is a separate endpoint (`/api/courses/search`) and is planned under API-003.
 
 **Chat Service** (stateful, slow — depends on Ollama):
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `WS` | `/ws/chat/{session_id}` | Streaming chat via WebSocket |
-| `GET` | `/api/chat/health` | Chat service health check |
+| Method | Path | Purpose | Status |
+|--------|------|---------|--------|
+| `WS` | `/ws/chat/{session_id}` | Streaming chat via WebSocket | Planned (CHAT-001) — `routes/chat.py` is currently an empty router stub |
+| `GET` | `/api/chat/health` | Chat service health check | Implemented |
 
 ### Chat Response Schema
 
@@ -693,11 +700,11 @@ The `suggested_actions` field lets the AI tell the frontend to render structured
 
 ## Frontend
 
-See [ADR-11](decisions.md#adr-11-vue-frontend) for why Vue + Vite + Tailwind, and [ADR-31](decisions.md#adr-31-cu-classes-html-as-design-baseline) for why the Course Search page's **visual shell** is anchored to a static HTML reference.
+See [ADR-11](decisions.md#adr-11-vue-frontend) for why Vue + Vite + Tailwind, [ADR-31](decisions.md#adr-31-cu-classes-html-as-design-baseline) for why the Course Search page's **visual shell** is anchored to a static HTML reference, and [ADR-32](decisions.md#adr-32-narrow-filterbar-to-three-controls-dept--level--credits) for why the FilterBar has three controls (dept/level/credits) instead of four.
 
 ### Main Page
 
-The Course Search page is the home page and visually mirrors CU Boulder's class search page. The visual reference is **`frontend/cu-classes.html`** — a 1170-line static HTML mockup of the live CU Class Search page (markup, embedded CSS, brand tokens). **Only the visual shell is ported from this file** — the header, the two-pane layout, brand tokens, and the welcome/empty-state card. We do **not** port CU's full filter set — our functional scope is a small filter sidebar (department, level, time, credits) plus a course results table. The AI chat widget is the primary discovery mechanism; the filter sidebar is a minimum-viable fallback.
+The Course Search page is the home page and visually mirrors CU Boulder's class search page. The visual reference is **`frontend/cu-classes.html`** — a 1170-line static HTML mockup of the live CU Class Search page (markup, embedded CSS, brand tokens). **Only the visual shell is ported from this file** — the header, the two-pane layout, brand tokens, and the welcome/empty-state card. We do **not** port CU's full filter set — our functional scope is a small filter sidebar (department, level, credits) plus a course results table. The AI chat widget is the primary discovery mechanism; the filter sidebar is a minimum-viable fallback.
 
 **What the page actually has (functional scope — unchanged from original FE-002/003/004):**
 - **Header** (from `cu-classes.html` lines 449-470): black `.banner` with CU gold `CLASS SEARCH` title, help icon, cart icon, login/logout link
@@ -723,7 +730,7 @@ The Course Search page is the home page and visually mirrors CU Boulder's class 
 | Banner height | `50px` | `.banner` |
 | Panel width | `370px` | `.panel` |
 
-These are added to `tailwind.config.ts` as `cu-gold`, `cu-gold-hover`, `cu-black`, `cu-panel`, `cu-pane`, `cu-section-head`, `cu-border`, `cu-link`, `cu-text`, `cu-muted`.
+These tokens live in `frontend/src/assets/cu-classes.css` (the verbatim port of the `<style>` block) as CSS variables / class rules — not in a Tailwind config file. The project uses Tailwind v4 via the `@tailwindcss/vite` plugin and does not have a standalone `tailwind.config.ts` or `postcss.config.js`.
 
 **What IS ported from `cu-classes.html` (visual shell only):**
 
@@ -747,7 +754,7 @@ These are added to `tailwind.config.ts` as `cu-gold`, `cu-gold-hover`, `cu-black
 
 | Component | Role |
 |-----------|------|
-| `src/components/layout/FilterBar.vue` | The single "Search Classes" filter section. Uses the ported `.section` + `.section__title` + `.form-group` + `.form-control` + `.btn--full` classes so it visually matches CU's panel styling. Contains **four** controls: Department dropdown, Level dropdown, Time range, Credit Hours dropdown. Submits via `<form @submit.prevent="onSearch">` |
+| `src/components/layout/FilterBar.vue` | The single "Search Classes" filter section. Uses the ported `.section` + `.section__title` + `.form-group` + `.form-control` + `.btn--full` classes so it visually matches CU's panel styling. Contains **three** controls: Department dropdown, Level dropdown, Credit Hours dropdown. Submits via `<form @submit.prevent="onSearch">` |
 | `src/components/course-search/CourseTable.vue` | Renders results (code, title, credits, status) in the right `.empty-space` slot after a search |
 | `src/components/course-search/CourseRow.vue` | Individual row |
 | `src/components/course-search/CourseDetail.vue` | Expanded detail panel (CRN, time, instructor, status, prerequisites, description) shown when a row is clicked |
@@ -789,47 +796,27 @@ cu-student-ai-assistant/
 │
 ├── pyproject.toml                  # Root workspace config: workspace members, dev deps
 │                                   #   (ruff, pytest, mypy, httpx), tool settings
-├── uv.lock                        # Single lockfile for entire repo (auto-generated by uv)
+├── uv.lock                         # Single lockfile for entire repo (auto-generated by uv)
 ├── .python-version                 # "3.12" — uv reads this to select interpreter
 ├── .gitignore
 ├── .env.example                    # Template for required env vars (never commit .env)
+├── .env.local.example              # Template for local dev overrides
+├── CLAUDE.md                       # Project instructions for Claude Code
 │
 ├── docker-compose.yml              # Local dev: postgres, redis, neo4j, ollama,
 │                                   #   course-search-api, chat-service, frontend
-├── docker-compose.gpu.yml          # GPU override for Ollama (production)
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  INFRASTRUCTURE  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
 │
-├── infra/                          # Terraform IaC for GCP deployment
-│   ├── main.tf                     # Provider config (google), backend (GCS for state)
-│   ├── variables.tf                # Project ID, region, zone, machine types, toggles
-│   ├── outputs.tf                  # VM IPs, Cloud Run URLs, DB connection strings
-│   ├── terraform.tfvars            # Actual values (gitignored — never committed)
-│   ├── terraform.tfvars.example    # Template with placeholders for team members
-│   ├── network.tf                  # VPC, private subnet (no public IPs), firewall rules
-│   │                               #   (allow-vpc-connector, allow-internal, allow-iap-ssh,
-│   │                               #   default-deny), Serverless VPC Connector
-│   ├── artifact-registry.tf        # Docker image repository
-│   ├── data-vm.tf                  # Compute Engine VM: Postgres + Neo4j + Redis (Docker)
-│   │                               #   persistent disk for data, static internal IP
-│   ├── ollama-mig.tf               # Ollama auto-scaling: instance template (spot GPU VM),
-│   │                               #   Managed Instance Group, autoscaler (custom metric:
-│   │                               #   Redis queue depth). Min 0, max 3.
-│   ├── cloud-run.tf                # 3 Cloud Run services with VPC connector, env vars,
-│   │                               #   auto-scaling config (min/max instances, concurrency)
-│   ├── monitoring.tf               # Custom metric definition for ollama_queue_depth
-│   ├── iam.tf                      # Least-privilege service accounts per service,
-│   │                               #   IAP tunnel access for developers
-│   └── scripts/
-│       ├── data-vm-startup.sh      # Cloud-init: Docker Compose for data services
-│       ├── ollama-worker-startup.sh  # Cloud-init: Docker + NVIDIA drivers + Ollama worker
-│       └── queue-depth-exporter.py # Cron script: Redis LLEN → Cloud Monitoring metric
+# infra/ — PLANNED for Phase 4 (DEPLOY-*). See § GCP Deployment & Infrastructure.
+#          No directory exists yet; Terraform IaC will be added when GCP work begins.
 │
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml                  # On PR: uv sync, ruff check, ruff format --check,
 │       │                           #   mypy, pytest (workspace-discovered), vitest
-│       └── deploy.yml              # On push to main: build Docker images, deploy to GCP
+│       └── jira-sync.yml           # Bi-directional Jira ↔ GitHub sync for tickets/PRs
+│                                   # deploy.yml — PLANNED (Phase 4 DEPLOY-*)
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  SHARED LIBRARY  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
 │
@@ -839,9 +826,10 @@ cu-student-ai-assistant/
 │   │                               #   python-jose[cryptography], passlib[bcrypt]
 │   └── shared/
 │       ├── __init__.py
+│       ├── py.typed                # PEP 561 marker — exposes type info to consumers
 │       ├── auth.py                 # JWT creation + validation (both services use this)
 │       ├── schemas.py              # Shared Pydantic models: CourseCard, Action,
-│       │                           #   ChatRequest, ChatResponse, ChatContext, etc.
+│       │                           #   ChatRequest, ChatResponse, ErrorResponse
 │       ├── database.py             # SQLAlchemy engine, sessionmaker, Base class
 │       ├── models.py               # SQLAlchemy ORM models: User, Course, Program,
 │       │                           #   Requirement, StudentDecision, ToolAuditLog
@@ -860,23 +848,23 @@ cu-student-ai-assistant/
 │   │   │                           #   [tool.uv.sources] shared = { workspace = true }
 │   │   ├── course_search_api/
 │   │   │   ├── __init__.py
-│   │   │   ├── main.py             # FastAPI app: CORS, lifespan (DB connect/disconnect)
+│   │   │   ├── main.py             # FastAPI app: CORS, lifespan, inline GET /api/health
 │   │   │   ├── dependencies.py     # FastAPI Depends: get_db_session, get_current_user
 │   │   │   ├── routes/
 │   │   │   │   ├── __init__.py
-│   │   │   │   ├── courses.py      # GET /api/courses (filter), GET /api/courses/{code},
-│   │   │   │   │                   #   GET /api/courses/search?q=
+│   │   │   │   ├── courses.py      # GET /api/courses (dept/level/credits/q ILIKE + pagination), GET /api/courses/{code}
 │   │   │   │   ├── programs.py     # GET /api/programs, GET /api/programs/{id}/requirements
-│   │   │   │   ├── auth.py         # POST /api/auth/login, POST /api/auth/register
-│   │   │   │   ├── students.py     # GET /api/students/me, PUT /api/students/me/completed-courses
-│   │   │   │   └── health.py       # GET /api/health
+│   │   │   │   ├── students.py     # GET /api/students/me
+│   │   │   │   │                   #   PUT /api/students/me/completed-courses — PLANNED (API-005b)
+│   │   │   │   └── auth.py         # Empty router stub — endpoints PLANNED (AUTH-001/002)
 │   │   │   └── services/
-│   │   │       ├── __init__.py
-│   │   │       └── course_query.py # PostgreSQL query builders for course filtering
+│   │   │       └── __init__.py     # course_query.py — PLANNED if/when query logic is extracted
 │   │   └── tests/
-│   │       ├── conftest.py         # Fixtures: test DB, test client, auth headers
-│   │       ├── test_courses.py
-│   │       └── test_auth.py
+│   │       ├── conftest.py         # Fixtures: test DB (transactional), test client
+│   │       ├── test_courses_list.py
+│   │       ├── test_courses_detail.py
+│   │       ├── test_programs.py
+│   │       └── test_students.py
 │   │
 │   └── chat-service/               # Service 2: stateful AI chat engine
 │       ├── Dockerfile              # FROM python:3.12-slim, COPY shared/ + service,
@@ -887,48 +875,24 @@ cu-student-ai-assistant/
 │       │                           #   [tool.uv.sources] shared = { workspace = true }
 │       ├── chat_service/
 │       │   ├── __init__.py
-│       │   ├── main.py             # FastAPI app: CORS, WebSocket, lifespan
-│       │   │                       #   (connect Neo4j, Redis, verify Ollama on startup)
+│       │   ├── main.py             # FastAPI app: CORS, lifespan, inline GET /api/chat/health
 │       │   ├── dependencies.py     # FastAPI Depends: get_current_user, get_redis, get_neo4j
 │       │   ├── routes/
 │       │   │   ├── __init__.py
-│       │   │   ├── chat.py         # WS /ws/chat/{session_id}
-│       │   │   └── health.py       # GET /api/chat/health (checks Ollama + Neo4j + Redis)
-│       │   ├── core/
-│       │   │   ├── __init__.py
-│       │   │   ├── llm_engine.py       # LangGraph StateGraph: classify → retrieve →
-│       │   │   │                       #   generate → maybe_summarize
-│       │   │   ├── graph_rag.py        # Neo4j Cypher queries + vector similarity search
-│       │   │   ├── tools.py            # @tool definitions: search_courses, lookup_course,
-│       │   │   │                       #   check_prerequisites, get_degree_requirements,
-│       │   │   │                       #   get_student_profile, find_schedule_conflicts, save_decision
-│       │   │   ├── tool_executor.py    # Auth-enforcing wrapper: overrides user_id from JWT,
-│       │   │   │                       #   validates params via Pydantic, rate limits per turn,
-│       │   │   │                       #   logs to tool_audit_log table.
-│       │   │   │                       #   Retries once on malformed tool call JSON (LLM
-│       │   │   │                       #   re-prompted with the validation error).
-│       │   │   ├── context_builder.py  # Assembles context from graph/vector/structured retrieval
-│       │   │   ├── memory.py           # Two-tier memory: recent messages (Redis) +
-│       │   │   │                       #   running summary (LLM-compressed)
-│       │   │   ├── intent_classifier.py # Classifies user intent → routes to retrieval strategy
-│       │   │   │                       #   (course_search, prereq_check, degree_planning,
-│       │   │   │                       #    schedule_help, general_question)
-│       │   │   ├── input_sanitizer.py  # Max length (2000 chars), injection pattern detection,
-│       │   │   │                       #   control character stripping
-│       │   │   └── output_validator.py # Pydantic schema enforcement on structured_data /
-│       │   │                           #   suggested_actions, PII scanning, scope check
-│       │   └── services/
-│       │       ├── __init__.py
-│       │       ├── neo4j_service.py    # Neo4j async driver, connection pool, query helpers
-│       │       ├── redis_service.py    # Redis client: sessions, conversation cache, LLM queue
-│       │       ├── ollama_service.py   # Ollama HTTP client: chat completions, embeddings
-│       │       └── postgres_service.py # Student decisions + audit log read/write
+│       │   │   └── chat.py         # APIRouter(prefix="/api/chat") — empty stub.
+│       │   │                       #   WS /ws/chat/{session_id} PLANNED (CHAT-001)
+│       │   ├── core/               # All files below PLANNED (Phase 2 — Epic 4 CHAT-*)
+│       │   │   └── __init__.py
+│       │   │   #   llm_engine.py, graph_rag.py, tools.py, tool_executor.py,
+│       │   │   #   context_builder.py, memory.py, intent_classifier.py,
+│       │   │   #   input_sanitizer.py, output_validator.py
+│       │   └── services/           # All files below PLANNED (Phase 2 — Epic 4)
+│       │       └── __init__.py
+│       │       #   neo4j_service.py, redis_service.py,
+│       │       #   ollama_service.py, postgres_service.py
 │       └── tests/
-│           ├── conftest.py             # Fixtures: mock Ollama, test Neo4j, test Redis
-│           ├── test_chat.py
-│           ├── test_graph_rag.py
-│           ├── test_tools.py
-│           └── test_security.py        # Injection attempts, auth enforcement, output validation
+│           └── conftest.py         # Fixtures placeholder — test_chat.py, test_graph_rag.py,
+│                                   #   test_tools.py, test_security.py PLANNED (Phase 2)
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  DATA INGESTION  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
 │
@@ -937,7 +901,6 @@ cu-student-ai-assistant/
 │   │                               #   dependencies: shared, neo4j, ollama
 │   │                               #   [tool.uv.sources] shared = { workspace = true }
 │   ├── raw/                        # Source JSON datasets
-│   │   ├── .gitkeep
 │   │   ├── cu_classes.json         # ~200K lines, 152 depts, 3,410 courses, 9,470 sections
 │   │   └── cu_degree_requirements.json  # ~43K lines, 203 programs
 │   └── ingest/
@@ -952,12 +915,19 @@ cu-student-ai-assistant/
 │       │                           #   Handles: or-groups, choose-N, section headers, &-bundles
 │       ├── build_embeddings.py     # Generate embeddings via Ollama (nomic-embed-text)
 │       │                           #   → store on Neo4j Course nodes, create vector index
-│       ├── tests/
-│       │   ├── __init__.py
-│       │   ├── test_ingest_courses.py    # Unit tests: course JSON parsing, deduplication
-│       │   └── test_build_embeddings.py  # Unit tests: embedding text builder, Ollama client, retry logic
-│       └── run_all.py              # CLI entry: python -m data.ingest.run_all
-│                                   #   Runs all ingestion steps in order
+│       ├── validate_counts.py      # Post-ingest sanity check: row counts vs. source JSON
+│       ├── validate_requirements.py # Post-ingest validator for degree requirement parsing
+│       ├── run_all.py              # CLI entry: python -m data.ingest.run_all
+│       │                           #   Runs all ingestion steps in order
+│       └── tests/
+│           ├── __init__.py
+│           ├── test_ingest_courses.py
+│           ├── test_ingest_requirements.py
+│           ├── test_build_embeddings.py
+│           ├── test_db_writes.py
+│           ├── test_requirements_db_writes.py
+│           ├── test_parse_attributes.py
+│           └── test_parse_prerequisites.py
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  FRONTEND  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
 │
@@ -967,58 +937,80 @@ cu-student-ai-assistant/
 │   │                               #   sample option lists). Source of truth for the Course
 │   │                               #   Search page layout. See architecture.md § Frontend.
 │   ├── Dockerfile                  # Multi-stage: node build → nginx serve
-│   ├── package.json                # vue, vue-router, pinia, tailwindcss, etc.
+│   ├── nginx.conf
+│   ├── package.json                # vue, vue-router, pinia, tailwindcss v4, vitest, etc.
+│   ├── package-lock.json
 │   ├── tsconfig.json
-│   ├── vite.config.ts              # Proxy /api → course-search-api, /ws → chat-service
-│   ├── tailwind.config.ts          # CU branding tokens extracted from cu-classes.html:
-│   │                               #   cu-gold #CFB87C, cu-black #000, cu-panel #f5f5f5, etc.
-│   ├── postcss.config.js
+│   ├── tsconfig.app.json
+│   ├── tsconfig.node.json
+│   ├── vite.config.ts              # Proxy /api → course-search-api, /ws → chat-service.
+│   │                               #   Tailwind v4 is configured here via @tailwindcss/vite —
+│   │                               #   no standalone tailwind.config.ts or postcss.config.js.
+│   ├── vitest.config.ts
 │   ├── index.html
 │   ├── env.d.ts                    # TypeScript env declarations for Vite
 │   └── src/
-│       ├── App.vue                 # Root component: layout + chat widget + routing
-│       ├── main.ts                 # Vue entry point: createApp, Pinia, router
-│       ├── index.css               # Tailwind directives (@tailwind base/components/utilities)
+│       ├── App.vue                 # Root component: layout + routing
+│       ├── App.spec.ts
+│       ├── main.ts                 # Vue entry point: imports ./assets/cu-classes.css
+│       │                           #   and ./assets/index.css; createApp, Pinia, router
+│       ├── env.d.ts
+│       ├── test-setup.ts           # Vitest global setup
+│       ├── assets/
+│       │   ├── cu-classes.css      # Verbatim port of the <style> block from cu-classes.html.
+│       │   │                       #   Source of truth for CU brand tokens (cu-gold #CFB87C
+│       │   │                       #   etc.) — replaces the documented tailwind.config.ts.
+│       │   └── index.css           # Tailwind v4 entry (@import "tailwindcss")
+│       ├── router/
+│       │   └── index.ts            # vue-router routes (CourseSearchView at /)
 │       ├── components/
 │       │   ├── layout/
-│       │   │   ├── AppHeader.vue   # Ports <header class="banner"> from cu-classes.html lines 449-470
-│       │   │   ├── FilterBar.vue   # "Search Classes" section: dept / level / time / credits + SEARCH button.
-│       │   │   │                   #   Styled with the ported .section / .form-control / .btn--full CSS
-│       │   │   └── AppFooter.vue
+│       │   │   ├── AppHeader.vue   # Ports <header class="banner"> from cu-classes.html
+│       │   │   ├── AppHeader.spec.ts
+│       │   │   ├── AppFooter.vue
+│       │   │   ├── AppFooter.spec.ts
+│       │   │   ├── FilterBar.vue   # "Search Classes" section: dept / level / credits
+│       │   │   └── FilterBar.spec.ts
 │       │   ├── course-search/
-│       │   │   ├── WelcomePane.vue  # Ports <div class="empty-space"> + .glass card (lines 1114-1138)
-│       │   │   ├── CourseTable.vue  # Results table (right pane after search)
-│       │   │   ├── CourseRow.vue    # Individual result row
-│       │   │   └── CourseDetail.vue # Expanded detail panel for a selected course
-│       │   ├── chat/
-│       │   │   ├── ChatWindow.vue       # Floating chat panel (bottom-right), expand/collapse
-│       │   │   ├── ChatMessage.vue      # Individual message bubble (user or AI)
-│       │   │   ├── ChatInput.vue        # Text input + send button
-│       │   │   ├── StructuredResponse.vue # Renders CourseCard lists from structured_data
-│       │   │   └── SuggestedActions.vue  # Renders dropdowns/buttons from suggested_actions
-│       │   ├── auth/
-│       │   │   ├── LoginModal.vue   # Login form modal
-│       │   │   └── RegisterModal.vue # Registration + program selection + completed courses
-│       │   └── profile/
-│       │       └── CompletedCourses.vue # Checklist to self-report completed courses
-│       ├── composables/             # Vue Composition API composables (equivalent of React hooks)
-│       │   ├── useChat.ts          # WebSocket connection + message state management.
-│       │   │                       #   Includes auto-reconnect with exponential backoff
-│       │   │                       #   (1s, 2s, 4s, max 30s) on disconnect. Shows
-│       │   │                       #   "Reconnecting..." in chat UI during retry.
+│       │   │   ├── WelcomePane.vue  # Ports <div class="empty-space"> + .glass card
+│       │   │   ├── CourseTable.vue
+│       │   │   ├── CourseTable.spec.ts
+│       │   │   ├── CourseRow.vue
+│       │   │   └── CourseDetail.vue
+│       │   └── chat/
+│       │       ├── ChatWindow.vue       # Floating chat panel (bottom-right) — UI shell built
+│       │       │                        #   against mocks; wired to live WS in CHAT-001
+│       │       ├── ChatWindow.spec.ts
+│       │       ├── ChatMessage.vue
+│       │       ├── ChatMessage.spec.ts
+│       │       ├── ChatInput.vue
+│       │       ├── ChatInput.spec.ts
+│       │       ├── StructuredResponse.vue
+│       │       └── SuggestedActions.vue
+│       │   # auth/    — PLANNED (AUTH-003/004): LoginModal.vue, RegisterModal.vue
+│       │   # profile/ — PLANNED: CompletedCourses.vue (API-005b)
+│       ├── views/
+│       │   ├── CourseSearchView.vue
+│       │   └── CourseSearchView.spec.ts
+│       ├── composables/
 │       │   ├── useCourses.ts       # Course search API calls + filter state
-│       │   └── useAuth.ts          # JWT token management, login/logout/register
+│       │   └── useCourses.spec.ts
+│       │   # useChat.ts  — PLANNED (Epic 6 CHAT-*)
+│       │   # useAuth.ts  — PLANNED (Epic 7 AUTH-*)
 │       ├── services/
-│       │   ├── courseApi.ts        # REST client → Course Search API (/api/courses, /api/programs)
-│       │   ├── studentApi.ts     # REST client → Student profile (/api/students/me)
-│       │   └── chatApi.ts         # WebSocket client → Chat Service (/ws)
+│       │   └── courseApi.ts        # REST client → Course Search API
+│       │   # chatApi.ts    — PLANNED (CHAT-001)
+│       │   # studentApi.ts — PLANNED (AUTH/profile work)
 │       ├── stores/                  # Pinia stores
-│       │   ├── chatStore.ts       # Pinia: messages, session_id, suggested_actions state
-│       │   ├── courseStore.ts     # Pinia: filters, search results, selected course
-│       │   └── authStore.ts      # Pinia: user, JWT token, isAuthenticated
+│       │   ├── courseStore.ts       # filters, search results, selected course
+│       │   └── authStore.ts         # user, JWT token, isAuthenticated (token plumbing only;
+│       │                            #   live login wiring lands with AUTH-003/004)
+│       │   # chatStore.ts — PLANNED (Epic 6)
+│       ├── mocks/
+│       │   ├── chat.ts             # Static mock chat responses for UI development
+│       │   └── courses.ts          # Static mock course payloads for tests + dev
 │       └── types/
-│           └── index.ts           # TypeScript interfaces: ChatResponse, CourseCard, Action,
-│                                  #   ChatContext, Course, Program, Section, StudentProfile
+│           └── index.ts            # TypeScript interfaces matching shared/schemas.py
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  DOCS & SCRIPTS  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
 │
@@ -1026,18 +1018,26 @@ cu-student-ai-assistant/
 │   ├── architecture.md             # This file
 │   ├── decisions.md                # Architecture Decision Records (ADRs)
 │   ├── implementation-guide.md     # Step-by-step build instructions with code
-│   ├── jira-epics-and-stories.md   # 59 stories across 12 epics with dependencies
+│   ├── jira-epics-and-stories.md   # Stories across epics with dependencies
 │   ├── development-workflow.md     # Branching, PR, testing, Claude Code setup
 │   └── local-development.md        # How to run the full stack locally (Docker Compose)
 │
+├── tasks/                          # Per-ticket scratch folders (todo.md, notes.md)
+│
 └── scripts/
-    └── seed_db.sh                  # Runs data ingestion: uv run --package data-ingest
-                                    #   python -m data.ingest.run_all
+    ├── dev.sh                      # Day-to-day dev entry point: brings up the stack
+    ├── check.sh                    # Local mirror of CI: ruff + mypy + pytest + vitest
+    ├── seed_db.sh                  # Runs data ingestion: uv run --package data-ingest
+    │                               #   python -m data.ingest.run_all
+    ├── test_tool_calling.py        # Standalone Ollama tool-calling smoke test (CUAI-32 spike)
+    └── spikes/                     # One-off exploration scripts
 ```
 
 ---
 
 ## Security: Prompt Injection & Abuse Prevention
+
+**Status**: Design only — not yet implemented. Target: Phase 3 (Epic 9 SEC-*).
 
 The assistant has tool access that can read and write to databases, making prompt injection a real threat — not just a cosmetic issue. This section covers attack surfaces and defenses. See [ADR-14](decisions.md#adr-14-security-tool-authorization) and [ADR-17](decisions.md#adr-17-defense-in-depth-security) for the reasoning behind this strategy.
 
@@ -1125,6 +1125,8 @@ When course descriptions or degree path data is retrieved and injected as contex
 ---
 
 ## Network Security
+
+**Status**: Design only — not yet implemented. Target: Phase 4 (Epic 11 DEPLOY-*).
 
 All backend infrastructure runs in a private VPC subnet with no public IPs. The only internet-facing components are Cloud Run services, which GCP manages and terminates TLS for. See [ADR-23](decisions.md#adr-23-network-security-private-subnet--iap-over-bastion) for the rationale.
 
@@ -1218,6 +1220,8 @@ All defined in Terraform (`network.tf`). Default deny all ingress, then allow on
 ---
 
 ## GCP Deployment & Infrastructure
+
+**Status**: Design only — not yet implemented. Target: Phase 4 (Epic 11 DEPLOY-*). No `infra/` directory exists in the repo yet.
 
 See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.md#adr-18-terraform-for-iac), and [ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm) for the reasoning behind these decisions.
 
@@ -1357,6 +1361,8 @@ GitHub Actions (deploy.yml)
 > **Budget: ~$150** ($50 GCP coupon × 3 people). Estimated spend: ~$15-25.
 > **Strategy**: Build and test everything locally first. Only deploy to GCP in the final week.
 
+> **Status as of end of Sprint 1 (2026-04-07)**: Phase 1 complete (INFRA-001/002/003 + DATA-001..006). API-001/002/004/005 and FE-001..004 complete from Phase 2 — course search works end-to-end. CI pipeline (CUAI-71) live. **Next up**: chat engine (Epic 4 CHAT-*), auth endpoints + UI (Epic 7 AUTH-*), API-003 semantic search, the `PUT /api/students/me/completed-courses` remainder of API-005, plus the MEM/SEC/DEPLOY epics. Everything in §§ Tool Calling, Conversation Memory, Security, Network Security, and GCP Deployment is design-only.
+
 ### Critical Path
 
 Person C's data work is the bottleneck — most Phase 2 work depends on Phase 1 data being ingested. The dependency chain:
@@ -1462,4 +1468,4 @@ GCP deployment and presentation prep.
 5. **Embedding model**: nomic-embed-text (768 dims) via Ollama vs. other options — need to test quality on course descriptions. Affects vector index dimensions in Neo4j.
 9. **WebSocket message protocol**: Define the exact JSON format for WebSocket messages between frontend and Chat Service. Need request format (message, session_id, context), response format (streaming chunks vs. full response), and error format.
 10. **Error handling strategy**: How do errors surface to the frontend? Separate error response schema? Toast notifications? Inline error messages in chat? Needs agreement before frontend and backend are built in parallel.
-11. **API pagination**: Course search (`GET /api/courses`) could return hundreds of results. Define pagination strategy (cursor-based vs. offset/limit) and default page size.
+~~11. **API pagination**: Course search (`GET /api/courses`) could return hundreds of results. Define pagination strategy (cursor-based vs. offset/limit) and default page size.~~ Resolved — offset/limit with default page size 50, shipped in API-001 and FE-004.

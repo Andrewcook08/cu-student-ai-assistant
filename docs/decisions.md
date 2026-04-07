@@ -803,9 +803,39 @@ The Course Search page must look and feel like CU's class search to be useful to
 
 ### Consequences
 - `frontend/cu-classes.html` is **never edited** after import — it's a frozen baseline. If CU updates their page in the future, we can drop in a new snapshot and re-diff
-- `tailwind.config.ts` defines brand tokens (`cu-gold`, `cu-black`, `cu-panel`, etc.) extracted from `cu-classes.html`'s `<style>` block, so utility classes map exactly to the reference
+- Brand tokens (`cu-gold`, `cu-black`, `cu-panel`, etc.) are extracted from `cu-classes.html`'s `<style>` block and live in `frontend/src/assets/cu-classes.css` so the ported CSS classes map exactly to the reference. The project uses Tailwind v4 via the `@tailwindcss/vite` plugin — there is no standalone `tailwind.config.ts` or `postcss.config.js`
 - `src/assets/cu-classes.css` is a one-time copy of the embedded `<style>` block from the reference, imported globally in `main.ts`. It provides `.banner`, `.panel`, `.section`, `.section__title`, `.form-control`, `.btn--full`, `.empty-space`, `.glass` styling out of the gate so FE-002/FE-003 inherit correct CSS without eyeballing
 - **Scope is explicitly limited to the visual shell.** We port: the `<header class="banner">` markup (lines 449-470), the `<main class="panels">` flex layout (line 472), and the `<div class="empty-space">` + `.glass` welcome card (lines 1114-1138). We do **not** port the keyword/term/subject/campus/career/gen-ed/advanced/carts form sections — those were visual dressing for a scope we chose not to build. The filter sidebar inside the ported `.panel` is our own `FilterBar.vue` with four controls (department, level, time, credits) styled with the reference's CSS classes
 - The SAM Login modal, seligo custom-select widget, and external scripts (`core.js`/`fose.js`/`lfjs.js`) from the reference are deleted outright and not ported
 - **No functional scope is added** by adopting this baseline — FE-001/002/003/004 retain their original filter set, course table, detail panel, pagination, and API-wiring behavior. Only the visual chrome changes
 - See [architecture.md § Frontend](architecture.md#frontend) for the exact "What IS ported" and "What is NOT ported" tables
+
+> **Amended by ADR-32** (2026-04-07): the filter set in this ADR's Decision ("Department, Level, Time, Credit Hours") was narrowed to three controls — Department, Level, Credit Hours — post-Sprint-1. The Time range control and the Law/Non-Credit level options were removed. The rest of ADR-31 (visual baseline, brand tokens, ported markup) stands.
+
+---
+
+## ADR-32: Narrow FilterBar to three controls (dept / level / credits)
+
+### Decision
+Remove the Time range control and the Law/Non-Credit level options from `FilterBar.vue`. The filter sidebar now has **three** controls: Department, Level (Undergrad Lower / Undergrad Upper / Graduate), Credit Hours. This supersedes the "Department, Level, Time, Credit Hours" filter set named in ADR-31's Decision.
+
+### Context
+The original FilterBar scope (ADR-31, FE-002) matched CU's own class search at a surface level: dept, level, time, credits. Post-Sprint-1 testing surfaced three problems:
+
+1. **Client-side vs server-side pagination drift.** The Time filter ran client-side over the already-paginated page of 50 results, producing confusing "Showing 7 of 50" footers. Promoting it to the backend would require adding a section-level query param and joining sections on every course list call just for a control nobody on the team expected students to use.
+2. **Law and Non-Credit are long-tail.** The dataset has very few rows in those ranges and the AI advisor (chat widget) is meant to handle edge-case discovery. Keeping the options in the dropdown implied filter coverage we did not actually have.
+3. **Product framing.** The filter sidebar is explicitly a minimum-viable fallback. CU's own class search handles power-user filtering; our value is the AI advisor. Every control we ship on FilterBar is a commitment to test and maintain.
+
+### Alternatives Considered
+1. **Keep the four-control set and fix Time on the backend** — rejected. Would require adding a join to `sections` on every `GET /api/courses` call plus a meeting-time range filter, for a control with weak product value.
+2. **Move Time to an "Advanced Filters" expandable section** — rejected. Adds UI complexity for the same weak control.
+3. **Drop Time and the two long-tail level options** (chosen) — smallest, most honest change.
+
+### Consequences
+- `FilterBar.vue` renders three form controls: Department, Level, Credit Hours. Level dropdown values are Undergrad Lower / Undergrad Upper / Graduate.
+- `@search` event emits `{ dept, level, credits }` — no `time` key.
+- `GET /api/courses` backend does not accept a time/meeting filter. It does accept a `level` filter (undergrad-lower / undergrad-upper / graduate) that translates to a SQL range on the numeric portion of `Course.code`. Invalid values return 400.
+- `CourseTable.spec.ts` no longer covers a time filter case.
+- ADR-31 "Consequences" bullet naming "four controls (department, level, time, credits)" is amended — see the note appended to ADR-31 above.
+- Historical PRs and Sprint 1 story descriptions that reference the four-control set remain as-is; the Jira ticket descriptions (CUAI-45/46/47) were updated to reflect the new scope.
+- Shipped in PR #62 alongside the backend `level` filter and aggregate `status` field.
