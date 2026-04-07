@@ -198,15 +198,22 @@ def test_put_completed_courses_unknown_code_returns_422(client, db_session):
 
 
 def test_put_completed_courses_oversized_payload_returns_422(client, db_session):
-    """A payload exceeding 200 items must be rejected with 422."""
+    """A payload exceeding 200 items must be rejected with 422 by the size cap.
+
+    Seeds 201 valid courses so the only failure mode is the size cap, not the
+    unknown-code check (both return 422, but this ensures we're testing the right path).
+    """
     user = _make_user(db_session, email="oversized@example.com")
     token = create_access_token(str(user.id))
 
-    # 201 unique (but non-existent) codes — size check runs before DB lookup
-    oversized = [{"course_code": f"FAKE {i:04d}"} for i in range(201)]
+    # Seed 201 valid courses so the unknown-code check cannot mask a broken size cap
+    for i in range(201):
+        _make_course(db_session, code=f"TEST {i:04d}")
+
+    payload = [{"course_code": f"TEST {i:04d}"} for i in range(201)]
     response = client.put(
         "/api/students/me/completed-courses",
-        json=oversized,
+        json=payload,
         headers=_auth(token),
     )
     assert response.status_code == 422
