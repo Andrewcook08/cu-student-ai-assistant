@@ -10,6 +10,20 @@ from shared.auth import create_access_token, hash_password
 from shared.models import User
 
 
+def _make_active_user(db_session, suffix: str = "") -> tuple[User, str]:
+    """Helper: create an active user and return (user, jwt_token)."""
+    user = User(
+        email=f"active{suffix}@example.com",
+        password_hash=hash_password("pw"),
+        name=f"Active User {suffix}",
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user, create_access_token(str(user.id))
+
+
 def test_students_route_exists(client):
     """The /api/students prefix must be registered (even if empty)."""
     # Any response code except 404 means the route is registered
@@ -61,3 +75,32 @@ def test_inactive_user_rejected(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code in (401, 403)
+
+
+def test_put_completed_courses_requires_auth(client):
+    """PUT /me/completed-courses without a JWT must return 401/403/422."""
+    response = client.put(
+        "/api/students/me/completed-courses",
+        json=[{"course_code": "CSCI 1300", "grade": "A"}],
+    )
+    assert response.status_code in (401, 403, 422)
+
+
+def test_put_completed_courses_updates_list(client, db_session):
+    """PUT /me/completed-courses replaces the user's completed course list."""
+    _, token = _make_active_user(db_session, suffix="-put")
+
+    payload = [
+        {"course_code": "CSCI 1300", "grade": "A"},
+        {"course_code": "CSCI 2270", "grade": None},
+    ]
+    response = client.put(
+        "/api/students/me/completed-courses",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "completed_courses" in data
+    codes = {c["course_code"] for c in data["completed_courses"]}
+    assert codes == {"CSCI 1300", "CSCI 2270"}
