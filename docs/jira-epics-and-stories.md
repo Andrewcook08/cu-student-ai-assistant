@@ -178,7 +178,7 @@
 > Owner: Person B | Phase: 2 | Priority: High
 
 ### API-001: GET /api/courses — filtered course listing
-- **Points**: 3
+- **Points**: 4
 - **Phase**: 2 (Day 6-7)
 - **Blocked by**: DATA-001 (courses in PostgreSQL)
 - **Assignee**: Person B
@@ -190,9 +190,10 @@
   - [ ] Multiple filters can be combined
   - [ ] Response includes `total` count for pagination UI
   - [ ] Response time < 100ms
+  - [ ] pytest tests in `services/course-search-api/tests/test_courses_list.py` cover: dept filter, q text search, offset+limit pagination, multiple-filter combination, empty result set. `uv run pytest services/course-search-api/tests/test_courses_list.py -v` passes.
 
 ### API-002: GET /api/courses/{code} — course detail with sections
-- **Points**: 2
+- **Points**: 3
 - **Phase**: 2 (Day 7)
 - **Blocked by**: DATA-001
 - **Assignee**: Person B
@@ -202,6 +203,7 @@
   - [ ] Sections include crn, meets, instructor, status
   - [ ] 404 for non-existent course codes
   - [ ] Prerequisites_raw is included
+  - [ ] pytest tests in `services/course-search-api/tests/test_courses_detail.py` cover: course exists (200 with sections), 404 on unknown code, `prerequisites_raw` included in response. Tests pass.
 
 ### API-003: GET /api/courses/search — semantic search via Neo4j vectors
 - **Points**: 3
@@ -216,7 +218,7 @@
   - [ ] Response time < 500ms (embedding generation is the bottleneck)
 
 ### API-004: GET /api/programs and GET /api/programs/{id}/requirements
-- **Points**: 2
+- **Points**: 3
 - **Phase**: 2 (Day 8)
 - **Blocked by**: DATA-002
 - **Assignee**: Person B
@@ -226,9 +228,10 @@
   - [ ] `GET /api/programs/1/requirements` returns structured requirements
   - [ ] Requirements are ordered by sort_order
   - [ ] OR alternatives are grouped with their parent requirement
+  - [ ] pytest tests in `services/course-search-api/tests/test_programs.py` cover: list programs, get requirements ordered by sort_order, 404 for unknown program id. Tests pass.
 
 ### API-005: Student profile endpoints
-- **Points**: 3
+- **Points**: 4
 - **Phase**: 2-3 (Day 8-9)
 - **Blocked by**: INFRA-002 (User model)
 - **Assignee**: Person B
@@ -238,17 +241,9 @@
   - [ ] `GET /api/students/me` returns program, completed courses (with grades), decisions
   - [ ] `PUT /api/students/me/completed-courses` accepts `[{course_code, grade}]`
   - [ ] User can only see/modify their own data
+  - [ ] pytest tests in `services/course-search-api/tests/test_students.py` cover: GET /me with valid JWT (200), GET /me without JWT (401), GET /me accessing another user's data (403), PUT /me/completed-courses update. Tests pass.
 
-### API-006: Course Search API tests
-- **Points**: 3
-- **Phase**: 2 (Day 9)
-- **Blocked by**: API-001, API-002, API-004
-- **Assignee**: Person B
-- **Description**: Write pytest tests for all endpoints. Use a test database (SQLite or separate PostgreSQL). Test: filtering, pagination, 404s, auth required, auth forbidden.
-- **Acceptance criteria**:
-  - [ ] `uv run pytest services/course-search-api/tests/ -v` passes
-  - [ ] Tests cover: happy path, edge cases, auth enforcement
-  - [ ] Test fixtures seed minimal course data
+> **Note**: API-006 was deleted. Its test coverage is folded into API-001, API-002, API-004, and API-005 per the "tests ship with code" policy (see `docs/development-workflow.md` § Testing Strategy).
 
 ---
 
@@ -418,20 +413,22 @@
 > Owner: Person B (Rohan) | Phase: 1-2
 
 ### FE-001: Vue + Vite + Tailwind project setup
-- **Points**: 2
+- **Points**: 3
 - **Phase**: 1 (Day 1)
 - **Blocked by**: Nothing
 - **Assignee**: Person B
-- **Description**: Initialize Vue 3 project with TypeScript, Router, Pinia, Tailwind, shadcn-vue. Configure Vite proxy for `/api` and `/ws`. Configure CU branding tokens extracted from `frontend/cu-classes.html`'s embedded `<style>` block (see ADR-31 and architecture.md § Frontend for the brand-token table). Copy the embedded `<style>` block from `frontend/cu-classes.html` (lines 8-445) into `src/assets/cu-classes.css` and import it from `main.ts` so subsequent FE-002/FE-003 work has the reference styling available out of the gate.
+- **Description**: Initialize Vue 3 project with TypeScript, Router, Pinia, Tailwind, shadcn-vue. Configure Vite proxy for `/api` and `/ws`. Configure CU branding tokens extracted from `frontend/cu-classes.html`'s embedded `<style>` block (see ADR-31 and architecture.md § Frontend for the brand-token table). Copy the embedded `<style>` block from `frontend/cu-classes.html` (lines 8-445) into `src/assets/cu-classes.css` and import it from `main.ts` so subsequent FE-002/FE-003 work has the reference styling available out of the gate. Also set up the Vitest test harness so FE-002 onward can ship component tests in the same PR as their components: install `vitest`, `@vue/test-utils`, `jsdom`, `@vitest/coverage-v8`; create `frontend/vitest.config.ts` (jsdom environment, `@/` alias matching Vite); create `frontend/src/test-setup.ts` wiring Pinia; add `"test"` and `"test:coverage"` npm scripts.
 - **Acceptance criteria**:
   - [ ] `cd frontend && npm run dev` starts on http://localhost:5173
   - [ ] `tailwind.config.ts` defines `cu-gold` (`#CFB87C`), `cu-gold-hover` (`#c4a94f`), `cu-black` (`#000000`), `cu-panel` (`#f5f5f5`), `cu-pane` (`#fafafa`), `cu-section-head` (`#eee`), `cu-border` (`#ddd`), `cu-link` (`#0277BD`), `cu-text` (`#333`), `cu-muted` (`#555`)
   - [ ] `src/assets/cu-classes.css` exists, is imported from `main.ts`, and contains the unmodified `<style>` block from `frontend/cu-classes.html` lines 8-445
   - [ ] Vite proxy routes `/api/*` to port 8000 and `/ws/*` to port 8001
   - [ ] TypeScript compiles without errors
+  - [ ] Vitest + @vue/test-utils + jsdom installed and configured (`frontend/vitest.config.ts`, `frontend/src/test-setup.ts`)
+  - [ ] `npm run test -- --run` passes with at least one smoke test (e.g. `src/stores/__tests__/authStore.spec.ts` asserting default state + login/logout transitions)
 
 ### FE-002: Layout shell (header, filter sidebar, footer)
-- **Points**: 3
+- **Points**: 4
 - **Phase**: 1 (Day 2-3)
 - **Blocked by**: FE-001
 - **Assignee**: Person B
@@ -449,9 +446,10 @@
   - [ ] `CourseSearchView.vue` mounts at route `/` with the flex layout (370px left panel + flex:1 right pane)
   - [ ] Login button visible (non-functional until auth is wired)
   - [ ] Not required to be responsive (desktop-first, matching the reference)
+  - [ ] Vitest specs pass for: `AppHeader.spec.ts` (unauthenticated branch, authenticated branch, logout calls `auth.logout()`, aria-labels present on all icon buttons), `FilterBar.spec.ts` (v-model on each of the 4 controls, `@search` emits exactly `{ dept, level, time, credits }` with no extra fields), `CourseSearchView.spec.ts` (layout mounts header + 370px panel + right pane + footer)
 
 ### FE-003: Course table + detail panel (mock data)
-- **Points**: 3
+- **Points**: 4
 - **Phase**: 1 (Day 3-4)
 - **Blocked by**: FE-002
 - **Assignee**: Person B
@@ -470,10 +468,11 @@
   - [ ] Detail shows sections (CRN, time, instructor, status)
   - [ ] `FilterBar.vue` controls filter the mock data locally (e.g. selecting a department narrows the visible rows)
   - [ ] After a search runs, `CourseSearchView.vue` swaps `WelcomePane.vue` for `CourseTable.vue` via `v-if="hasSearched"`
+  - [ ] Vitest specs pass for: `CourseTable.spec.ts` (filter by dept, level, credits, AND time, empty-results state, row count), `CourseRow.spec.ts` (click expands, Enter key expands, Space key expands, aria-expanded toggles), `CourseDetail.spec.ts` (renders sections, prerequisites, description, status chips), `WelcomePane.spec.ts` (renders .glass card matching cu-classes.html lines 1114-1138)
   - [ ] `frontend/cu-classes.html` is **not modified** by this ticket — it remains an immutable reference per ADR-31
 
 ### FE-004: Wire course search to real API
-- **Points**: 3
+- **Points**: 4
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: API-001, API-002, FE-003
 - **Assignee**: Person B
@@ -483,7 +482,8 @@
   - [ ] Changing department filter re-fetches from API
   - [ ] Pagination works (next/prev, showing total count)
   - [ ] Loading state shown while fetching
-  - [ ] API errors shown as toast notification
+  - [ ] API errors shown as toast notification — **no silent fallback to mock data**. Errors must surface to the user with a retry affordance.
+  - [ ] Vitest specs pass for: `courseApi.spec.ts` (fetch success, fetch 4xx, fetch 5xx, network error), `useCourses.spec.ts` (loading/error/success reactive state transitions), `CourseSearchView.spec.ts` integration (mocked fetch success renders table; mocked fetch error renders toast, does NOT fall back to mock data)
 
 ### FE-005: TypeScript types
 - **Points**: 1
@@ -494,7 +494,7 @@
 - **Acceptance criteria**:
   - [ ] All API response shapes have TypeScript interfaces
   - [ ] All WebSocket message types are defined
-  - [ ] No `any` types in production code
+  - [ ] No `any` types anywhere in `frontend/src/` (enforced by tsconfig `strict: true`; once eslint lands in CICD-001, `@typescript-eslint/no-explicit-any: error` in the ruleset)
 
 ---
 
@@ -503,7 +503,7 @@
 > Owner: Person B | Phase: 1-2
 
 ### FE-006: Chat window shell (expand/collapse)
-- **Points**: 2
+- **Points**: 3
 - **Phase**: 1 (Day 4)
 - **Blocked by**: FE-001
 - **Assignee**: Person B
@@ -514,9 +514,10 @@
   - [ ] Panel has scrollable message area and input bar
   - [ ] Clicking icon again collapses the panel
   - [ ] Panel doesn't block course table interaction when collapsed
+  - [ ] Vitest specs pass for: `ChatWindow.spec.ts` (open/close toggle, message append triggers auto-scroll, setTimeout cleanup on unmount using fake timers, Escape key closes the panel, focus moves to textarea on open and returns to trigger on close)
 
 ### FE-007: Chat message rendering (markdown + course cards)
-- **Points**: 3
+- **Points**: 4
 - **Phase**: 1 (Day 4-5)
 - **Blocked by**: FE-006
 - **Assignee**: Person B
@@ -527,6 +528,7 @@
   - [ ] CourseCards render as styled cards (code, title, credits, status)
   - [ ] SuggestedActions render as clickable buttons/dropdowns
   - [ ] Selecting an action sends structured context back
+  - [ ] Vitest specs pass for: `ChatMessage.spec.ts` (markdown renders bold/italic/lists/code/links correctly AND XSS payloads are neutralized — `<script>alert(1)</script>` renders as literal text, `[click](javascript:alert(1))` link is stripped or neutered, `<img src=x onerror=alert(1)>` renders as literal text), `StructuredResponse.spec.ts` (CourseCard renders code/title/credits/status chip), `SuggestedActions.spec.ts` (click emits the full Action object with type + label + payload — not just label string)
 
 ### FE-008: WebSocket integration (useChat composable)
 - **Points**: 5
@@ -544,7 +546,7 @@
   - [ ] 30s progress message rendered when received
 
 ### FE-009: Chat input + send
-- **Points**: 2
+- **Points**: 3
 - **Phase**: 1-2 (Day 5, then wire in Day 9)
 - **Blocked by**: FE-006
 - **Assignee**: Person B
@@ -555,6 +557,7 @@
   - [ ] Input disabled + shows "AI is thinking..." while typing indicator is active
   - [ ] Input prevents > 2000 characters
   - [ ] Input clears after sending
+  - [ ] Vitest specs pass for: `ChatInput.spec.ts` (Enter sends, Shift+Enter inserts newline without sending, char limit hard cap at 2000, disabled state when isTyping, empty-message guard in sendMessage handler, input clears after send)
 
 ---
 
@@ -811,18 +814,22 @@
 
 ## Epic 11: CI/CD
 
-> Owner: Person B | Phase: 4
+> Owner: Person B | Phase: 1 (CICD-001), 4 (CICD-002)
 
 ### CICD-001: GitHub Actions CI pipeline
 - **Points**: 2
-- **Phase**: 4 (Day 20)
+- **Phase**: 1 (Day 2)
 - **Blocked by**: Nothing
+- **Blocks**: FE-001 merge (CI must be live before any feature PR lands, so we start with a green baseline)
 - **Assignee**: Person B
-- **Description**: Create `.github/workflows/ci.yml`. On PR: uv sync, ruff check, ruff format --check, mypy, pytest.
+- **Description**: Create `.github/workflows/ci.yml`. Runs on every PR and push to main. Jobs: (1) Python — `uv sync`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy .`, `uv run pytest` (skip gracefully if no tests exist). (2) Frontend — `cd frontend && npm ci && npm run type-check && npm run lint && npm run test -- --run && npm run build`. After this lands, enable branch protection on `main` requiring CI green before merge.
 - **Acceptance criteria**:
-  - [ ] CI runs on every PR
-  - [ ] Fails if lint, format, type check, or tests fail
+  - [ ] CI runs on every PR targeting main and every push to main
+  - [ ] Python job runs ruff check, ruff format --check, mypy, and pytest
+  - [ ] Frontend job runs type-check, lint, vitest, and build
+  - [ ] Fails if any step fails
   - [ ] Status check shown on PR page
+  - [ ] Branch protection on main requires CI green before merge
 
 ### CICD-002: GitHub Actions deploy pipeline
 - **Points**: 3
@@ -886,7 +893,7 @@
 ```
 INFRA-001 (Andrew) ──→ INFRA-002 (Scott) ──→ INFRA-003 (Scott)
     │                       │                       │
-    │                       │                       ├──→ API-001 ──→ API-002 ──→ API-006
+    │                       │                       ├──→ API-001 ──→ API-002
     │                       │                       ├──→ API-003
     │                       │                       ├──→ API-004 ──→ AUTH-003
     │                       │                       ├──→ CHAT-001 ──→ FE-008
@@ -960,13 +967,14 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | INFRA-001 | 3 | Person C (Andrew) | 1 |
 | INFRA-002 | 5 | Person A (Scott) | 2-3 |
 | INFRA-003 | 3 | Person A (Scott) | 3-4 |
-| FE-001 | 2 | Person B | 1 |
-| FE-002 | 3 | Person B | 2-3 |
-| FE-003 | 3 | Person B | 3-4 |
+| CICD-001 | 2 | Person B | 2 |
+| FE-001 | 3 | Person B | 1-2 |
+| FE-002 | 4 | Person B | 2-3 |
+| FE-003 | 4 | Person B | 3-4 |
 | FE-005 | 1 | Person B | 2 |
-| FE-006 | 2 | Person B | 4 |
-| FE-007 | 3 | Person B | 4-5 |
-| FE-009 | 2 | Person B | 5 |
+| FE-006 | 3 | Person B | 4 |
+| FE-007 | 4 | Person B | 4-5 |
+| FE-009 | 3 | Person B | 5 |
 | DATA-001 | 5 | Person C | 1-3 |
 | DATA-002 | 5 | Person C | 2-4 |
 | DATA-003 | 5 | Person C | 2-4 |
@@ -974,22 +982,21 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | DATA-005 | 2 | Person C | 5 |
 | DATA-006 | 3 | Person B | 4-5 |
 | CHAT-000 | 2 | Person C | 5-6 |
-| **Total** | **52** | | |
+| **Total** | **62** | | |
 
-**Per-person**: A (Scott)=8, B (Rohan)=19, C (Andrew)=25. Andrew bootstraps the repo skeleton on Day 1, then pivots to data ingestion (can start parsing logic in pure Python while Docker builds). Scott starts on shared package once the skeleton is merged. CHAT-000 spans into Day 6 (Sprint 2) but is timeboxed to 1 day.
+**Per-person**: A (Scott)=8, B (Rohan)=29, C (Andrew)=25. Andrew bootstraps the repo skeleton on Day 1, then pivots to data ingestion (can start parsing logic in pure Python while Docker builds). Scott starts on shared package once the skeleton is merged. CHAT-000 spans into Day 6 (Sprint 2) but is timeboxed to 1 day.
 
 ### Sprint 2: Core Features (Days 6-12, Mar 30 - Apr 5)
 **Goal**: Course search end-to-end. Chat with tool calling.
 
 | Story | Points | Assignee | Day |
 |-------|--------|----------|-----|
-| API-001 | 3 | Person B | 6-7 |
-| API-002 | 2 | Person B | 7 |
+| API-001 | 4 | Person B | 6-7 |
+| API-002 | 3 | Person B | 7 |
 | API-003 | 3 | Person B | 7-8 |
-| API-004 | 2 | Person B | 8 |
-| API-005 | 3 | Person B | 8-9 |
-| API-006 | 3 | Person B | 9 |
-| FE-004 | 3 | Person B | 9-10 |
+| API-004 | 3 | Person B | 8 |
+| API-005 | 4 | Person B | 8-9 |
+| FE-004 | 4 | Person B | 9-10 |
 | FE-008 | 5 | Person B | 8-12 |
 | CHAT-001 | 2 | Person C | 6-7 |
 | CHAT-002 | 5 | Person C | 7-9 |
@@ -1002,9 +1009,9 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | CHAT-009 | 3 | Person C | 8 |
 | CHAT-010 | 3 | Person C | 9-10 |
 | CHAT-011 | 5 | Person B | 12-13 |
-| **Total** | **64** | | |
+| **Total** | **66** | | |
 
-**Per-person**: A=0, B=29, C=35. Person A is free to help with bug fixes or start Terraform prep. CHAT-011 may spill into Sprint 3.
+**Per-person**: A=0, B=31, C=35. Person A is free to help with bug fixes or start Terraform prep. CHAT-011 may spill into Sprint 3.
 
 ### Sprint 3: Integration + Polish (Days 13-19, Apr 6-12)
 **Goal**: Full local demo with auth, memory, security.
@@ -1038,14 +1045,13 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | DEPLOY-005 | 1 | Person A | 20 |
 | DEPLOY-006 | 2 | Person A | 22 |
 | DEPLOY-007 | 2 | Person A | 22-23 |
-| CICD-001 | 2 | Person B | 20 |
 | CICD-002 | 3 | Person B | 21-22 |
 | DEMO-001 | 5 | Person C | 22-23 |
 | DEMO-002 | 3 | Everyone | 23-24 |
 | DEMO-003 | 3 | Everyone | 23-24 |
-| **Total** | **37** | | |
+| **Total** | **35** | | |
 
-**Per-person**: A=21, B=5, C=5, Everyone=6. Person A heavy on Terraform. Person B lighter — can help with branding polish and bug fixes.
+**Per-person**: A=21, B=3, C=5, Everyone=6. Person A heavy on Terraform. Person B lighter — can help with branding polish and bug fixes.
 
 ---
 
@@ -1053,11 +1059,11 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 
 | Metric | Value |
 |--------|-------|
-| **Total stories** | 59 |
-| **Total story points** | 189 |
+| **Total stories** | 58 |
+| **Total story points** | 197 |
 | **Sprints** | 4 (5 + 7 + 7 + 5 days) |
 | **Person A — Scott** | 40 pts, 12 stories — Shared Package, Wire Services, Docker verification, Terraform, GCP Deploy, Conversation Memory |
-| **Person B — Rohan** | 70 pts, 25 stories — Frontend (visual shell anchored to `frontend/cu-classes.html` per ADR-31; functional filter set unchanged from original plan), Course Search API, Auth, CI/CD, CHAT-011, DATA-006, SEC-002/003 |
+| **Person B — Rohan** | 78 pts, 24 stories — Frontend (visual shell anchored to `frontend/cu-classes.html` per ADR-31; functional filter set unchanged from original plan), Course Search API, Auth, CI/CD, CHAT-011, DATA-006, SEC-002/003 |
 | **Person C — Andrew** | 73 pts, 20 stories — Repo skeleton, Data ingestion, Chat engine (LangGraph), Neo4j, Redis, Security (SEC-001/004), Demo |
 | **Shared** | 6 pts, 2 stories — DEMO-002 (3), DEMO-003 (3) |
 | **Cross-person blocks** | 12 (most front-loaded in Days 1-2 scaffolding, zero mid-sprint blocking) |

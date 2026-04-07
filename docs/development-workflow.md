@@ -96,7 +96,7 @@ The automation handles status transitions, but these things are still on you:
 
 ### What About CI Checks?
 
-The CI pipeline (lint, format, typecheck, tests) is **not implemented yet** — that's CUAI-71 in Sprint 4. Until then, run checks locally before pushing:
+The CI pipeline (lint, format, typecheck, tests) runs on every PR automatically — that's CUAI-71 (CICD-001), scheduled for Sprint 1 Day 2 so every feature PR is CI-gated from the start. Even so, run checks locally before pushing so you don't burn CI cycles on obvious failures:
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run pytest
 ```
@@ -172,6 +172,7 @@ gh pr merge --squash
 | **Prerequisite parser** | Regex over messy data. Edge cases will bite you. | `test_prerequisites.py`: all 5 patterns, typos, edge cases |
 | **API endpoints** | Catch 500s before they hit the frontend. | `test_courses.py`: filters, pagination, 404s, auth |
 | **Security** | Injection attempts, rate limiting, output validation. | `test_security.py`: prompt injection, tool abuse, PII scanning |
+| **Frontend components** | Catches a11y regressions, broken event wiring, and XSS in markdown rendering before users see them. Required for every FE ticket. | `AppHeader.spec.ts` (auth branches), `ChatMessage.spec.ts` (markdown XSS), `CourseTable.spec.ts` (filter logic) |
 
 ### What NOT to Test
 
@@ -180,37 +181,47 @@ gh pr merge --squash
 | SQLAlchemy models | Trust the ORM. If the schema is wrong, ingestion fails obviously. |
 | Pydantic schemas | Trust the library. Invalid data raises ValidationError. |
 | Config loading | pydantic-settings is well-tested. |
-| Frontend components | Test visually. Automated component tests are slow to write and brittle. |
 | LangGraph wiring | Integration-test by running the chat. Unit-testing state machines is painful. |
 
 ### When to Write Tests
 
-**Not TDD. Test before merge.**
+**Tests ship in the same PR as the code they verify.** Don't open a PR without the tests for the behavior it introduces. Don't defer tests to a "cleanup" ticket. If CI doesn't run tests on the PR, the PR isn't ready.
 
-1. Write the code
-2. Get it working manually (curl, browser, Neo4j browser)
-3. Write tests for the categories above
-4. Run `uv run pytest -x -v` before pushing
-5. CI runs the full suite on PR
+**Why:** un-gated merges let two runtime crashes reach review in PRs #41–#46. Tests-with-code closes that gap.
 
 ### Running Tests
 
+**Backend (pytest):**
+
 ```bash
-# All tests
+# All backend tests
 uv run pytest
 
-# One service
+# Specific service
 uv run pytest services/course-search-api/tests/ -v
 uv run pytest services/chat-service/tests/ -v
 
-# One file
+# Specific file
 uv run pytest services/chat-service/tests/test_tools.py -v
 
-# Stop on first failure
+# Stop on first failure (fast feedback)
 uv run pytest -x
+```
 
-# Full CI check
+**Frontend (Vitest + @vue/test-utils):**
+
+```bash
+cd frontend
+npm run test          # watch mode
+npm run test -- --run # single run (what CI uses)
+npm run test:coverage # coverage report
+```
+
+**Full local check — mirror what CI runs before pushing:**
+
+```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run pytest
+cd frontend && npm run type-check && npm run lint && npm run test -- --run && npm run build
 ```
 
 ---
@@ -337,10 +348,10 @@ You: Implement FE-008: WebSocket integration with useChat composable.
 
 | Phase | Person B Focus | Key Prompt Patterns |
 |-------|---------------|-------------------|
-| 1 | Vue setup, layout (visual shell from cu-classes.html), mock components | "Create [Component].vue with Tailwind styling. Use mock data. Match the panel/section/form-control styling from cu-classes.html (ADR-31)." |
+| 1 | CICD-001 first (Day 2), then Vue setup, layout (visual shell from cu-classes.html), mock components — each component PR ships with Vitest tests | "Create [Component].vue with Tailwind styling. Use mock data. Match the panel/section/form-control styling from cu-classes.html (ADR-31). Then write Vitest tests covering the component's behavior per the ticket's acceptance criteria." |
 | 2 | Course Search API endpoints, WebSocket integration, wire frontend to API | "Implement GET /api/courses with filters. Use SQLAlchemy queries against the Course model." |
 | 3 | Auth backend (register/login) + Auth UI, structured responses | "Implement POST /api/auth/register. Hash password with shared/auth.py. Return JWT." |
-| 4 | CI/CD, branding polish | "Create .github/workflows/ci.yml that runs lint, format, typecheck, and tests on PR." |
+| 4 | Deploy pipeline (CICD-002), branding polish, bug fixes | "Create .github/workflows/deploy.yml that builds Docker images and deploys to Cloud Run." |
 
 **Tips for Person B:**
 - **Always reference `frontend/cu-classes.html` for Course Search page work** — it's the frozen design baseline (ADR-31). Open it in a browser tab as you build, and tell Claude Code "match the layout in frontend/cu-classes.html lines X-Y exactly"
@@ -348,7 +359,7 @@ You: Implement FE-008: WebSocket integration with useChat composable.
 - Tell Claude Code the exact Tailwind colors from `cu-classes.html`'s `<style>` block: "Use `bg-cu-black text-cu-gold` for the header (matches `.banner` in the reference)"
 - For composables, reference the WebSocket protocol types from `src/types/index.ts`
 - When wiring API calls, say "Use the Vite proxy — call /api/courses, not http://localhost:8000/api/courses"
-- Frontend has no automated tests — verify visually. Ask Claude Code "does this component handle the loading state and error state?"
+- Frontend tests are required on every FE ticket — Vitest + @vue/test-utils + jsdom. Ask Claude Code to write tests alongside the component: "After implementing CourseTable.vue, write CourseTable.spec.ts covering filter logic for dept, level, credits, and time." See the ticket's acceptance criteria for exactly which specs are required.
 
 ### Node Commands (for Claude Code context)
 
