@@ -231,7 +231,9 @@ CI (CUAI-71, `.github/workflows/ci.yml`) runs from the repo root and auto-discov
 **Backend (Python / uv workspace):**
 
 - All Python services are members of the root `pyproject.toml` workspace (`[tool.uv.workspace].members`).
-- Pytest discovers tests via `[tool.pytest.ini_options].testpaths` at the root. This is the single source of truth for which directories `uv run pytest` walks.
+- Pytest discovers tests via `[tool.pytest.ini_options].testpaths` at the root. This is the single source of truth for which directories `uv run pytest` walks. A single `uv run pytest` from the repo root collects tests from all services in one process — no per-service invocations needed.
+- Each service's top-level Python package has a unique name (`chat_service`, `course_search_api`), so they coexist in `sys.modules` without conflict.
+- The root `pyproject.toml` sets `addopts = "--import-mode=importlib"`. This is required because each service has its own `tests/conftest.py`. Under pytest's default `prepend` import mode, every `tests/conftest.py` across services would be registered under the plain module name `conftest`, and the second one to load would crash with "Plugin already registered". Importlib mode imports test files by file path, giving each conftest a unique synthetic module name.
 - **When you add a new service or test directory**, update both locations in the root `pyproject.toml`:
   1. Add the service to `[tool.uv.workspace].members`
   2. Add its `tests/` dir to `[tool.pytest.ini_options].testpaths`
@@ -291,7 +293,7 @@ On the first run, Claude Code will read `CLAUDE.md` and understand the project. 
 
 1. **Reference the story ID**: "Implement API-001: course listing endpoint with filters"
 2. **Point to the architecture**: "Follow the API spec in docs/architecture.md"
-3. **Specify the file**: "Edit services/course-search-api/app/routes/courses.py"
+3. **Specify the file**: "Edit services/course-search-api/course_search_api/routes/courses.py"
 4. **Ask for tests after code**: "Now write tests for the endpoint in tests/test_courses.py"
 5. **Run checks before committing**: "Run ruff check, ruff format, mypy, and pytest"
 

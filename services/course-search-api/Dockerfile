@@ -11,4 +11,4 @@ RUN uv sync --package course-search-api --frozen --no-dev
 
 WORKDIR /app/services/course-search-api
 EXPOSE 8000
-CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/.venv/bin/uvicorn", "course_search_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

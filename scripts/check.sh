@@ -14,11 +14,11 @@ uv run mypy .
 echo "==> mypy: course-search-api"
 MYPYPATH="$REPO_ROOT/shared" uv run mypy \
   --config-file services/course-search-api/pyproject.toml \
-  services/course-search-api/app services/course-search-api/tests
+  services/course-search-api/course_search_api services/course-search-api/tests
 
 echo "==> mypy: chat-service"
 MYPYPATH="$REPO_ROOT/shared" uv run mypy \
   --config-file services/chat-service/pyproject.toml \
-  services/chat-service/app services/chat-service/tests
+  services/chat-service/chat_service services/chat-service/tests
 
 echo "All checks passed."

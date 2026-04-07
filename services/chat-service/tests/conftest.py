@@ -1,7 +1,7 @@
 from collections.abc import Generator
 
 import pytest
-from app.main import app
+from chat_service.main import app
 from fastapi.testclient import TestClient
 
 
