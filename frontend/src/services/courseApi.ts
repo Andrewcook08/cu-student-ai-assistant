@@ -4,6 +4,7 @@ const API_BASE = '/api'
 
 export interface CourseFilters {
   dept?: string
+  level?: string
   instruction_mode?: string
   status?: string
   credits?: string
@@ -17,6 +18,7 @@ export async function fetchCourses(
 ): Promise<PaginatedResponse<Course>> {
   const params = new URLSearchParams()
   if (filters.dept) params.set('dept', filters.dept)
+  if (filters.level) params.set('level', filters.level)
   if (filters.instruction_mode) params.set('instruction_mode', filters.instruction_mode)
   if (filters.status) params.set('status', filters.status)
   if (filters.credits) params.set('credits', filters.credits)

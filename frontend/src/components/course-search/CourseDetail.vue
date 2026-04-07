@@ -24,6 +24,7 @@ defineProps<{
             <thead>
               <tr>
                 <th>CRN</th>
+                <th>Type</th>
                 <th>Meets</th>
                 <th>Instructor</th>
                 <th>Status</th>
@@ -32,6 +33,7 @@ defineProps<{
             <tbody>
               <tr v-for="section in course.sections" :key="section.crn">
                 <td>{{ section.crn }}</td>
+                <td>{{ section.type || '—' }}</td>
                 <td>{{ section.meets || '—' }}</td>
                 <td>{{ section.instructor || '—' }}</td>
                 <td>

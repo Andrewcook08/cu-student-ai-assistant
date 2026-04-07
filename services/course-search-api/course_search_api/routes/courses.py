@@ -1,16 +1,28 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from shared.models import Course, Section
-from sqlalchemy import distinct, func
+from sqlalchemy import Integer, cast, distinct, func
 from sqlalchemy.orm import Session, joinedload
 
 from course_search_api.dependencies import get_db
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
+# Level → course-number range. Numeric portion extracted from Course.code
+# (format "CSCI 1300") via substring regex in SQL.
+_LEVEL_RANGES: dict[str, tuple[int, int]] = {
+    "undergrad-lower": (1000, 2999),
+    "undergrad-upper": (3000, 4999),
+    "graduate": (5000, 9999),
+}
+
 
 @router.get("")
 def list_courses(
     dept: str | None = Query(None, description="Department code, e.g. CSCI"),
+    level: str | None = Query(
+        None,
+        description="Course level: undergrad-lower, undergrad-upper, or graduate",
+    ),
     instruction_mode: str | None = Query(None),
     status: str | None = Query(None, description="Filter by section status"),
     credits: str | None = Query(None),
@@ -24,6 +36,15 @@ def list_courses(
 
     if dept:
         query = query.filter(Course.dept == dept.upper())
+    if level:
+        if level not in _LEVEL_RANGES:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Invalid level '{level}'. Must be one of: {', '.join(_LEVEL_RANGES)}"),
+            )
+        low, high = _LEVEL_RANGES[level]
+        course_number = cast(func.substring(Course.code, r"[0-9]+"), Integer)
+        query = query.filter(course_number.between(low, high))
     if instruction_mode:
         query = query.filter(Course.instruction_mode == instruction_mode)
     if credits:
@@ -73,6 +94,23 @@ def get_course(code: str, db: Session = Depends(get_db)) -> dict:
     return _course_to_dict(course, include_attributes=True)
 
 
+def _aggregate_status(sections: list[Section] | None) -> str | None:
+    """Derive a course-level status from its sections.
+
+    Returns "Open" if any section is open, else "Waitlist" if any is waitlisted,
+    else "Closed" if sections exist, else None. A course with no sections has
+    no meaningful status.
+    """
+    if not sections:
+        return None
+    statuses = {s.status for s in sections}
+    if "Open" in statuses:
+        return "Open"
+    if "Waitlist" in statuses:
+        return "Waitlist"
+    return "Closed"
+
+
 def _course_to_dict(course: Course, *, include_attributes: bool = False) -> dict:
     result: dict = {
         "code": course.code,
@@ -82,10 +120,13 @@ def _course_to_dict(course: Course, *, include_attributes: bool = False) -> dict
         "description": course.description,
         "prerequisites_raw": course.prerequisites_raw,
         "instruction_mode": course.instruction_mode,
+        "status": _aggregate_status(course.sections),
         "topic_titles": course.topic_titles,
         "sections": [
             {
                 "crn": s.crn,
+                "type": s.type,
+                "section_number": s.section_number,
                 "meets": s.meets,
                 "instructor": s.instructor,
                 "status": s.status,
