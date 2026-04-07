@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -150,7 +151,7 @@ class ToolAuditLog(Base):
     user_id: Mapped[int | None] = mapped_column(Integer)
     session_id: Mapped[str | None] = mapped_column(String(100))
     tool_name: Mapped[str] = mapped_column(String(50), nullable=False)
-    parameters: Mapped[dict | None] = mapped_column(JSON)
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     result_summary: Mapped[str | None] = mapped_column(Text)
     flagged: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
