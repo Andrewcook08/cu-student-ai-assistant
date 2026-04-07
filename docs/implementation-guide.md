@@ -91,6 +91,8 @@ Fill in the real code. Start with the shared package (INFRA-002), then wire serv
 
 Create `pyproject.toml` at the repo root. Key settings: uv workspace with members `shared`, `services/course-search-api`, `services/chat-service`, `data`. Dev deps include ruff, pytest, pytest-asyncio, mypy, httpx. Ruff targets py312 with line-length 100. Mypy strict mode with pydantic plugin.
 
+Also set `[tool.pytest.ini_options].testpaths` to list the three test dirs: `services/course-search-api/tests`, `services/chat-service/tests`, `data/ingest/tests`. This is what `uv run pytest` uses to auto-discover tests across the workspace. **Rule for future contributors:** when adding a new service, you must update both `[tool.uv.workspace].members` AND `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml` — CI (CUAI-71) runs `uv run pytest` from the repo root and relies on these. No workflow file edits needed. See `docs/development-workflow.md § How CI Discovers Tests` for the full rule.
+
 Create `.python-version` with `3.12`.
 
 Create `.gitignore` covering: Python artifacts, `.env` files, IDE configs, OS files, `data/raw/*.json`, Docker overrides, Terraform state, and Node `node_modules`/`dist`.
@@ -1475,6 +1477,8 @@ jobs:
       - run: uv run mypy .
       - run: uv run pytest
 ```
+
+The Python job runs `uv run pytest` from the repo root, which discovers all workspace test directories via `[tool.pytest.ini_options].testpaths`. Adding a new service does not require editing this workflow file — just update the root `pyproject.toml`. See `docs/development-workflow.md § How CI Discovers Tests`.
 
 **GitHub Actions Deploy** (`.github/workflows/deploy.yml`):
 ```yaml

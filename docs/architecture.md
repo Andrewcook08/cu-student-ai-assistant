@@ -828,7 +828,7 @@ cu-student-ai-assistant/
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml                  # On PR: uv sync, ruff check, ruff format --check,
-│       │                           #   mypy, pytest (both services)
+│       │                           #   mypy, pytest (workspace-discovered), vitest
 │       └── deploy.yml              # On push to main: build Docker images, deploy to GCP
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  SHARED LIBRARY  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
