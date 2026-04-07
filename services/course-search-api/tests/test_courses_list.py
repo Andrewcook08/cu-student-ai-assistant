@@ -220,3 +220,38 @@ def test_list_courses_status_aggregate_no_sections(client, db_session):
     response = client.get("/api/courses?dept=TEST")
     assert response.status_code == 200
     assert _find_item(response.json(), "TEST 1004")["status"] is None
+
+
+def test_list_courses_sections_include_type_and_number(client, db_session):
+    """Each serialized section carries its type (LEC/REC/LAB/etc.) and number."""
+    course = Course(code="TEST 1005", dept="TEST", title="With section types")
+    db_session.add(course)
+    db_session.flush()
+    db_session.add(
+        Section(
+            course_id=course.id,
+            crn="TEST1005-L",
+            type="LEC",
+            section_number="001",
+            status="Open",
+        )
+    )
+    db_session.add(
+        Section(
+            course_id=course.id,
+            crn="TEST1005-R",
+            type="REC",
+            section_number="101",
+            status="Open",
+        )
+    )
+    db_session.flush()
+
+    response = client.get("/api/courses?dept=TEST")
+    assert response.status_code == 200
+    item = _find_item(response.json(), "TEST 1005")
+    by_crn = {s["crn"]: s for s in item["sections"]}
+    assert by_crn["TEST1005-L"]["type"] == "LEC"
+    assert by_crn["TEST1005-L"]["section_number"] == "001"
+    assert by_crn["TEST1005-R"]["type"] == "REC"
+    assert by_crn["TEST1005-R"]["section_number"] == "101"

@@ -128,6 +128,8 @@ def _course_to_dict(course: Course, *, include_attributes: bool = False) -> dict
         "sections": [
             {
                 "crn": s.crn,
+                "type": s.type,
+                "section_number": s.section_number,
                 "meets": s.meets,
                 "instructor": s.instructor,
                 "status": s.status,

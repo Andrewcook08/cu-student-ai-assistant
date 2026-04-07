@@ -15,6 +15,8 @@ export interface Course {
 
 export interface Section {
   crn: string
+  type?: string // LEC, REC, LAB, SEM, etc.
+  section_number?: string
   meets?: string
   instructor?: string
   status: string
