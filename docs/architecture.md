@@ -700,7 +700,7 @@ The `suggested_actions` field lets the AI tell the frontend to render structured
 
 ## Frontend
 
-See [ADR-11](decisions.md#adr-11-vue-frontend) for why Vue + Vite + Tailwind, and [ADR-31](decisions.md#adr-31-cu-classes-html-as-design-baseline) for why the Course Search page's **visual shell** is anchored to a static HTML reference.
+See [ADR-11](decisions.md#adr-11-vue-frontend) for why Vue + Vite + Tailwind, [ADR-31](decisions.md#adr-31-cu-classes-html-as-design-baseline) for why the Course Search page's **visual shell** is anchored to a static HTML reference, and [ADR-32](decisions.md#adr-32-narrow-filterbar-to-three-controls-dept--level--credits) for why the FilterBar has three controls (dept/level/credits) instead of four.
 
 ### Main Page
 
