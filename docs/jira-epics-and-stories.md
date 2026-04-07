@@ -298,12 +298,12 @@
 - **Blocked by**: INFRA-003
 - **Assignee**: Person C
 - **Labels**: `critical-path`
-- **Status**: 📋 Planned
+- **Status**: ✅ Implemented (PR pending)
 - **Description**: Create `routes/chat.py` with WebSocket endpoint at `/ws/chat/{session_id}`. Validate JWT from query param. Accept messages, send typing indicator, echo back. This unblocks Person B's frontend work.
 - **Acceptance criteria**:
-  - [ ] WebSocket connects with valid JWT
-  - [ ] WebSocket rejects invalid JWT (close code 4001)
-  - [ ] Server sends `{"type": "typing"}` then `{"type": "chat_response", "reply": "Echo: ..."}`
+  - [x] WebSocket connects with valid JWT
+  - [x] WebSocket rejects invalid JWT (close code 4001)
+  - [x] Server sends `{"type": "typing"}` then `{"type": "chat_response", "reply": "Echo: ..."}`
   - [ ] Person B can connect from Vue frontend
 
 ### CHAT-002: Neo4j service layer (graph queries)

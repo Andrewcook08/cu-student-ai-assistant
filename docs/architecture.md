@@ -677,7 +677,7 @@ Note: the implemented `GET /api/courses` accepts a `q=` parameter that performs 
 
 | Method | Path | Purpose | Status |
 |--------|------|---------|--------|
-| `WS` | `/ws/chat/{session_id}` | Streaming chat via WebSocket | Planned (CHAT-001) — `routes/chat.py` is currently an empty router stub |
+| `WS` | `/ws/chat/{session_id}` | Streaming chat via WebSocket | Implemented (CHAT-001) — JWT-validated echo stub; full LangGraph engine pending CHAT-008 |
 | `GET` | `/api/chat/health` | Chat service health check | Implemented |
 
 ### Chat Response Schema
@@ -879,8 +879,10 @@ cu-student-ai-assistant/
 │       │   ├── dependencies.py     # FastAPI Depends: get_current_user, get_redis, get_neo4j
 │       │   ├── routes/
 │       │   │   ├── __init__.py
-│       │   │   └── chat.py         # APIRouter(prefix="/api/chat") — empty stub.
-│       │   │                       #   WS /ws/chat/{session_id} PLANNED (CHAT-001)
+│       │   │   └── chat.py         # APIRouter() (no prefix) — WS /ws/chat/{session_id}
+│       │   │                       #   IMPLEMENTED (CHAT-001): JWT-validated echo stub;
+│       │   │                       #   LangGraph engine pending CHAT-008. Note: /api/chat/health
+│       │   │                       #   is defined directly on `app` in main.py, not on this router.
 │       │   ├── core/               # All files below PLANNED (Phase 2 — Epic 4 CHAT-*)
 │       │   │   └── __init__.py
 │       │   │   #   llm_engine.py, graph_rag.py, tools.py, tool_executor.py,

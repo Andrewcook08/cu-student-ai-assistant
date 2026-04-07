@@ -910,10 +910,10 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
+    # Note: decode_access_token returns the subject string directly, not a payload dict.
     try:
-        payload = decode_access_token(credentials.credentials)
-        user_id = int(payload["sub"])
-    except (JWTError, KeyError, ValueError):
+        user_id = int(decode_access_token(credentials.credentials))
+    except (JWTError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -1074,10 +1074,10 @@ router = APIRouter()
 @router.websocket("/ws/chat/{session_id}")
 async def chat_websocket(websocket: WebSocket, session_id: str, token: str = Query(...)):
     # Validate JWT
+    # Note: decode_access_token returns the subject string directly, not a payload dict.
     try:
-        payload = decode_access_token(token)
-        user_id = int(payload["sub"])
-    except (JWTError, KeyError, ValueError):
+        user_id = int(decode_access_token(token))
+    except (JWTError, ValueError):
         await websocket.close(code=4001, reason="Invalid token")
         return
 
