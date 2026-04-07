@@ -224,6 +224,32 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 cd frontend && npm run type-check && npm run lint && npm run test -- --run && npm run build
 ```
 
+### How CI Discovers Tests
+
+CI (CUAI-71, `.github/workflows/ci.yml`) runs from the repo root and auto-discovers tests across the whole workspace. You should almost never need to edit the workflow file when adding tests — if you're registering things in the right places, CI picks them up for free.
+
+**Backend (Python / uv workspace):**
+
+- All Python services are members of the root `pyproject.toml` workspace (`[tool.uv.workspace].members`).
+- Pytest discovers tests via `[tool.pytest.ini_options].testpaths` at the root. This is the single source of truth for which directories `uv run pytest` walks.
+- **When you add a new service or test directory**, update both locations in the root `pyproject.toml`:
+  1. Add the service to `[tool.uv.workspace].members`
+  2. Add its `tests/` dir to `[tool.pytest.ini_options].testpaths`
+- No `ci.yml` change required. The Python job runs `uv run pytest` from root and auto-picks up the new dir.
+
+**Frontend (Vitest):**
+
+- Vitest globs `**/*.spec.ts` (and `**/*.test.ts`) under `frontend/src/` automatically. New spec files are picked up on the next `npm run test -- --run` with zero config.
+- **When you add a new spec file**, just name it `*.spec.ts` next to the code it tests. No registration needed.
+
+**What NOT to gate CI on:**
+
+- `scripts/test_tool_calling.py` — requires a running Ollama instance; manual validation only.
+- Anything that needs a live external service (production database, real LLM, paid API). These belong in manual QA scripts, not CI.
+- E2E tests that need the full stack up — if/when we add these, they go in a separate nightly workflow, not the PR gate.
+
+**Rule of thumb:** if a test can run on a fresh clone with only `uv sync` and `npm ci`, it belongs in CI. If it needs services you have to spin up separately, it's a manual check.
+
 ---
 
 ## Claude Code Setup — Shared
