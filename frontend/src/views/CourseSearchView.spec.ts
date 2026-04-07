@@ -1,7 +1,12 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import CourseSearchView from './CourseSearchView.vue'
+import * as courseApi from '@/services/courseApi'
+
+beforeEach(() => {
+  vi.restoreAllMocks()
+})
 
 function mountView() {
   return mount(CourseSearchView, {
@@ -28,5 +33,36 @@ describe('CourseSearchView', () => {
   it('renders footer', () => {
     const wrapper = mountView()
     expect(wrapper.find('footer').exists()).toBe(true)
+  })
+
+  it('shows course rows after a successful fetch', async () => {
+    vi.spyOn(courseApi, 'fetchCourses').mockResolvedValueOnce({
+      items: [{ code: 'CSCI 1300', title: 'Intro CS', credits: '3', dept: 'CSCI', sections: [] }],
+      total: 1,
+      offset: 0,
+      limit: 50,
+    })
+
+    const wrapper = mountView()
+    // Trigger search via FilterBar's submit event
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('CSCI 1300')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('shows error toast and no course rows on fetch failure', async () => {
+    vi.spyOn(courseApi, 'fetchCourses').mockRejectedValueOnce(new Error('API unavailable'))
+
+    const wrapper = mountView()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const alert = wrapper.find('[role="alert"]')
+    expect(alert.exists()).toBe(true)
+    expect(alert.text()).toContain('API unavailable')
+    // Must not silently display mock/fallback data — table is empty
+    expect(wrapper.findAll('tbody tr').length).toBe(0)
   })
 })

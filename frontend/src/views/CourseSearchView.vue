@@ -7,29 +7,20 @@ import WelcomePane from '@/components/course-search/WelcomePane.vue'
 import CourseTable from '@/components/course-search/CourseTable.vue'
 import type { FilterValues } from '@/types/index'
 import { useCourses } from '@/composables/useCourses'
-import { mockCourses } from '@/mocks/courses'
 
 const { courses, total, loading, error, fetch: fetchCourses, resetPage } = useCourses()
 
 const hasSearched = ref(false)
 const activeFilters = ref<FilterValues>({ dept: '', level: '', time: '', credits: '' })
-const useMockData = ref(false)
 
 async function onSearch(filters: FilterValues) {
-  useMockData.value = false  // reset on each new search
   activeFilters.value = { ...filters }
   hasSearched.value = true
   resetPage()
-  // Map FilterValues to API params
   await fetchCourses({
     dept: filters.dept || undefined,
     credits: filters.credits || undefined,
-    // level and time are not yet supported by GET /api/courses — filtered locally by CourseTable
   })
-  // Fall back to mock data if API is unavailable
-  if (error.value) {
-    useMockData.value = true
-  }
 }
 </script>
 
@@ -47,17 +38,17 @@ async function onSearch(filters: FilterValues) {
           <div v-if="loading" class="search-status">
             <span class="search-status__text">Loading courses...</span>
           </div>
-          <!-- Error with fallback -->
-          <div v-else-if="error && !useMockData" class="search-status search-status--error">
-            <span class="search-status__text">{{ error }} — showing demo data</span>
+          <!-- Error toast -->
+          <div v-else-if="error" class="search-status search-status--error" role="alert">
+            <span class="search-status__text">{{ error }}</span>
           </div>
           <!-- Results -->
           <CourseTable
-            :courses="useMockData ? mockCourses : courses"
+            :courses="courses"
             :filters="activeFilters"
           />
           <!-- Pagination (real API only) -->
-          <div v-if="!useMockData && total > 0" class="pagination">
+          <div v-if="total > 0" class="pagination">
             <span class="pagination__info">{{ total }} total courses found</span>
           </div>
         </template>

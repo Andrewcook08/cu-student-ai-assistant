@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, distinct
 from sqlalchemy.orm import Session, joinedload
 
-from app.dependencies import get_db
+from course_search_api.dependencies import get_db
 from shared.models import Course, Section
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
@@ -80,7 +80,6 @@ def _course_to_dict(course: Course, *, include_attributes: bool = False) -> dict
         "description": course.description,
         "prerequisites_raw": course.prerequisites_raw,
         "instruction_mode": course.instruction_mode,
-        "status": course.status,
         "topic_titles": course.topic_titles,
         "sections": [
             {
