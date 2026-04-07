@@ -30,9 +30,7 @@ def list_courses(
         query = query.filter(Course.credits == credits)
     if q:
         search = f"%{q}%"
-        query = query.filter(
-            Course.title.ilike(search) | Course.description.ilike(search)
-        )
+        query = query.filter(Course.title.ilike(search) | Course.description.ilike(search))
     if status:
         # Explicit join for filtering; use distinct to avoid row fan-out on count
         query = query.join(Course.sections).filter(Section.status == status)
@@ -44,11 +42,15 @@ def list_courses(
     course_ids_query = query.with_entities(Course.id).offset(offset).limit(limit)
     course_ids = [row[0] for row in course_ids_query.all()]
     courses = (
-        db.query(Course)
-        .options(joinedload(Course.sections))
-        .filter(Course.id.in_(course_ids))
-        .all()
-    ) if course_ids else []
+        (
+            db.query(Course)
+            .options(joinedload(Course.sections))
+            .filter(Course.id.in_(course_ids))
+            .all()
+        )
+        if course_ids
+        else []
+    )
 
     return {
         "items": [_course_to_dict(c) for c in courses],
@@ -92,7 +94,5 @@ def _course_to_dict(course: Course, *, include_attributes: bool = False) -> dict
         ],
     }
     if include_attributes:
-        result["attributes"] = [
-            f"{a.college}: {a.category}" for a in (course.attributes or [])
-        ]
+        result["attributes"] = [f"{a.college}: {a.category}" for a in (course.attributes or [])]
     return result

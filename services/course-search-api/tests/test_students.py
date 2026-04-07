@@ -36,9 +36,7 @@ def test_students_me_rejects_invalid_token(client):
 def test_user_is_active_column_exists_in_model():
     """Regression test for PR #51: User model must have is_active field."""
     columns = {col.name for col in User.__table__.columns}
-    assert "is_active" in columns, (
-        "User.is_active column missing — regression from PR #51 fix"
-    )
+    assert "is_active" in columns, "User.is_active column missing — regression from PR #51 fix"
 
 
 def test_inactive_user_rejected(client, db_session):
