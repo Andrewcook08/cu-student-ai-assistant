@@ -1322,7 +1322,7 @@ Wire `StructuredResponse.vue` and `SuggestedActions.vue` to render real data fro
 
 ### Security Hardening (Person B + Person C, Days 15-17)
 
-Implement in order of priority from architecture.md:
+Implement in order of priority from [architecture.md § Security](architecture.md#security-prompt-injection--abuse-prevention). This section covers both the LLM-layer defenses (items 1-6) and the API/infrastructure hardening (items 7-11) added in ADR-33.
 
 1. **P0: Tool-level auth** — already in `tool_executor.py` (JWT override)
 2. **P0: System prompt hardening** — write the production system prompt with behavioral boundaries and delimiter tags
@@ -1330,6 +1330,16 @@ Implement in order of priority from architecture.md:
 4. **P1: Output validation** — `output_validator.py`: Pydantic schema enforcement on `structured_data` and `suggested_actions`
 5. **P1: Tool call rate limiting** — already in `tool_executor.py` (max 10 per turn)
 6. **P2: Audit logging** — already wired in `tool_executor.py` (writes to `tool_audit_log`)
+
+**API & infrastructure hardening (SEC-005..009 — Sprint 2 retrofit):**
+
+7. **SEC-005 — Auth enforcement on catalog/search/programs routes** — Add `Depends(get_current_user)` to every non-health route in `routes/courses.py` and `routes/programs.py`. Update affected tests to pass the existing `auth_headers` fixture from `tests/test_students.py`. Health endpoints stay public for load balancer probes.
+8. **SEC-006 — Fail-fast production secret validation** — Add `environment` field and `validate_production()` method to `shared/shared/config.py`. Call from each service's FastAPI lifespan. Refuses boot when `ENVIRONMENT=production` and any default/weak secret is detected.
+9. **SEC-007 — Rate limiting middleware** — Add `slowapi` to both services. Module-level `Limiter` next to CORS middleware. Per-route decorators on auth, search, and PUT-completed-courses. Redis storage in production, in-process locally.
+10. **SEC-008 — Production docker-compose override** — New `docker-compose.prod.yml` that hides datastore ports, requires secrets via `${VAR:?}` syntax, and sets `ENVIRONMENT=production` on app services. Used by both the local prod-simulation path and the self-hosted Data VM (DEPLOY-002).
+11. **SEC-009 — WebSocket hardening** — Layer UUID-shape check, 4 KB frame cap, per-connection token bucket (20 msg / 10 s), and JWT `user_id` capture on the merged `/ws/chat/{session_id}` stub.
+
+These five items are Sprint 2 retrofit tickets filling gaps in already-merged code (Phase 1 / early Phase 2 work shipped without these controls). They share the `security` and `phase-3` labels. See [ADR-33 in decisions.md](decisions.md#adr-33-api--infrastructure-security-hardening) and the "API & Infrastructure Security" section in [architecture.md](architecture.md#api--infrastructure-security) for the architectural source of truth.
 
 System prompt template:
 ```python

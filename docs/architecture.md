@@ -19,6 +19,7 @@
 - [Frontend](#frontend)
 - [Repo Structure](#repo-structure)
 - [Security: Prompt Injection & Abuse Prevention](#security-prompt-injection--abuse-prevention)
+- [API & Infrastructure Security](#api--infrastructure-security)
 - [Network Security](#network-security)
 - [GCP Deployment & Infrastructure](#gcp-deployment--infrastructure)
 - [Implementation Phases](#implementation-phases)
@@ -1123,6 +1124,91 @@ When course descriptions or degree path data is retrieved and injected as contex
 | **P1 (should-have)** | Tool call rate limiting | Phase 3 (Integration + Polish) |
 | **P2 (nice-to-have)** | Injection pattern detection + flagging | Phase 3 (Integration + Polish) |
 | **P2 (nice-to-have)** | PII scanning, audit logging, anomaly detection | Phase 2-3 (audit logging in Phase 2, rest in Phase 3) |
+
+---
+
+## API & Infrastructure Security
+
+**Status**: Design only — not yet implemented. Target: Phase 3 (SEC-005..009 / CUAI-79..83).
+
+This section covers the security controls that sit between the LLM defenses above and the network defenses below — the FastAPI surface itself: route-level auth enforcement, startup secret validation, rate limiting, hardened compose configuration, and WebSocket frame controls. See [ADR-33](decisions.md#adr-33-api--infrastructure-security-hardening) for the decision rationale behind this control set. None of this is shipped yet; the subsections below describe the planned design only.
+
+### Auth Enforcement on Every Route
+
+Every non-health FastAPI route will depend on `get_current_user`. Currently the merged catalog, search, and programs routes do not carry this dependency, which is a deploy blocker for production. Health routes (`/api/health`, `/api/chat/health`) remain intentionally public so load balancer probes can reach them without credentials.
+
+The pattern is already established in `services/course-search-api/course_search_api/routes/students.py` and will be applied uniformly across all other route modules:
+
+```python
+from course_search_api.dependencies import get_current_user
+from shared.models import User
+
+@router.get("/courses")
+def list_courses(_user: User = Depends(get_current_user), ...):
+    ...
+```
+
+### Fail-Fast Secret Validation
+
+Both services will call `settings.validate_production()` from their FastAPI lifespan hook. When `ENVIRONMENT=production`, the validator raises `RuntimeError` at startup — before accepting any traffic — if any of the following conditions are true:
+
+- `JWT_SECRET_KEY` matches the committed development default or is fewer than 32 characters.
+- `NEO4J_PASSWORD` is one of `{"development", "neo4j", ""}`.
+- `CORS_ORIGINS` contains `*`, any `localhost` entry, or is empty.
+- `DATABASE_URL` contains the default compose password.
+
+Local development is unaffected because `ENVIRONMENT=development` is the default. The committed `.env` file will be scrubbed of literal secrets — `JWT_SECRET_KEY=` becomes empty, with an inline comment showing the generation command:
+
+```bash
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"
+JWT_SECRET_KEY=
+```
+
+### Rate Limiting
+
+`slowapi` will be added to both services, with a module-level `Limiter(key_func=get_remote_address)` initialized alongside the CORS middleware. Per-route limits are keyed on IP for unauthenticated endpoints and on authenticated `user_id` for protected endpoints:
+
+| Route | Limit | Key |
+|-------|-------|-----|
+| `POST /api/auth/register` | 3/hour | IP |
+| `POST /api/auth/login` | 5/minute | IP |
+| `GET /api/courses/search` | 30/minute | authenticated user_id |
+| `PUT /api/students/me/completed-courses` | 10/minute | authenticated user_id |
+
+429 responses will include a `Retry-After` header. Production deployments will use Redis-backed storage (`storage_uri=settings.redis_url`); local and test environments stay in-process to avoid the Redis dependency during development.
+
+### Production Compose Hardening
+
+A new `docker-compose.prod.yml` override will be layered on top of the base compose file. It introduces three changes:
+
+1. The `ports:` mapping on `postgres`, `neo4j`, `redis`, and `ollama` is cleared, so the host machine binds no ports — services still reach each other by service name on the internal bridge network.
+2. Required secrets use the `${VAR:?error message}` form so the stack refuses to start if `NEO4J_PASSWORD`, `POSTGRES_PASSWORD`, or `JWT_SECRET_KEY` are unset.
+3. App services receive `ENVIRONMENT=production`, which trips the SEC-006 validator at boot.
+
+This complements [ADR-23](decisions.md#adr-23-network-security-private-subnet--iap-over-bastion) (the cloud VPC story) for the local prod-simulation path and the self-hosted Data VM described in [ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm). A simple verification: `nc -zv localhost 5432` must fail from the host while `docker compose exec course-search-api pg_isready -h postgres` succeeds.
+
+### WebSocket Hardening
+
+Layered on the existing `/ws/chat/{session_id}` stub, four enforcement points will fire after `accept()` and JWT validation:
+
+| Check | Behavior |
+|-------|----------|
+| `session_id` is a valid UUID v4 | Otherwise close with code 4002 |
+| Frame size ≤ 4096 bytes | Otherwise emit `{"type":"error","code":"message_too_large"}` and close 1009 |
+| ≤ 20 messages per rolling 10 s window per connection (in-process token bucket) | Otherwise emit `{"type":"error","code":"rate_limit"}` and close 1008 |
+| `user_id` captured from JWT `sub` | Included in every server-side log line; consumed later by the CUAI-38 tool executor for the [ADR-14](decisions.md#adr-14-security--backend-enforced-tool-authorization) override |
+
+The token is currently delivered in the query string (`?token=...`). This is a known P1 gap — see "Deferred" below. The stub-level rate limit is in-process; no Redis dependency is introduced for the WebSocket layer in Phase 3.
+
+### Deferred to P1
+
+- Refresh tokens and shorter access token TTL.
+- Security headers middleware (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy).
+- CI security scanning (pip-audit, bandit, gitleaks, Dependabot).
+- WebSocket token delivery via subprotocol or httpOnly cookie (replacing the current query-string approach).
+- Password reset flow and account lockout policy.
+- SBOM and dependency pinning policy.
+- Secret rotation runbook.
 
 ---
 

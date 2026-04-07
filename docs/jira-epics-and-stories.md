@@ -318,6 +318,8 @@
   - [ ] `get_prerequisite_chain("CSCI 3104")` returns the full chain
   - [ ] `get_degree_requirements("Computer Science")` returns structured requirements
   - [ ] All queries use parameterized inputs (no Cypher injection)
+  - [ ] *(security ADR-33)* All Cypher queries use parameterized bindings — never f-string interpolation of user input. Enforce via code review and a test that asserts query strings do not contain `{` inside `MATCH`/`WHERE` clauses.
+  - [ ] *(security ADR-33)* Queries are read-only by default; any write query is behind an explicit `write=True` flag on the helper.
 
 ### CHAT-003: Ollama service + embedding generation
 - **Points**: 2
@@ -345,6 +347,8 @@
   - [ ] Inference request enqueued and result received via pub/sub
   - [ ] 30s progress update sent if still waiting
   - [ ] 120s timeout returns graceful error
+  - [ ] *(security ADR-33)* Production Redis requires `requirepass`, parameterized via `REDIS_PASSWORD` env var; added to `docker-compose.prod.yml` as part of the SEC-008 hand-off.
+  - [ ] *(security ADR-33)* Session keys are scoped by `user_id`, not just `session_id`, so enumerating session IDs cannot leak another user's session.
 
 ### CHAT-005: Tool definitions (@tool functions)
 - **Points**: 3
@@ -418,6 +422,9 @@
   - [ ] `save_student_decision` inserts to student_decisions table
   - [ ] `get_schedule_conflicts` detects overlapping meeting times
   - [ ] All functions use parameterized queries
+  - [ ] *(security ADR-33)* `tool_audit_log` rows always carry the JWT-derived `user_id`, never a client-supplied value (reinforces ADR-14).
+  - [ ] *(security ADR-33)* Audit log table has a documented retention policy (even if enforcement is future work).
+  - [ ] *(security ADR-33)* No raw SQL strings concatenating user input — SQLAlchemy ORM or parameterized `text()` only.
 
 ### CHAT-010: Context builder
 - **Points**: 3
@@ -431,6 +438,8 @@
   - [ ] Context includes conversation summary when available
   - [ ] Retrieved data is wrapped in `<retrieved_context>` tags
   - [ ] Context fits within model's context window (track token count)
+  - [ ] *(security ADR-33)* RAG context (retrieved courses, user profile) wrapped in `<retrieved_context>` and `<user_profile>` delimiter tags matching SEC-001.
+  - [ ] *(security ADR-33)* Context builder strips any characters resembling delimiter tags from retrieved data before wrapping (prevents context-injection via course descriptions).
 
 ### CHAT-011: Chat Service test suite
 - **Points**: 5
@@ -445,6 +454,8 @@
   - [ ] Test fixtures mock Ollama responses (no GPU needed in CI)
   - [ ] WebSocket connect with valid JWT and reject with invalid JWT tested
   - [ ] At least 80% coverage on `core/` modules
+  - [ ] *(security ADR-33)* Test that the `user_id` override in `tool_executor` rejects a tool call carrying a different `user_id` (covers ADR-14).
+  - [ ] *(security ADR-33)* Test that a flood of WS messages triggers the SEC-009 limit.
 
 ---
 
@@ -592,6 +603,8 @@
   - [ ] Auto-reconnect works on disconnect (verify by stopping chat-service, restarting)
   - [ ] "Reconnecting..." message shown during retry
   - [ ] 30s progress message rendered when received
+  - [ ] *(security ADR-33)* On WS close codes 4001/4002/1008/1009 surface a distinct user-facing error message; do not auto-reconnect on auth failures.
+  - [ ] *(security ADR-33)* Never put the JWT in a log line or visible URL (note: token is in query string until the P1 subprotocol upgrade).
 
 ### FE-009: Chat input + send
 - **Points**: 3
@@ -626,6 +639,12 @@
   - [ ] Duplicate email returns 400
   - [ ] Password is bcrypt hashed (not stored in plaintext)
   - [ ] JWT contains user_id and email
+  - [ ] *(security ADR-33)* Password minimum 12 chars, not in a small common-password blocklist (e.g. top-100 list embedded in code).
+  - [ ] *(security ADR-33)* Email format validated with `pydantic.EmailStr`.
+  - [ ] *(security ADR-33)* `POST /api/auth/register` decorated with `slowapi` `3/hour` per IP (depends on SEC-007).
+  - [ ] *(security ADR-33)* Response never distinguishes "email already exists" from other 400s in production (consider returning generic 400 to avoid user enumeration).
+  - [ ] *(security ADR-33)* `program_id` validated against the `programs` table — unknown → 422.
+  - [ ] *(security ADR-33)* User created with `is_active=True` explicitly, never trust client field.
 
 ### AUTH-002: Login endpoint
 - **Points**: 2
@@ -638,6 +657,12 @@
   - [ ] Valid credentials return JWT
   - [ ] Invalid credentials return 401
   - [ ] Non-existent email returns 401 (not 404 — don't leak user existence)
+  - [ ] *(security ADR-33)* `POST /api/auth/login` decorated with `slowapi` `5/minute` per IP (depends on SEC-007).
+  - [ ] *(security ADR-33)* Response body for 401 is identical for "no user", "bad password", and "inactive user" — no user enumeration via timing or error text.
+  - [ ] *(security ADR-33)* Use `shared.auth.verify_password` (bcrypt is timing-safe); never compare hashes with `==`.
+  - [ ] *(security ADR-33)* Inactive user returns 401 (matches `get_current_user` behavior).
+  - [ ] *(security ADR-33)* Successful login returns `{access_token, token_type: "bearer", expires_in}`.
+  - [ ] *(security ADR-33)* JWT `sub` claim is `user_id` only — no email or PII.
 
 ### AUTH-003: Registration UI (modal + program selection + completed courses)
 - **Points**: 5
@@ -652,6 +677,9 @@
   - [ ] Completed courses can be checked off with optional grade entry
   - [ ] Successful registration closes modal and updates header (shows user name)
   - [ ] JWT stored in localStorage
+  - [ ] *(security ADR-33)* Client-side password strength meter; server-side validation is authoritative.
+  - [ ] *(security ADR-33)* Form fields never stored in browser history (`autocomplete="new-password"`).
+  - [ ] *(security ADR-33)* Error messages from server rendered as text only, never `v-html` (FE-007 already uses DOMPurify — confirm the same pattern here).
 
 ### AUTH-004: Login UI + auth state management
 - **Points**: 3
@@ -666,6 +694,12 @@
   - [ ] API calls include `Authorization: Bearer <token>` header
   - [ ] Logout clears token and resets state
   - [ ] Chat widget prompts login if not authenticated
+  - [ ] *(security ADR-33)* Tokens stored in `sessionStorage` (not `localStorage`) OR in a Pinia store backed by an httpOnly cookie if a BFF is added — choose one and document the trade-off.
+  - [ ] *(security ADR-33)* Global fetch/axios interceptor attaches `Authorization: Bearer ${token}` to all `/api/**` calls.
+  - [ ] *(security ADR-33)* On 401 response, token is cleared and the user is redirected to login.
+  - [ ] *(security ADR-33)* No token logging: never `console.log(token)` anywhere.
+  - [ ] *(security ADR-33)* Logout clears both store state and persisted token.
+  - [ ] *(security ADR-33)* After SEC-005 merges, the frontend service layer attaches the bearer header (no interceptor exists today).
 
 ---
 
@@ -777,6 +811,83 @@
   - [ ] Malformed structured_data is stripped from response
   - [ ] All security tests pass in CI
 
+### SEC-005..009: API & Infrastructure Hardening (Sprint 2 retrofit)
+
+#### SEC-005: Auth enforcement on catalog/search/programs routes (CUAI-79)
+- **Points**: 3
+- **Phase**: 3 / Sprint 2 (retrofit)
+- **Blocked by**: Nothing
+- **Blocks**: CUAI-56 follow-up — frontend must attach tokens before this lands in a shared environment
+- **Assignee**: Person B
+- **Labels**: `security`, `phase-3`
+- **Status**: 📋 Planned
+- **Description**: Add `Depends(get_current_user)` to every non-health route in `services/course-search-api/course_search_api/routes/courses.py` (`list_courses`, `search_courses`, `get_course`) and `routes/programs.py` (`list_programs`, `get_program_requirements`). Update affected tests to pass the existing `auth_headers` fixture (the same pattern used in `tests/test_students.py`). The acute gap is `/api/courses/search`, which currently triggers an Ollama embedding + Neo4j vector search per unauthenticated request — a cost/DoS vector. Health endpoints (`/api/health`, `/api/chat/health`) stay public for load balancer probes.
+- **Acceptance criteria**:
+  - [ ] All five routes return 401 without a Bearer token
+  - [ ] All existing tests pass after adding `auth_headers`
+  - [ ] 401-without-token test added for each protected route
+  - [ ] Both health endpoints return 200 without a token (lock-in test each)
+
+#### SEC-006: Fail-fast production secret validation (CUAI-80)
+- **Points**: 2
+- **Phase**: 3 / Sprint 2 (retrofit)
+- **Blocked by**: Nothing
+- **Assignee**: Person A
+- **Labels**: `security`, `phase-3`
+- **Status**: 📋 Planned
+- **Description**: Add an `environment: str = "development"` field and a `validate_production()` method to `shared/shared/config.py`. The validator raises `RuntimeError` when `environment == "production"` AND any of: `jwt_secret_key` contains `"local-development"` or is shorter than 32 chars; `neo4j_password` ∈ {"development", "neo4j", ""}; `cors_origins_list` contains `"*"` or any localhost entry or is empty; `database_url` contains the default compose password. Call the validator from each service's lifespan (course-search-api and chat-service). Scrub `.env.example` of literal secret defaults.
+- **Acceptance criteria**:
+  - [ ] Starting either service with `ENVIRONMENT=production` and any default secret raises at boot
+  - [ ] `ENVIRONMENT=development` (current local default) is unaffected
+  - [ ] Unit tests in `shared/tests/test_config.py` cover each failure branch
+  - [ ] `.env.example` `JWT_SECRET_KEY=` is empty with a comment showing the generation command
+
+#### SEC-007: Rate limiting middleware (slowapi) (CUAI-81)
+- **Points**: 3
+- **Phase**: 3 / Sprint 2 (retrofit)
+- **Blocked by**: Nothing (consumed by AUTH-001, AUTH-002, SEC-005)
+- **Assignee**: Person A
+- **Labels**: `security`, `phase-3`
+- **Status**: 📋 Planned
+- **Description**: Add `slowapi` to both services. Initialize a module-level `Limiter(key_func=get_remote_address)` next to the CORS middleware. Register the SlowAPI 429 handler returning `{"detail":"Too many requests"}` with a `Retry-After` header. Apply per-route limits: `POST /api/auth/register` 3/hour per IP; `POST /api/auth/login` 5/min per IP; `GET /api/courses/search` 30/min per authenticated user (`key_func=user.id`); `PUT /api/students/me/completed-courses` 10/min per user. Production uses Redis-backed storage (`storage_uri=settings.redis_url`); local/test uses in-process.
+- **Acceptance criteria**:
+  - [ ] Login, register, search, and PUT routes enforce the documented limits
+  - [ ] 429 responses include `Retry-After`
+  - [ ] Rate limiter uses Redis storage in production, in-memory in tests
+  - [ ] New `tests/test_rate_limiting.py` covers a 6th login → 429 and a 31st search → 429
+
+#### SEC-008: Production docker-compose override (CUAI-82)
+- **Points**: 3
+- **Phase**: 3 / Sprint 2 (retrofit)
+- **Blocked by**: SEC-006 (the override sets `ENVIRONMENT=production`)
+- **Assignee**: Person A
+- **Labels**: `security`, `phase-3`
+- **Status**: 📋 Planned
+- **Description**: New `docker-compose.prod.yml` override with: cleared `ports:` mapping on `postgres`, `neo4j`, `redis`, and `ollama` (services still reach each other by service name on the internal bridge); `NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD required}` and `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}` so the stack fails fast when secrets are unset; `ENVIRONMENT=production` on the app services to trip the SEC-006 validator. Update `.env.example` to list the new required prod vars (commented optional for local dev). This complements ADR-23 (cloud VPC) for the local prod-simulation path and the self-hosted Data VM described in ADR-19. **No new documentation file is created** — deployment instructions live in `docs/local-development.md` and the new architecture section.
+- **Acceptance criteria**:
+  - [ ] `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` validates
+  - [ ] `docker compose -f ... up` fails fast if `NEO4J_PASSWORD`, `POSTGRES_PASSWORD`, or `JWT_SECRET_KEY` are unset
+  - [ ] After `up`, `nc -zv localhost 5432` fails (no host binding) while `docker compose exec course-search-api pg_isready -h postgres` succeeds
+  - [ ] App services still reach all datastores by service name
+- **Hand-off**: DEPLOY-002 (CUAI-65) is amended to deploy the Data VM with this override
+
+#### SEC-009: WebSocket hardening (CUAI-83)
+- **Points**: 3
+- **Phase**: 3 / Sprint 2 (retrofit)
+- **Blocked by**: Nothing
+- **Assignee**: Person C
+- **Labels**: `security`, `phase-3`
+- **Status**: 📋 Planned
+- **Description**: Layer four enforcement points on the merged `/ws/chat/{session_id}` stub at `services/chat-service/chat_service/routes/chat.py`. After `accept()` and JWT validation: validate `session_id` shape as UUID v4 (close 4002 on bad shape); enforce 4096-byte max per message frame (`{type:"error",code:"message_too_large"}` and close 1009); per-connection token bucket of 20 messages per rolling 10 s window (`{type:"error",code:"rate_limit"}` and close 1008); capture `user_id` from JWT `sub` and include it in every server-side log line as prep for the CUAI-38 tool executor user-id override (ADR-14). Add a `TODO(P1)` comment about query-string token delivery.
+- **Acceptance criteria**:
+  - [ ] Oversized message closes with 1009
+  - [ ] Flood closes with 1008 after 20 messages in 10 s
+  - [ ] Bad `session_id` closes with 4002
+  - [ ] Existing happy-path test (`test_websocket_echoes_message_with_valid_token`) still passes
+  - [ ] `user_id` appears in server-side log entries
+
+All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in already-merged code (auth enforcement, secret validation, rate limiting, compose hardening, WebSocket enforcement). They share the `security` and `phase-3` labels and are owned by Persons A, B, and C respectively. ADR-33 in `decisions.md` is the architectural source of truth for the rationale and threat model behind these tickets.
+
 ---
 
 ## Epic 10: GCP Deployment
@@ -809,6 +920,9 @@
   - [ ] `gcloud compute ssh data-services --tunnel-through-iap` works
   - [ ] PostgreSQL, Neo4j, Redis accessible from within VPC
   - [ ] Data persists across VM stop/start (persistent disk)
+  - [ ] *(security ADR-33)* VM deploys the compose stack using the `docker-compose.prod.yml` override from SEC-008.
+  - [ ] *(security ADR-33)* All required secrets (`JWT_SECRET_KEY`, `NEO4J_PASSWORD`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`) pulled from GCP Secret Manager at boot, never committed to Terraform state.
+  - [ ] *(security ADR-33)* Firewall rules block ingress to 5432/6379/7474/7687/11434 from anywhere except the VPC connector.
 
 ### DEPLOY-003: Terraform — Ollama MIG + auto-scaling
 - **Points**: 5
@@ -838,6 +952,9 @@
   - [ ] Chat service has min_instances=1
   - [ ] CORS_ORIGINS set to frontend Cloud Run URL
   - [ ] Health endpoints return 200
+  - [ ] *(security ADR-33)* Cloud Run services have `ingress = "all"` only for the Course Search API (public login/register); Chat Service is `ingress = "internal-and-cloud-load-balancing"` if a BFF fronts it — otherwise document why public is acceptable.
+  - [ ] *(security ADR-33)* Service env vars sourced from Secret Manager, not inline plaintext.
+  - [ ] *(security ADR-33)* `ENVIRONMENT=production` env var set on both services (triggers the SEC-006 validator).
 
 ### DEPLOY-005: Artifact Registry
 - **Points**: 1
@@ -914,6 +1031,9 @@
   - [ ] All 3 images built and pushed
   - [ ] Cloud Run services updated with new revision
   - [ ] Deployment completes in < 10 minutes
+  - [ ] *(security ADR-33)* GitHub Actions authenticates to GCP via Workload Identity Federation (OIDC), not a long-lived service account key in repo secrets.
+  - [ ] *(security ADR-33)* Deploy step asserts `ENVIRONMENT=production` env is set on Cloud Run services.
+  - [ ] *(security ADR-33)* Deploy fails if the deployed revision can boot with a default JWT secret (smoke test).
 
 ---
 
@@ -1135,14 +1255,15 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 
 | Metric | Value |
 |--------|-------|
-| **Total stories** | 58 |
-| **Total story points** | 197 |
+| **Total stories** | 63 |
+| **Total story points** | 211 |
 | **Sprints** | 4 (5 + 7 + 7 + 5 days) |
-| **Person A — Scott** | 40 pts, 12 stories — Shared Package, Wire Services, Docker verification, Terraform, GCP Deploy, Conversation Memory |
-| **Person B — Rohan** | 78 pts, 24 stories — Frontend (visual shell anchored to `frontend/cu-classes.html` per ADR-31; functional filter set unchanged from original plan), Course Search API, Auth, CI/CD, CHAT-011, DATA-006, SEC-002/003 |
-| **Person C — Andrew** | 73 pts, 20 stories — Repo skeleton, Data ingestion, Chat engine (LangGraph), Neo4j, Redis, Security (SEC-001/004), Demo |
+| **Person A — Scott** | 48 pts, 15 stories — Shared Package, Wire Services, Docker verification, Terraform, GCP Deploy, Conversation Memory, SEC-006/007/008 |
+| **Person B — Rohan** | 81 pts, 25 stories — Frontend (visual shell anchored to `frontend/cu-classes.html` per ADR-31; functional filter set unchanged from original plan), Course Search API, Auth, CI/CD, CHAT-011, DATA-006, SEC-002/003/005 |
+| **Person C — Andrew** | 76 pts, 21 stories — Repo skeleton, Data ingestion, Chat engine (LangGraph), Neo4j, Redis, Security (SEC-001/004/009), Demo |
 | **Shared** | 6 pts, 2 stories — DEMO-002 (3), DEMO-003 (3) |
 | **Cross-person blocks** | 12 (most front-loaded in Days 1-2 scaffolding, zero mid-sprint blocking) |
 | **Critical path stories** | INFRA-001, INFRA-002, INFRA-003, DATA-001, DATA-002, DATA-006, CHAT-001, CHAT-008 |
 | **Highest risk story** | CHAT-008 (LangGraph engine — 8 points, complex integration; de-risked by CHAT-000 spike) |
-| **Security stories** | 5 (SEC-001 through SEC-004 + CHAT-006) |
+| **Security stories** | 10 (SEC-001 through SEC-009 + CHAT-006) |
+| **Sprint 2 retrofit (ADR-33)** | SEC-005..009 — 14 pts total, filing auth enforcement, secret validation, rate limiting, compose hardening, and WS hardening gaps |
