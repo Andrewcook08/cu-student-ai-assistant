@@ -835,11 +835,12 @@
 - **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`
 - **Status**: 📋 Planned
-- **Description**: Add an `environment: str = "development"` field and a `validate_production()` method to `shared/shared/config.py`. The validator raises `RuntimeError` when `environment == "production"` AND any of: `jwt_secret_key` contains `"local-development"` or is shorter than 32 chars; `neo4j_password` ∈ {"development", "neo4j", ""}; `cors_origins_list` contains `"*"` or any localhost entry or is empty; `database_url` contains the default compose password. Call the validator from each service's lifespan (course-search-api and chat-service). Scrub `.env.example` of literal secret defaults.
+- **Description**: Add an `environment: str = "development"` field and a `validate_production()` method to `shared/shared/config.py`. The validator raises `RuntimeError` when `environment == "production"` AND any of: `jwt_secret_key` contains `"local-development"` or is shorter than 32 chars; `neo4j_password` ∈ {"development", "neo4j", ""}; `cors_origins_list` contains `"*"` or any localhost entry or is empty; `database_url` contains the default compose password. Call the validator from each service's lifespan (course-search-api and chat-service). Scrub `.env.example` of literal secret defaults. This is the first ticket to add Python tests under `shared/`, so the same PR must also add `shared/tests` to `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml` — otherwise CI's `uv run pytest` from the repo root will silently skip the new tests. See `docs/development-workflow.md` § How CI Discovers Tests for the rule.
 - **Acceptance criteria**:
   - [ ] Starting either service with `ENVIRONMENT=production` and any default secret raises at boot
   - [ ] `ENVIRONMENT=development` (current local default) is unaffected
   - [ ] Unit tests in `shared/tests/test_config.py` cover each failure branch
+  - [ ] Root `pyproject.toml` `[tool.pytest.ini_options].testpaths` includes `shared/tests`, and `uv run pytest` from the repo root collects the new `shared/tests/test_config.py` tests
   - [ ] `.env.example` `JWT_SECRET_KEY=` is empty with a comment showing the generation command
 
 #### SEC-007: Rate limiting middleware (slowapi) (CUAI-81)
