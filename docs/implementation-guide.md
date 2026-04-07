@@ -286,12 +286,15 @@ Person B works independently — no blockers from Person A or C.
 #### Day 1: Vue Project Setup
 
 ```bash
-npm create vue@latest frontend -- --typescript --router --pinia
+npm create vue@latest frontend -- --typescript --router --pinia --vitest
 cd frontend
 npm install
 npm install -D tailwindcss @tailwindcss/vite
+npm install -D @vue/test-utils jsdom @vitest/coverage-v8
 npm install markdown-it
 ```
+
+Configure Vitest with jsdom so component tests have a DOM. Create `frontend/vitest.config.ts` with `test.environment = 'jsdom'` and the same `@/` alias as Vite. Create `frontend/src/test-setup.ts` that calls `setActivePinia(createPinia())` before each test. Add `"test": "vitest"` and `"test:coverage": "vitest run --coverage"` to `package.json` scripts. A smoke test for the stub authStore (`src/stores/__tests__/authStore.spec.ts`) proves the harness works before FE-002 starts adding component tests.
 
 Set up Tailwind with CU branding tokens **extracted directly from `frontend/cu-classes.html`'s embedded `<style>` block** (see ADR-31 — `cu-classes.html` is the design baseline; these tokens come from its CSS variables and color literals):
 
