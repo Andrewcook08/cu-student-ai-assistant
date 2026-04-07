@@ -1,9 +1,18 @@
+import logging
+
+import httpx
+import neo4j.exceptions
 from fastapi import APIRouter, Depends, HTTPException, Query
+from neo4j import AsyncDriver
 from shared.models import Course, Section
 from sqlalchemy import Integer, cast, distinct, func
 from sqlalchemy.orm import Session, joinedload
 
-from course_search_api.dependencies import get_db
+from course_search_api.dependencies import get_db, get_http_client, get_neo4j_driver
+from course_search_api.services.neo4j_service import vector_search
+from course_search_api.services.ollama_service import get_embedding
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
@@ -78,6 +87,36 @@ def list_courses(
         "total": total,
         "offset": offset,
         "limit": limit,
+    }
+
+
+@router.get("/search")
+async def search_courses(
+    q: str = Query(..., description="Natural language search query"),
+    limit: int = Query(10, ge=1, le=50),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
+    driver: AsyncDriver = Depends(get_neo4j_driver),
+) -> dict:
+    """Semantic course search via Ollama embeddings + Neo4j vector index.
+
+    Generates a 768-dim embedding for *q*, queries the 'course-embeddings'
+    vector index, and returns results ranked by cosine similarity.
+
+    Returns 503 if Ollama or Neo4j is temporarily unavailable.
+    """
+    try:
+        embedding = await get_embedding(http_client, q)
+        results = await vector_search(driver, embedding, limit=limit)
+    except (httpx.HTTPError, neo4j.exceptions.Neo4jError, OSError) as exc:
+        logger.exception("Search service error for query %r: %s", q, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Search service temporarily unavailable",
+        ) from exc
+
+    return {
+        "query": q,
+        "items": [{"code": r["code"], "title": r["title"], "score": r["score"]} for r in results],
     }
 
 
