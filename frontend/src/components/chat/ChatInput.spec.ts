@@ -45,4 +45,12 @@ describe('ChatInput', () => {
     const hasText = btn.text().trim().length > 0
     expect(hasAriaLabel || hasTitle || hasText).toBeTruthy()
   })
+
+  it('textarea has an accessible label', () => {
+    const wrapper = mount(ChatInput, { props: { disabled: false } })
+    const textarea = wrapper.find('textarea')
+    const hasAriaLabel = textarea.attributes('aria-label')
+    const hasId = textarea.attributes('id')
+    expect(hasAriaLabel || hasId).toBeTruthy()
+  })
 })

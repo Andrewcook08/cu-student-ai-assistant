@@ -36,6 +36,7 @@ function handleKeydown(e: KeyboardEvent) {
     <textarea
       v-model="input"
       class="chat-input__textarea"
+      aria-label="Message input"
       maxlength="2000"
       :placeholder="disabled ? 'AI is thinking...' : 'Ask me anything about courses...'"
       :disabled="disabled"
