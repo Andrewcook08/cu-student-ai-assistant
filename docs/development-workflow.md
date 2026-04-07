@@ -237,6 +237,7 @@ CI (CUAI-71, `.github/workflows/ci.yml`) runs from the repo root and auto-discov
 - **When you add a new service or test directory**, update both locations in the root `pyproject.toml`:
   1. Add the service to `[tool.uv.workspace].members`
   2. Add its `tests/` dir to `[tool.pytest.ini_options].testpaths`
+- **Known pending case**: `shared/` is a workspace member but is not in `testpaths` because no tests exist there yet (CUAI-14 / CUAI-15 didn't ship any). The first ticket to add tests under `shared/` is SEC-006 (CUAI-80), which writes `shared/tests/test_config.py` for the `validate_production()` validator. Whoever picks up SEC-006 must add `shared/tests` to `testpaths` in the same PR — otherwise the new tests won't be collected by `uv run pytest` at the repo root and CI won't gate on them. Discovered during the CHAT-003 (CUAI-35) audit.
 - No `ci.yml` change required. The Python job runs `uv run pytest` from root and auto-picks up the new dir.
 
 **Frontend (Vitest):**
