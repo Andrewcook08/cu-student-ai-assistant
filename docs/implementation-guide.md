@@ -36,7 +36,7 @@ These should be answered by end of Phase 1:
 | 5 | **Embedding model** | nomic-embed-text (768 dims) — test on course descriptions | Person C |
 | 9 | **WebSocket protocol** | JSON format for WS messages (defined below in Phase 2) | Person B + C |
 | 10 | **Error handling** | Inline errors in chat, toast for API errors (defined below) | Person B + C |
-| 11 | **API pagination** | Offset/limit, default page size 50 (defined below) | Person B |
+| 11 | ~~**API pagination**~~ | ~~Offset/limit, default page size 50 (defined below)~~ — shipped in API-001/FE-004 | ~~Person B~~ |
 
 ### Install Prerequisites (Everyone, Day 1)
 
@@ -402,13 +402,13 @@ export default defineConfig({
 
 #### Days 2-3: Layout Shell + Course Search UI (Mock Data)
 
-Use `frontend/cu-classes.html` as the **visual reference** for the Course Search page shell (ADR-31). Only the header, page frame, and welcome-pane `.glass` card are ported from the reference. The functional filter set (dept/level/time/credits) is **our own** — not CU's full filter form.
+Use `frontend/cu-classes.html` as the **visual reference** for the Course Search page shell (ADR-31). Only the header, page frame, and welcome-pane `.glass` card are ported from the reference. The functional filter set (dept/level/credits) is **our own** — not CU's full filter form.
 
 Build these components against hardcoded mock data (no API calls yet):
 
 1. `src/components/layout/AppHeader.vue` — port `<header class="banner">` from `cu-classes.html` lines 449-470 (50px black bar, gold `CLASS SEARCH` title, help/cart icons, login/logout link). Replace Font Awesome icons with `lucide-vue-next` (`HelpCircle`, `ShoppingCart`, `LogIn`, `LogOut`). Replace `data-action` handlers with `@click` against a stub Pinia `authStore`.
 2. `src/views/CourseSearchView.vue` — ports `<main class="panels">` (line 472) flex layout: 370px left `.panel` + flex:1 right `.empty-space` with `min-height: calc(100vh - 50px)`.
-3. `src/components/layout/FilterBar.vue` — our minimum-viable filter sidebar (not a port of CU's form). A single `.section` titled "Search Classes" with four form controls: **Department** dropdown, **Level** dropdown, **Time** range, **Credit Hours** dropdown, plus a SEARCH CLASSES `.btn--full` submit button. Uses the ported `.section` / `.section__title` / `.form-group` / `.form-control` / `.btn--full` classes from `src/assets/cu-classes.css` so it visually matches the reference panel styling.
+3. `src/components/layout/FilterBar.vue` — our minimum-viable filter sidebar (not a port of CU's form). A single `.section` titled "Search Classes" with three form controls: **Department** dropdown, **Level** dropdown, **Credit Hours** dropdown, plus a SEARCH CLASSES `.btn--full` submit button. Uses the ported `.section` / `.section__title` / `.form-group` / `.form-control` / `.btn--full` classes from `src/assets/cu-classes.css` so it visually matches the reference panel styling.
 4. `src/components/course-search/WelcomePane.vue` — ports the `.glass` welcome card from `cu-classes.html` lines 1114-1138 (three intro paragraphs may be lightly edited for our app).
 5. `src/components/course-search/CourseTable.vue` + `CourseRow.vue` — course listing table rendered in the right `.empty-space` slot after a search runs (`v-if="hasSearched"`).
 6. `src/components/course-search/CourseDetail.vue` — expanded detail panel when a course row is clicked.
@@ -424,7 +424,7 @@ export const mockCourses = [
 ]
 ```
 
-`FilterBar.vue`'s four controls filter `mockCourses` locally in FE-003. FE-004 wires them to `GET /api/courses`.
+`FilterBar.vue`'s three controls filter `mockCourses` locally in FE-003. FE-004 wires them to `GET /api/courses`.
 
 **Verification**: Open `frontend/cu-classes.html` next to `http://localhost:5173` — the header, panel framing, brand colors, fonts, and welcome pane match. `frontend/cu-classes.html` is **never modified** — it's a frozen baseline per ADR-31.
 
@@ -843,7 +843,7 @@ uv run python scripts/test_tool_calling.py
 
 All endpoints in `services/course-search-api/course_search_api/routes/`. Every route uses `Depends(get_db)` for database sessions and returns Pydantic models.
 
-**Pagination convention** (resolves open question #11):
+**Pagination convention** (resolved open question #11, shipped in API-001 + FE-004):
 ```python
 # Every list endpoint uses offset/limit with defaults
 @router.get("/api/courses")
@@ -886,7 +886,7 @@ raise HTTPException(status_code=401, detail="Invalid credentials")
 ```
 
 Build these endpoints:
-1. `routes/courses.py` — `GET /api/courses` (filter + paginate), `GET /api/courses/{code}` (detail with sections), `GET /api/courses/search?q=` (semantic search — calls Neo4j vector index)
+1. `routes/courses.py` — `GET /api/courses` (dept/level/credits/q ILIKE + pagination), `GET /api/courses/{code}` (detail with sections), `GET /api/courses/search?q=` (semantic search — calls Neo4j vector index)
 2. `routes/programs.py` — `GET /api/programs` (list all), `GET /api/programs/{id}/requirements`
 3. `routes/auth.py` — `POST /api/auth/register`, `POST /api/auth/login`
 4. `routes/students.py` — `GET /api/students/me`, `PUT /api/students/me/completed-courses`
@@ -953,7 +953,7 @@ export async function fetchCourses(params: Record<string, string>): Promise<Pagi
 }
 ```
 
-Wire up `courseStore.ts` (Pinia) to call `courseApi.ts` and populate `CourseTable.vue`. Wire `FilterBar.vue`'s four controls (dept/level/time/credits) to query params and refetch on change.
+Wire up `courseStore.ts` (Pinia) to call `courseApi.ts` and populate `CourseTable.vue`. Wire `FilterBar.vue`'s three controls (dept/level/credits) to query params and refetch on change.
 
 ---
 

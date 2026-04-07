@@ -327,7 +327,7 @@ We have 2 JSON datasets (degree paths deferred — see note below). Each is inge
 
 | Dataset | Size | Neo4j Use | PostgreSQL Use |
 |---------|------|-----------|----------------|
-| Course offerings (`cu_classes.json`) | ~200K lines, 152 depts, 3,410 courses (deduplicated by code; 325 topics-course duplicates merged), 9,470 sections (deduplicated by course+CRN; topics courses share sections) | Course nodes + vector embeddings + prerequisite edges | Filter by dept, time, credits, instructor, status (UI) |
+| Course offerings (`cu_classes.json`) | ~200K lines, 152 depts, 3,410 courses (deduplicated by code; 325 topics-course duplicates merged), 9,470 sections (deduplicated by course+CRN; topics courses share sections) | Course nodes + vector embeddings + prerequisite edges | Filter by dept, level, credits, status (UI) |
 | Degree requirements (`cu_degree_requirements.json`) | ~43K lines, 203 programs (54 BA, 78 minors, 42 certs, 29 BS/other) | Program → Requirement → Course graph | Lookup by program (dropdown) |
 
 **Degree paths** (deferred): Only ~101 programs have pathway data, and the dataset hasn't been acquired yet. The graph built from requirements + prerequisites provides the same planning capability — the AI can reason about "what do you need for CS BA" from the requirements data and "what are the prerequisites for CSCI 3104" from the course data. Degree paths would be supplementary context, not essential.
@@ -668,10 +668,10 @@ The Chat Service sets a **120-second timeout** on inference requests through the
 | `GET` | `/api/programs` | List all programs (majors, minors, certificates) | Implemented (API-004) |
 | `GET` | `/api/programs/{id}/requirements` | Degree requirements for a program | Implemented (API-004) |
 | `GET` | `/api/students/me` | Current user's profile (program, completed courses, decisions) | Implemented (API-005) |
-| `PUT` | `/api/students/me/completed-courses` | Update self-reported completed courses | Planned (API-005 remainder) |
+| `PUT` | `/api/students/me/completed-courses` | Update self-reported completed courses | Planned (API-005b) |
 | `GET` | `/api/health` | Health check | Implemented |
 
-Note: the implemented `GET /api/courses` accepts a `q=` parameter that performs a PostgreSQL `ILIKE` text search over title and description. True semantic search via Neo4j vector embeddings is a separate endpoint (`/api/courses/search`) and is planned under API-003.
+Note: the implemented `GET /api/courses` accepts a `q=` parameter that performs a PostgreSQL `ILIKE` text search over title and description. It also accepts a `level=` parameter (`undergrad-lower` for 1xxx–2xxx, `undergrad-upper` for 3xxx–4xxx, `graduate` for 5xxx–8xxx) that filters on the numeric portion of `Course.code`; invalid values return 400. Course responses include an aggregate `status` field derived from their sections (Open > Waitlist > Closed > null). True semantic search via Neo4j vector embeddings is a separate endpoint (`/api/courses/search`) and is planned under API-003.
 
 **Chat Service** (stateful, slow — depends on Ollama):
 
@@ -704,7 +704,7 @@ See [ADR-11](decisions.md#adr-11-vue-frontend) for why Vue + Vite + Tailwind, an
 
 ### Main Page
 
-The Course Search page is the home page and visually mirrors CU Boulder's class search page. The visual reference is **`frontend/cu-classes.html`** — a 1170-line static HTML mockup of the live CU Class Search page (markup, embedded CSS, brand tokens). **Only the visual shell is ported from this file** — the header, the two-pane layout, brand tokens, and the welcome/empty-state card. We do **not** port CU's full filter set — our functional scope is a small filter sidebar (department, level, time, credits) plus a course results table. The AI chat widget is the primary discovery mechanism; the filter sidebar is a minimum-viable fallback.
+The Course Search page is the home page and visually mirrors CU Boulder's class search page. The visual reference is **`frontend/cu-classes.html`** — a 1170-line static HTML mockup of the live CU Class Search page (markup, embedded CSS, brand tokens). **Only the visual shell is ported from this file** — the header, the two-pane layout, brand tokens, and the welcome/empty-state card. We do **not** port CU's full filter set — our functional scope is a small filter sidebar (department, level, credits) plus a course results table. The AI chat widget is the primary discovery mechanism; the filter sidebar is a minimum-viable fallback.
 
 **What the page actually has (functional scope — unchanged from original FE-002/003/004):**
 - **Header** (from `cu-classes.html` lines 449-470): black `.banner` with CU gold `CLASS SEARCH` title, help icon, cart icon, login/logout link
@@ -754,7 +754,7 @@ These tokens live in `frontend/src/assets/cu-classes.css` (the verbatim port of 
 
 | Component | Role |
 |-----------|------|
-| `src/components/layout/FilterBar.vue` | The single "Search Classes" filter section. Uses the ported `.section` + `.section__title` + `.form-group` + `.form-control` + `.btn--full` classes so it visually matches CU's panel styling. Contains **four** controls: Department dropdown, Level dropdown, Time range, Credit Hours dropdown. Submits via `<form @submit.prevent="onSearch">` |
+| `src/components/layout/FilterBar.vue` | The single "Search Classes" filter section. Uses the ported `.section` + `.section__title` + `.form-group` + `.form-control` + `.btn--full` classes so it visually matches CU's panel styling. Contains **three** controls: Department dropdown, Level dropdown, Credit Hours dropdown. Submits via `<form @submit.prevent="onSearch">` |
 | `src/components/course-search/CourseTable.vue` | Renders results (code, title, credits, status) in the right `.empty-space` slot after a search |
 | `src/components/course-search/CourseRow.vue` | Individual row |
 | `src/components/course-search/CourseDetail.vue` | Expanded detail panel (CRN, time, instructor, status, prerequisites, description) shown when a row is clicked |
@@ -852,10 +852,10 @@ cu-student-ai-assistant/
 │   │   │   ├── dependencies.py     # FastAPI Depends: get_db_session, get_current_user
 │   │   │   ├── routes/
 │   │   │   │   ├── __init__.py
-│   │   │   │   ├── courses.py      # GET /api/courses (filter + ILIKE q=), GET /api/courses/{code}
+│   │   │   │   ├── courses.py      # GET /api/courses (dept/level/credits/q ILIKE + pagination), GET /api/courses/{code}
 │   │   │   │   ├── programs.py     # GET /api/programs, GET /api/programs/{id}/requirements
 │   │   │   │   ├── students.py     # GET /api/students/me
-│   │   │   │   │                   #   PUT /api/students/me/completed-courses — PLANNED (API-005)
+│   │   │   │   │                   #   PUT /api/students/me/completed-courses — PLANNED (API-005b)
 │   │   │   │   └── auth.py         # Empty router stub — endpoints PLANNED (AUTH-001/002)
 │   │   │   └── services/
 │   │   │       └── __init__.py     # course_query.py — PLANNED if/when query logic is extracted
@@ -969,7 +969,7 @@ cu-student-ai-assistant/
 │       │   │   ├── AppHeader.spec.ts
 │       │   │   ├── AppFooter.vue
 │       │   │   ├── AppFooter.spec.ts
-│       │   │   ├── FilterBar.vue   # "Search Classes" section: dept / level / time / credits
+│       │   │   ├── FilterBar.vue   # "Search Classes" section: dept / level / credits
 │       │   │   └── FilterBar.spec.ts
 │       │   ├── course-search/
 │       │   │   ├── WelcomePane.vue  # Ports <div class="empty-space"> + .glass card
@@ -988,7 +988,7 @@ cu-student-ai-assistant/
 │       │       ├── StructuredResponse.vue
 │       │       └── SuggestedActions.vue
 │       │   # auth/    — PLANNED (AUTH-003/004): LoginModal.vue, RegisterModal.vue
-│       │   # profile/ — PLANNED: CompletedCourses.vue (API-005 remainder)
+│       │   # profile/ — PLANNED: CompletedCourses.vue (API-005b)
 │       ├── views/
 │       │   ├── CourseSearchView.vue
 │       │   └── CourseSearchView.spec.ts
@@ -1468,4 +1468,4 @@ GCP deployment and presentation prep.
 5. **Embedding model**: nomic-embed-text (768 dims) via Ollama vs. other options — need to test quality on course descriptions. Affects vector index dimensions in Neo4j.
 9. **WebSocket message protocol**: Define the exact JSON format for WebSocket messages between frontend and Chat Service. Need request format (message, session_id, context), response format (streaming chunks vs. full response), and error format.
 10. **Error handling strategy**: How do errors surface to the frontend? Separate error response schema? Toast notifications? Inline error messages in chat? Needs agreement before frontend and backend are built in parallel.
-11. **API pagination**: Course search (`GET /api/courses`) could return hundreds of results. Define pagination strategy (cursor-based vs. offset/limit) and default page size.
+~~11. **API pagination**: Course search (`GET /api/courses`) could return hundreds of results. Define pagination strategy (cursor-based vs. offset/limit) and default page size.~~ Resolved — offset/limit with default page size 50, shipped in API-001 and FE-004.
