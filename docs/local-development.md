@@ -338,108 +338,23 @@ This gives you hot reload on all application code while databases run in Docker.
 
 ### docker-compose.yml service map
 
-```yaml
-services:
-  # ── Data Services ──────────────────────────────────────────
-  postgres:
-    image: postgres:16
-    ports: ["5432:5432"]
-    environment:
-      POSTGRES_DB: cu_assistant
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+> **Source of truth**: [`docker-compose.yml`](../docker-compose.yml) at the repo root. The table below is a summary — update the real file, not this doc, when making changes.
 
-  neo4j:
-    image: neo4j:5
-    ports: ["7474:7474", "7687:7687"]
-    environment:
-      NEO4J_AUTH: neo4j/development
-      NEO4J_PLUGINS: '["apoc"]'
-    volumes:
-      - neo4j_data:/data
-    healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "development", "RETURN 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s  # Neo4j is slow to start
+| Service | Image | Host port → container | Depends on | Persisted volume |
+|---|---|---|---|---|
+| `postgres` | `postgres:16` | `5432:5432` | — | `postgres_data` |
+| `neo4j` | `neo4j:5` (with APOC) | `7474:7474`, `7687:7687` | — | `neo4j_data` |
+| `redis` | `redis:7-alpine` | `6379:6379` | — | `redis_data` |
+| `ollama` | `ollama/ollama:latest` | `${OLLAMA_HOST_PORT:-11434}:11434` | — | `ollama_data` |
+| `course-search-api` | built from `services/course-search-api/Dockerfile` | `8000:8000` | `postgres` (healthy) | — |
+| `chat-service` | built from `services/chat-service/Dockerfile` | `8001:8001` | `postgres`, `neo4j`, `redis`, `ollama` (all healthy) | — |
+| `frontend` | built from `frontend/Dockerfile` (nginx) | `5173:80` | `course-search-api`, `chat-service` | — |
 
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+**Healthchecks**: all four data services (`postgres`, `neo4j`, `redis`, `ollama`) have healthchecks; application services use `depends_on: condition: service_healthy` so they only start once their dependencies are ready. Neo4j uses a 30s `start_period` because it's slow to boot.
 
-  ollama:
-    image: ollama/ollama:latest
-    ports: ["11434:11434"]
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    # GPU support (uncomment if you have NVIDIA GPU):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+**Credentials (local only)**: postgres `postgres/postgres`, neo4j `neo4j/development`, DB name `cu_assistant`. These are dev-only — production values come from Terraform secrets (Phase 4).
 
-  # ── Application Services ───────────────────────────────────
-  course-search-api:
-    build:
-      context: .
-      dockerfile: services/course-search-api/Dockerfile
-    ports: ["8000:8000"]
-    env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  chat-service:
-    build:
-      context: .
-      dockerfile: services/chat-service/Dockerfile
-    ports: ["8001:8001"]
-    env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      neo4j:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports: ["5173:80"]
-    depends_on: [course-search-api, chat-service]
-
-volumes:
-  postgres_data:
-  neo4j_data:
-  redis_data:
-  ollama_data:
-```
+**GPU**: the committed compose file has no GPU config. If you have an NVIDIA GPU and want Ollama to use it, add a `deploy.resources.reservations.devices` block to the `ollama` service locally (uncommitted) — or start Ollama natively on the host. See the Ollama Docker docs for the exact YAML.
 
 ### Port map
 

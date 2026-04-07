@@ -221,6 +221,7 @@
 - **Phase**: 2 (Day 7-8)
 - **Blocked by**: DATA-004 (embeddings + vector index)
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: Accept a text query, generate embedding via Ollama, search Neo4j vector index, return ranked results with similarity scores.
 - **Acceptance criteria**:
   - [ ] `GET /api/courses/search?q=data+science` returns relevant courses
@@ -269,6 +270,7 @@
 - **Phase**: 1 (Day 5-6)
 - **Blocked by**: INFRA-003
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Timeboxed spike to de-risk the 8-point CHAT-008. Research LangGraph StateGraph, ReAct pattern, and tool binding. Build a minimal working prototype: single tool (e.g., echo tool), no real data, hardcoded Ollama connection. Document patterns and gotchas for the team.
 - **Acceptance criteria**:
   - [ ] Minimal LangGraph StateGraph with one tool runs end-to-end
@@ -282,6 +284,7 @@
 - **Blocked by**: INFRA-003
 - **Assignee**: Person C
 - **Labels**: `critical-path`
+- **Status**: 📋 Planned
 - **Description**: Create `routes/chat.py` with WebSocket endpoint at `/ws/chat/{session_id}`. Validate JWT from query param. Accept messages, send typing indicator, echo back. This unblocks Person B's frontend work.
 - **Acceptance criteria**:
   - [ ] WebSocket connects with valid JWT
@@ -294,6 +297,7 @@
 - **Phase**: 2 (Day 7-9)
 - **Blocked by**: DATA-001, DATA-002, DATA-003 (data in Neo4j)
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `services/neo4j_service.py` with async Neo4j driver. Implement: `vector_search()`, `get_prerequisite_chain()`, `get_degree_requirements()`. Use parameterized Cypher queries.
 - **Acceptance criteria**:
   - [ ] `vector_search(embedding)` returns top-10 courses with scores
@@ -306,6 +310,7 @@
 - **Phase**: 2 (Day 7-8)
 - **Blocked by**: INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `services/ollama_service.py`. Async HTTP client (`httpx.AsyncClient`) to Ollama API. Functions: `get_embedding(text)`, `chat_completion(messages, tools)`. 120s timeout with graceful error handling.
 - **Acceptance criteria**:
   - [ ] `get_embedding("data science")` returns 768-dim vector
@@ -318,6 +323,7 @@
 - **Phase**: 2 (Day 8-9)
 - **Blocked by**: INFRA-001 (Redis from Docker Compose)
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `services/redis_service.py`. Async Redis client. Implement: session storage, conversation message caching (RPUSH/LRANGE), inference queue (LPUSH/BRPOP), result pub/sub channel. 120s timeout on queue wait with 30s progress update.
 - **Acceptance criteria**:
   - [ ] Messages stored and retrieved by session_id
@@ -331,6 +337,7 @@
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: CHAT-002, CHAT-003
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `core/tools.py`. Define 7 tools with `@tool` decorator: search_courses, lookup_course, check_prerequisites, get_degree_requirements, get_student_profile, find_schedule_conflicts, save_decision. Each tool has a clear docstring for the LLM and calls the appropriate service layer. The search_courses/lookup_course split (fuzzy search by name → exact lookup by code) was validated by the CUAI-32 LangGraph spike.
 - **Acceptance criteria**:
   - [ ] All 7 tools defined with typed parameters and descriptive docstrings
@@ -344,6 +351,7 @@
 - **Blocked by**: CHAT-005
 - **Assignee**: Person C
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Create `core/tool_executor.py`. Wraps all tool calls: always overrides `user_id` with JWT value, validates parameters via Pydantic, rate limits at 10 calls per turn, retries once on malformed JSON, logs to `tool_audit_log`.
 - **Acceptance criteria**:
   - [ ] `user_id` in params is ALWAYS replaced with JWT-authenticated value
@@ -357,6 +365,7 @@
 - **Phase**: 2 (Day 10-11)
 - **Blocked by**: CHAT-003
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `core/intent_classifier.py`. Classifies user messages into intents: `course_search`, `prereq_check`, `degree_planning`, `schedule_help`, `general_question`. Uses LLM classification or keyword heuristics. Routes to different retrieval strategies and system prompt variations.
 - **Acceptance criteria**:
   - [ ] "What CS electives are there?" → `course_search`
@@ -372,6 +381,7 @@
 - **Blocked by**: CHAT-005, CHAT-006, CHAT-007, CHAT-010
 - **Assignee**: Person C
 - **Labels**: `critical-path`
+- **Status**: 📋 Planned
 - **Description**: Create `core/llm_engine.py`. LangGraph StateGraph with nodes: classify_intent → build_context → call_llm → maybe_call_tools (loop) → validate_output → respond. Bind tools to the LLM. Handle the tool-calling loop (LLM generates tool calls → executor runs them → results fed back → LLM generates final response). Wire into the WebSocket endpoint (replace echo stub).
 - **Acceptance criteria**:
   - [ ] User sends "What CS courses are available?" → LLM calls search_courses → returns course list
@@ -387,6 +397,7 @@
 - **Phase**: 2 (Day 8)
 - **Blocked by**: INFRA-002
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `services/postgres_service.py`. Functions: `get_student_data(user_id)` — returns profile + completed courses with grades + prior decisions. `save_student_decision(user_id, course_code, decision_type, notes)`. `get_schedule_conflicts(course_codes)` — join sections, parse meeting times, find overlaps.
 - **Acceptance criteria**:
   - [ ] `get_student_data` returns program, completed courses (with grades), decisions
@@ -399,6 +410,7 @@
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: CHAT-002, CHAT-009
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Create `core/context_builder.py`. Assembles context for the LLM prompt from: student profile, conversation summary, retrieved graph/vector data, intent classification. Formats using delimiter tags (`<retrieved_context>`, `<user_profile>`, `<conversation_summary>`).
 - **Acceptance criteria**:
   - [ ] Context includes student profile when available
@@ -411,6 +423,7 @@
 - **Phase**: 2-3 (Day 12-13)
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: Write pytest tests for the chat service. Test: tool executor auth enforcement (user_id override), tool calling with mock LLM responses, Neo4j service queries, Redis session storage, WebSocket connect/disconnect, intent classification accuracy. Mock Ollama responses so tests run without GPU.
 - **Acceptance criteria**:
   - [ ] `uv run pytest services/chat-service/tests/ -v` passes
@@ -525,6 +538,7 @@
 - **Phase**: 1 (Day 4)
 - **Blocked by**: FE-001
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: ChatWindow component. Floating panel in bottom-right corner. Click to expand/collapse. Scrollable message area. Styled with CU branding.
 - **Acceptance criteria**:
   - [ ] Chat icon visible in bottom-right corner
@@ -539,6 +553,7 @@
 - **Phase**: 1 (Day 4-5)
 - **Blocked by**: FE-006
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: ChatMessage component (user vs. AI styling). Markdown rendering via markdown-it. StructuredResponse component renders CourseCard lists. SuggestedActions component renders buttons/dropdowns from Action objects.
 - **Acceptance criteria**:
   - [ ] User messages right-aligned, AI messages left-aligned
@@ -553,6 +568,7 @@
 - **Phase**: 2 (Day 8-12)
 - **Blocked by**: CHAT-001 (stub WebSocket), FE-007
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: Create `useChat.ts` composable. WebSocket connection with JWT auth. Handle message types: typing, chat_response, error, progress. Auto-reconnect with exponential backoff (1s, 2s, 4s, max 30s). Show "Reconnecting..." during retry. Create `chatStore.ts` for state management.
 - **Acceptance criteria**:
   - [ ] WebSocket connects with JWT token
@@ -568,6 +584,7 @@
 - **Phase**: 1-2 (Day 5, then wire in Day 9)
 - **Blocked by**: FE-006
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: ChatInput component. Text input + send button. Enter key sends. Input disabled while AI is responding. Character count indicator (max 2000).
 - **Acceptance criteria**:
   - [ ] Enter key sends message
@@ -588,6 +605,7 @@
 - **Phase**: 3 (Day 13)
 - **Blocked by**: INFRA-002 (User model)
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: `POST /api/auth/register` — accepts email, password, name, program_id. Hashes password with bcrypt. Returns JWT. Validates email uniqueness.
 - **Acceptance criteria**:
   - [ ] Successful registration returns JWT + user_id
@@ -600,6 +618,7 @@
 - **Phase**: 3 (Day 13)
 - **Blocked by**: AUTH-001
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: `POST /api/auth/login` — accepts email, password. Verifies against hash. Returns JWT.
 - **Acceptance criteria**:
   - [ ] Valid credentials return JWT
@@ -611,6 +630,7 @@
 - **Phase**: 3 (Day 13-14)
 - **Blocked by**: AUTH-001, API-004 (programs list)
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: RegisterModal component. Fields: email, password, name, program dropdown (fetched from API), completed courses checklist (filtered by program). On submit: register → store JWT → update auth state.
 - **Acceptance criteria**:
   - [ ] Modal opens from header login button
@@ -624,6 +644,7 @@
 - **Phase**: 3 (Day 14)
 - **Blocked by**: AUTH-002
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: LoginModal component. `useAuth.ts` composable + `authStore.ts` Pinia store. JWT stored in localStorage. Auth header automatically added to API calls. Protected routes redirect to login.
 - **Acceptance criteria**:
   - [ ] Login modal with email + password
@@ -643,6 +664,7 @@
 - **Phase**: 3 (Day 13)
 - **Blocked by**: CHAT-004
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `core/memory.py`. Store last 20 messages per session in Redis (RPUSH). Load on new WebSocket connection. 2-hour TTL per session. Messages include role, content, tool calls, and tool results.
 - **Acceptance criteria**:
   - [ ] Messages persist across WebSocket reconnects (same session_id)
@@ -655,6 +677,7 @@
 - **Phase**: 3 (Day 14-15)
 - **Blocked by**: MEM-001
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: When message count exceeds 20, trigger LLM summarization. Summary captures: student's major, completed courses, decisions made, preferences, courses being considered. Summary stored in Redis, prepended to every LLM call. After summarization, trim to last 10 messages.
 - **Acceptance criteria**:
   - [ ] Summary generated when message count > 20
@@ -668,6 +691,7 @@
 - **Phase**: 3 (Day 15-16)
 - **Blocked by**: CHAT-005 (save_decision tool), API-005 (student endpoints)
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Wire `save_decision` tool end-to-end. On new session, `get_student_profile` loads prior decisions. LLM references them: "Last time you were interested in CSCI 3104 — still planning on that?"
 - **Acceptance criteria**:
   - [ ] Student says "I want to take CSCI 3104" → LLM calls save_decision → stored in PostgreSQL
@@ -688,6 +712,7 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person C
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Write the production system prompt with behavioral boundaries: only academic advising, never reveal internals, never access other users' data. Wrap all context in delimiter tags. Add the "flagged for injection" internal warning pattern.
 - **Acceptance criteria**:
   - [ ] System prompt defines behavioral boundaries
@@ -702,6 +727,7 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Create `core/input_sanitizer.py`. Max 2000 characters. Strip zero-width characters and control characters. Flag known injection patterns ("ignore previous", "system:", "you are now") — don't block, but add internal warning to LLM context.
 - **Acceptance criteria**:
   - [ ] Messages > 2000 chars are truncated
@@ -715,6 +741,7 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Create `core/output_validator.py`. Validate `structured_data` and `suggested_actions` against Pydantic schemas before sending to frontend. Strip if invalid. PII pattern scan (email addresses, student IDs). Scope check (filter non-academic content).
 - **Acceptance criteria**:
   - [ ] Invalid structured_data stripped (only text reply sent)
@@ -727,6 +754,7 @@
 - **Blocked by**: SEC-001, SEC-002, SEC-003, CHAT-006
 - **Assignee**: Person C
 - **Labels**: `security`
+- **Status**: 📋 Planned
 - **Description**: Write `tests/test_security.py`. Test: injection attempts (direct prompt, tool abuse, context tampering), auth enforcement (user_id override), rate limiting, output validation, PII scanning.
 - **Acceptance criteria**:
   - [ ] "Ignore your instructions" doesn't change LLM behavior
@@ -746,6 +774,7 @@
 - **Phase**: 4 (Day 20)
 - **Blocked by**: Nothing (infrastructure only)
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/network.tf`. VPC, private subnet (10.0.0.0/24), firewall rules (allow-vpc-connector, allow-internal, allow-iap-ssh, default-deny), Serverless VPC Connector. Create `infra/main.tf` (provider, GCS backend), `infra/variables.tf`, `infra/outputs.tf`, `infra/terraform.tfvars.example`.
 - **Acceptance criteria**:
   - [ ] `terraform plan` succeeds
@@ -759,6 +788,7 @@
 - **Phase**: 4 (Day 20-21)
 - **Blocked by**: DEPLOY-001
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/data-vm.tf`. e2-medium Compute Engine VM. Startup script installs Docker Compose, starts PostgreSQL + Neo4j + Redis. Persistent disk for data. Static internal IP (10.0.0.10). Create `infra/scripts/data-vm-startup.sh`.
 - **Acceptance criteria**:
   - [ ] VM boots and runs startup script
@@ -771,6 +801,7 @@
 - **Phase**: 4 (Day 21)
 - **Blocked by**: DEPLOY-001, DEPLOY-002 (needs Redis for queue)
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/ollama-mig.tf`. Instance template (spot g2-standard-4, L4 GPU, startup script). MIG with min 0 / max 3. Autoscaler on custom metric (Redis queue depth). Create `infra/monitoring.tf` (custom metric definition). Create `infra/scripts/ollama-worker-startup.sh` and `infra/scripts/queue-depth-exporter.py`.
 - **Acceptance criteria**:
   - [ ] Instance template creates with GPU
@@ -785,6 +816,7 @@
 - **Phase**: 4 (Day 21-22)
 - **Blocked by**: DEPLOY-001, DEPLOY-005 (Artifact Registry)
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/cloud-run.tf`. 3 Cloud Run services (course-search-api, chat-service, frontend). VPC connector attached. Env vars from Terraform. Chat service has min_instances=1. Create `infra/iam.tf` (service accounts).
 - **Acceptance criteria**:
   - [ ] All 3 Cloud Run services deploy
@@ -798,6 +830,7 @@
 - **Phase**: 4 (Day 20)
 - **Blocked by**: DEPLOY-001
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Create `infra/artifact-registry.tf`. Docker repository for container images.
 - **Acceptance criteria**:
   - [ ] Registry created
@@ -808,6 +841,7 @@
 - **Phase**: 4 (Day 22)
 - **Blocked by**: DEPLOY-002, DATA-005
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Pull Ollama models. Verify data counts.
 - **Acceptance criteria**:
   - [ ] All courses, programs, requirements in GCP databases
@@ -820,6 +854,7 @@
 - **Phase**: 4 (Day 22-23)
 - **Blocked by**: DEPLOY-004, DEPLOY-006
 - **Assignee**: Person A
+- **Status**: 📋 Planned
 - **Description**: Test the full flow on GCP. Course search, chat with AI, auth, memory, decisions.
 - **Acceptance criteria**:
   - [ ] Frontend loads at Cloud Run URL
@@ -858,6 +893,7 @@
 - **Phase**: 4 (Day 21-22)
 - **Blocked by**: DEPLOY-004, DEPLOY-005
 - **Assignee**: Person B
+- **Status**: 📋 Planned
 - **Description**: Create `.github/workflows/deploy.yml`. On push to main: build Docker images, push to Artifact Registry, deploy new revisions to Cloud Run.
 - **Acceptance criteria**:
   - [ ] Pushing to main triggers build + deploy
@@ -876,6 +912,7 @@
 - **Phase**: 4 (Day 22-23)
 - **Blocked by**: DEPLOY-007 (system running on GCP)
 - **Assignee**: Person C
+- **Status**: 📋 Planned
 - **Description**: Test 30+ conversation flows on the live system. Tune system prompt, tool descriptions, and response formatting. Document any model quirks and workarounds.
 - **Acceptance criteria**:
   - [ ] 5 core scenarios work reliably (listed in implementation guide)
@@ -888,6 +925,7 @@
 - **Phase**: 4 (Day 23-24)
 - **Blocked by**: DEMO-001
 - **Assignee**: Everyone
+- **Status**: 📋 Planned
 - **Description**: Write a 10-minute demo script with 3-4 compelling scenarios. Practice the demo. Prepare backup plan (recorded video) in case of live issues.
 - **Acceptance criteria**:
   - [ ] Demo script covers: course search, chat advising, prerequisite checking, schedule planning
@@ -901,6 +939,7 @@
 - **Phase**: 4 (Day 23-24)
 - **Blocked by**: Nothing
 - **Assignee**: Everyone
+- **Status**: 📋 Planned
 - **Description**: Prepare presentation covering: problem statement, architecture diagram, tech stack decisions, demo, scaling strategy, security model, lessons learned.
 - **Acceptance criteria**:
   - [ ] Slides cover all major architecture decisions
