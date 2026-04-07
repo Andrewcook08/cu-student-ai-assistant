@@ -168,9 +168,9 @@ gh pr merge --squash
 | Category | Why | Examples |
 |----------|-----|---------|
 | **Tools + tool executor** | Contract between LLM and data. Wrong shape = broken chat. | `test_tools.py`: each tool returns expected dict shape |
-| **Auth** | Security bugs are expensive. | `test_auth.py`: JWT create/decode, password hash, user_id override |
-| **Prerequisite parser** | Regex over messy data. Edge cases will bite you. | `test_prerequisites.py`: all 5 patterns, typos, edge cases |
-| **API endpoints** | Catch 500s before they hit the frontend. | `test_courses.py`: filters, pagination, 404s, auth |
+| **Auth** | Security bugs are expensive. | `test_auth.py` (planned, AUTH-001/002): JWT create/decode, password hash, user_id override |
+| **Prerequisite parser** | Regex over messy data. Edge cases will bite you. | `data/ingest/tests/test_parse_prerequisites.py`: all 5 patterns, typos, edge cases |
+| **API endpoints** | Catch 500s before they hit the frontend. | `test_courses_list.py` / `test_courses_detail.py` / `test_programs.py` / `test_students.py`: filters, pagination, 404s, auth |
 | **Security** | Injection attempts, rate limiting, output validation. | `test_security.py`: prompt injection, tool abuse, PII scanning |
 | **Frontend components** | Catches a11y regressions, broken event wiring, and XSS in markdown rendering before users see them. Required for every FE ticket. | `AppHeader.spec.ts` (auth branches), `ChatMessage.spec.ts` (markdown XSS), `CourseTable.spec.ts` (filter logic) |
 
@@ -294,7 +294,7 @@ On the first run, Claude Code will read `CLAUDE.md` and understand the project. 
 1. **Reference the story ID**: "Implement API-001: course listing endpoint with filters"
 2. **Point to the architecture**: "Follow the API spec in docs/architecture.md"
 3. **Specify the file**: "Edit services/course-search-api/course_search_api/routes/courses.py"
-4. **Ask for tests after code**: "Now write tests for the endpoint in tests/test_courses.py"
+4. **Ask for tests after code**: "Now write tests for the endpoint in tests/test_courses_list.py"
 5. **Run checks before committing**: "Run ruff check, ruff format, mypy, and pytest"
 
 ---

@@ -622,8 +622,8 @@ if __name__ == "__main__":
 
 Run and validate:
 ```bash
-# Pull embedding model first
-docker compose exec ollama ollama pull nomic-embed-text
+# Embedding model (nomic-embed-text) is pre-provisioned on disk by the team —
+# there is no runtime pull step. `scripts/dev.sh` verifies model presence.
 
 # Run ingestion (against Docker databases)
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/cu_assistant \
@@ -658,9 +658,7 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 
 This is the Phase 1 validation gate from the Tool Calling Reliability section.
 
-```bash
-docker compose exec ollama ollama pull gpt-oss:20b
-```
+The chat model (`gpt-oss:20b`) is pre-provisioned on disk — no runtime pull needed. `scripts/dev.sh` verifies model presence before seeding.
 
 Create a test script `scripts/test_tool_calling.py`:
 ```python
@@ -1386,13 +1384,18 @@ uv run pytest services/course-search-api/tests/ -v
 uv run pytest services/chat-service/tests/ -v
 ```
 
-Key test files:
-- `test_courses.py` — filter by dept, search, pagination, course detail
-- `test_auth.py` — register, login, invalid credentials, token validation
-- `test_tools.py` — each tool returns expected shape, user_id override works
-- `test_security.py` — injection attempts blocked, rate limiting works, output validation strips bad data
-- `test_chat.py` — WebSocket connects, sends message, gets response
-- `test_graph_rag.py` — vector search returns relevant courses, prereq chain is correct
+Key test files (Sprint 1 — Course Search API):
+- `test_courses_list.py` — filter by dept, q-search, pagination, combined filters, empty results
+- `test_courses_detail.py` — course exists with sections, 404 on unknown code, prerequisites_raw included
+- `test_programs.py` — list programs, get requirements ordered, 404 for unknown program
+- `test_students.py` — JWT-protected GET /me, 401/403 paths, inactive user rejected
+
+Planned (Phase 2/3 — Chat Service + Auth):
+- `test_auth.py` — register, login, invalid credentials, token validation (AUTH-001/002)
+- `test_tools.py` — each tool returns expected shape, user_id override works (CHAT-005/006)
+- `test_security.py` — injection attempts blocked, rate limiting works, output validation strips bad data (SEC-004)
+- `test_chat.py` — WebSocket connects, sends message, gets response (CHAT-001/008)
+- `test_graph_rag.py` — vector search returns relevant courses, prereq chain is correct (CHAT-002)
 
 **Phase 3 deliverable**: Full local demo. Run the pre-deployment checklist from [local-development.md](local-development.md#pre-deployment-checklist).
 
