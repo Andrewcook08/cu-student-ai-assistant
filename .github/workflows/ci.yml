@@ -19,7 +19,12 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies
-        run: uv sync --frozen
+        # --all-packages installs every workspace member's deps into the venv.
+        # Required because mypy's pydantic plugin (declared in root pyproject.toml)
+        # needs pydantic, which is a dep of `shared` (a workspace member), not the
+        # root project. Without --all-packages, `uv sync` only installs the root
+        # project's direct deps and mypy fails with "No module named 'pydantic'".
+        run: uv sync --all-packages --frozen
 
       - name: Ruff lint
         run: uv run ruff check .
