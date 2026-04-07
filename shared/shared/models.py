@@ -108,6 +108,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     program_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("programs.id"))
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     completed_courses: Mapped[list["CompletedCourse"]] = relationship(
