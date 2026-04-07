@@ -46,20 +46,13 @@ def update_completed_courses(
     """
     db.query(CompletedCourse).filter(CompletedCourse.user_id == user.id).delete()
     for item in courses:
-        db.add(CompletedCourse(
-            user_id=user.id,
-            course_code=item.course_code,
-            grade=item.grade,
-        ))
+        db.add(
+            CompletedCourse(
+                user_id=user.id,
+                course_code=item.course_code,
+                grade=item.grade,
+            )
+        )
     db.commit()
-    rows = (
-        db.query(CompletedCourse)
-        .filter(CompletedCourse.user_id == user.id)
-        .all()
-    )
-    return {
-        "completed_courses": [
-            {"course_code": r.course_code, "grade": r.grade}
-            for r in rows
-        ]
-    }
+    rows = db.query(CompletedCourse).filter(CompletedCourse.user_id == user.id).all()
+    return {"completed_courses": [{"course_code": r.course_code, "grade": r.grade} for r in rows]}
