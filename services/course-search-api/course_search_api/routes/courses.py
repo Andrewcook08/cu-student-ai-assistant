@@ -81,6 +81,39 @@ def list_courses(
     }
 
 
+@router.get("/search")
+async def search_courses(
+    q: str = Query(..., description="Natural language search query"),
+    limit: int = Query(10, ge=1, le=50),
+) -> dict:
+    """Semantic course search via Ollama embeddings + Neo4j vector index.
+
+    Generates a 768-dim embedding for *q*, queries the 'course-embeddings'
+    vector index, and returns results ranked by cosine similarity.
+
+    Returns 503 if Ollama or Neo4j is unavailable.
+    """
+    from course_search_api.services.neo4j_service import vector_search
+    from course_search_api.services.ollama_service import get_embedding
+
+    try:
+        embedding = await get_embedding(q)
+        results = await vector_search(embedding, limit=limit)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Search service unavailable: {exc}",
+        ) from exc
+
+    return {
+        "query": q,
+        "items": [
+            {"code": r["code"], "title": r["title"], "score": r["score"]}
+            for r in results
+        ],
+    }
+
+
 @router.get("/{code:path}")
 def get_course(code: str, db: Session = Depends(get_db)) -> dict:
     course = (
