@@ -818,7 +818,7 @@
 - **Phase**: 3 / Sprint 2 (retrofit)
 - **Blocked by**: Nothing
 - **Blocks**: CUAI-56 follow-up — frontend must attach tokens before this lands in a shared environment
-- **Assignee**: Person B
+- **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`
 - **Status**: 📋 Planned
 - **Description**: Add `Depends(get_current_user)` to every non-health route in `services/course-search-api/course_search_api/routes/courses.py` (`list_courses`, `search_courses`, `get_course`) and `routes/programs.py` (`list_programs`, `get_program_requirements`). Update affected tests to pass the existing `auth_headers` fixture (the same pattern used in `tests/test_students.py`). The acute gap is `/api/courses/search`, which currently triggers an Ollama embedding + Neo4j vector search per unauthenticated request — a cost/DoS vector. Health endpoints (`/api/health`, `/api/chat/health`) stay public for load balancer probes.
@@ -832,7 +832,7 @@
 - **Points**: 2
 - **Phase**: 3 / Sprint 2 (retrofit)
 - **Blocked by**: Nothing
-- **Assignee**: Person A
+- **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`
 - **Status**: 📋 Planned
 - **Description**: Add an `environment: str = "development"` field and a `validate_production()` method to `shared/shared/config.py`. The validator raises `RuntimeError` when `environment == "production"` AND any of: `jwt_secret_key` contains `"local-development"` or is shorter than 32 chars; `neo4j_password` ∈ {"development", "neo4j", ""}; `cors_origins_list` contains `"*"` or any localhost entry or is empty; `database_url` contains the default compose password. Call the validator from each service's lifespan (course-search-api and chat-service). Scrub `.env.example` of literal secret defaults.
@@ -846,7 +846,7 @@
 - **Points**: 3
 - **Phase**: 3 / Sprint 2 (retrofit)
 - **Blocked by**: Nothing (consumed by AUTH-001, AUTH-002, SEC-005)
-- **Assignee**: Person A
+- **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`
 - **Status**: 📋 Planned
 - **Description**: Add `slowapi` to both services. Initialize a module-level `Limiter(key_func=get_remote_address)` next to the CORS middleware. Register the SlowAPI 429 handler returning `{"detail":"Too many requests"}` with a `Retry-After` header. Apply per-route limits: `POST /api/auth/register` 3/hour per IP; `POST /api/auth/login` 5/min per IP; `GET /api/courses/search` 30/min per authenticated user (`key_func=user.id`); `PUT /api/students/me/completed-courses` 10/min per user. Production uses Redis-backed storage (`storage_uri=settings.redis_url`); local/test uses in-process.
@@ -860,8 +860,8 @@
 - **Points**: 3
 - **Phase**: 3 / Sprint 2 (retrofit)
 - **Blocked by**: SEC-006 (the override sets `ENVIRONMENT=production`)
-- **Assignee**: Person A
-- **Labels**: `security`, `phase-3`
+- **Assignee**: Person A (Scott)
+- **Labels**: `security`, `phase-3`, `infra`
 - **Status**: 📋 Planned
 - **Description**: New `docker-compose.prod.yml` override with: cleared `ports:` mapping on `postgres`, `neo4j`, `redis`, and `ollama` (services still reach each other by service name on the internal bridge); `NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD required}` and `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}` so the stack fails fast when secrets are unset; `ENVIRONMENT=production` on the app services to trip the SEC-006 validator. Update `.env.example` to list the new required prod vars (commented optional for local dev). This complements ADR-23 (cloud VPC) for the local prod-simulation path and the self-hosted Data VM described in ADR-19. **No new documentation file is created** — deployment instructions live in `docs/local-development.md` and the new architecture section.
 - **Acceptance criteria**:
@@ -875,7 +875,7 @@
 - **Points**: 3
 - **Phase**: 3 / Sprint 2 (retrofit)
 - **Blocked by**: Nothing
-- **Assignee**: Person C
+- **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`
 - **Status**: 📋 Planned
 - **Description**: Layer four enforcement points on the merged `/ws/chat/{session_id}` stub at `services/chat-service/chat_service/routes/chat.py`. After `accept()` and JWT validation: validate `session_id` shape as UUID v4 (close 4002 on bad shape); enforce 4096-byte max per message frame (`{type:"error",code:"message_too_large"}` and close 1009); per-connection token bucket of 20 messages per rolling 10 s window (`{type:"error",code:"rate_limit"}` and close 1008); capture `user_id` from JWT `sub` and include it in every server-side log line as prep for the CUAI-38 tool executor user-id override (ADR-14). Add a `TODO(P1)` comment about query-string token delivery.
@@ -886,7 +886,7 @@
   - [ ] Existing happy-path test (`test_websocket_echoes_message_with_valid_token`) still passes
   - [ ] `user_id` appears in server-side log entries
 
-All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in already-merged code (auth enforcement, secret validation, rate limiting, compose hardening, WebSocket enforcement). They share the `security` and `phase-3` labels and are owned by Persons A, B, and C respectively. ADR-33 in `decisions.md` is the architectural source of truth for the rationale and threat model behind these tickets.
+All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in already-merged code (auth enforcement, secret validation, rate limiting, compose hardening, WebSocket enforcement). They share the `security` and `phase-3` labels and are owned end-to-end by **Person A (Scott)** — the work spans the shared package, API middleware, compose configuration, and WebSocket routing, all of which fall under Scott's infra/shared remit. SEC-008 is the only inter-ticket dependency: it requires SEC-006 to land first so the `ENVIRONMENT=production` flag has a validator to trip. ADR-33 in `decisions.md` is the architectural source of truth for the rationale and threat model behind these tickets.
 
 ---
 
@@ -1205,9 +1205,14 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | CHAT-009 | 3 | Person C | 8 |
 | CHAT-010 | 3 | Person C | 9-10 |
 | CHAT-011 | 5 | Person B | 12-13 |
-| **Total** | **66** | | |
+| SEC-005 | 3 | Person A | retrofit |
+| SEC-006 | 2 | Person A | retrofit |
+| SEC-007 | 3 | Person A | retrofit |
+| SEC-008 | 3 | Person A | retrofit |
+| SEC-009 | 3 | Person A | retrofit |
+| **Total** | **80** | | |
 
-**Per-person**: A=0, B=31, C=35. Person A is free to help with bug fixes or start Terraform prep. CHAT-011 may spill into Sprint 3.
+**Per-person**: A=14, B=31, C=35. Person A's Sprint 2 load is the five SEC-005..009 retrofit tickets (added 2026-04-07 per ADR-33). They have no inter-dependencies except SEC-008 → SEC-006, and no external blockers — Scott has no in-progress tickets at the time of assignment. CHAT-011 may spill into Sprint 3.
 
 ### Sprint 3: Integration + Polish (Days 13-19, Apr 6-12)
 **Goal**: Full local demo with auth, memory, security.
@@ -1258,9 +1263,9 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | **Total stories** | 63 |
 | **Total story points** | 211 |
 | **Sprints** | 4 (5 + 7 + 7 + 5 days) |
-| **Person A — Scott** | 48 pts, 15 stories — Shared Package, Wire Services, Docker verification, Terraform, GCP Deploy, Conversation Memory, SEC-006/007/008 |
-| **Person B — Rohan** | 81 pts, 25 stories — Frontend (visual shell anchored to `frontend/cu-classes.html` per ADR-31; functional filter set unchanged from original plan), Course Search API, Auth, CI/CD, CHAT-011, DATA-006, SEC-002/003/005 |
-| **Person C — Andrew** | 76 pts, 21 stories — Repo skeleton, Data ingestion, Chat engine (LangGraph), Neo4j, Redis, Security (SEC-001/004/009), Demo |
+| **Person A — Scott** | 54 pts, 17 stories — Shared Package, Wire Services, Docker verification, Terraform, GCP Deploy, Conversation Memory, SEC-005/006/007/008/009 (full ADR-33 retrofit) |
+| **Person B — Rohan** | 78 pts, 24 stories — Frontend (visual shell anchored to `frontend/cu-classes.html` per ADR-31; functional filter set unchanged from original plan), Course Search API, Auth, CI/CD, CHAT-011, DATA-006, SEC-002/003 |
+| **Person C — Andrew** | 73 pts, 20 stories — Repo skeleton, Data ingestion, Chat engine (LangGraph), Neo4j, Redis, Security (SEC-001/004), Demo |
 | **Shared** | 6 pts, 2 stories — DEMO-002 (3), DEMO-003 (3) |
 | **Cross-person blocks** | 12 (most front-loaded in Days 1-2 scaffolding, zero mid-sprint blocking) |
 | **Critical path stories** | INFRA-001, INFRA-002, INFRA-003, DATA-001, DATA-002, DATA-006, CHAT-001, CHAT-008 |
