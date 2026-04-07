@@ -822,7 +822,7 @@
 - **Blocked by**: Nothing
 - **Blocks**: FE-001 merge (CI must be live before any feature PR lands, so we start with a green baseline)
 - **Assignee**: Person B
-- **Description**: Create `.github/workflows/ci.yml`. Runs on every PR and push to main. Jobs: (1) Python — `uv sync`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy .`, `uv run pytest` (skip gracefully if no tests exist). (2) Frontend — `cd frontend && npm ci && npm run type-check && npm run lint && npm run test -- --run && npm run build`. After this lands, enable branch protection on `main` requiring CI green before merge.
+- **Description**: Create `.github/workflows/ci.yml`. Runs on every PR and push to main. Jobs: (1) Python — all commands run **from the repo root** so test discovery is workspace-wide: `uv sync`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy .`, `uv run pytest` (skip gracefully if no tests exist). Because pytest is invoked from the root, it auto-discovers every service's tests via `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml` — **no `ci.yml` edits are needed when a new service is added**, contributors only update `[tool.uv.workspace].members` and `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml`. (2) Frontend — `cd frontend && npm ci && npm run type-check && npm run lint && npm run test -- --run && npm run build`. After this lands, enable branch protection on `main` requiring CI green before merge. See `docs/development-workflow.md § How CI Discovers Tests` for the canonical rule and maintenance guidance for future contributors.
 - **Acceptance criteria**:
   - [ ] CI runs on every PR targeting main and every push to main
   - [ ] Python job runs ruff check, ruff format --check, mypy, and pytest
@@ -830,6 +830,9 @@
   - [ ] Fails if any step fails
   - [ ] Status check shown on PR page
   - [ ] Branch protection on main requires CI green before merge
+  - [ ] Python job commands run from repo root (not from a service dir) so `uv run pytest` auto-discovers all workspace test directories
+  - [ ] Does NOT gate CI on scripts that need external services (e.g. `scripts/test_tool_calling.py` which needs Ollama running) — those stay as manual QA
+  - [ ] Documented in `docs/development-workflow.md § How CI Discovers Tests` (this is the maintenance reference for future service additions)
 
 ### CICD-002: GitHub Actions deploy pipeline
 - **Points**: 3

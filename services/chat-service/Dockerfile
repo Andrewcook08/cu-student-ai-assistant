@@ -11,4 +11,4 @@ RUN uv sync --package chat-service --frozen --no-dev
 
 WORKDIR /app/services/chat-service
 EXPOSE 8001
-CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["/app/.venv/bin/uvicorn", "chat_service.main:app", "--host", "0.0.0.0", "--port", "8001"]

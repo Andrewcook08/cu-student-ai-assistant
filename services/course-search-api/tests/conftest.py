@@ -1,7 +1,7 @@
 from collections.abc import Generator
 
 import pytest
-from app.main import app
+from course_search_api.main import app
 from fastapi.testclient import TestClient
 
 

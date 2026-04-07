@@ -91,6 +91,8 @@ Fill in the real code. Start with the shared package (INFRA-002), then wire serv
 
 Create `pyproject.toml` at the repo root. Key settings: uv workspace with members `shared`, `services/course-search-api`, `services/chat-service`, `data`. Dev deps include ruff, pytest, pytest-asyncio, mypy, httpx. Ruff targets py312 with line-length 100. Mypy strict mode with pydantic plugin.
 
+Also set `[tool.pytest.ini_options].testpaths` to list the three test dirs: `services/course-search-api/tests`, `services/chat-service/tests`, `data/ingest/tests`. This is what `uv run pytest` uses to auto-discover tests across the workspace. **Rule for future contributors:** when adding a new service, you must update both `[tool.uv.workspace].members` AND `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml` — CI (CUAI-71) runs `uv run pytest` from the repo root and relies on these. No workflow file edits needed. See `docs/development-workflow.md § How CI Discovers Tests` for the full rule.
+
 Create `.python-version` with `3.12`.
 
 Create `.gitignore` covering: Python artifacts, `.env` files, IDE configs, OS files, `data/raw/*.json`, Docker overrides, Terraform state, and Node `node_modules`/`dist`.
@@ -143,14 +145,14 @@ docker compose exec redis redis-cli ping                   # → PONG
 **5. Scaffold the Course Search API**
 
 ```bash
-mkdir -p services/course-search-api/app/routes
-mkdir -p services/course-search-api/app/services
+mkdir -p services/course-search-api/course_search_api/routes
+mkdir -p services/course-search-api/course_search_api/services
 mkdir -p services/course-search-api/tests
 ```
 
 `services/course-search-api/pyproject.toml`: deps are fastapi, uvicorn[standard], shared (workspace source).
 
-`services/course-search-api/app/__init__.py`: empty
+`services/course-search-api/course_search_api/__init__.py`: empty
 
 Both service `main.py` files follow the same pattern — FastAPI + CORS middleware + lifespan + health endpoint:
 
@@ -176,12 +178,12 @@ async def health():
     return {"status": "ok"}
 ```
 
-Create empty `__init__.py` in `routes/`, `services/`, and `tests/` for each service.
+Create empty `__init__.py` in `routes/` and `services/` for each service. Do NOT create `tests/__init__.py` — it would re-introduce a `tests.conftest` plugin name collision under pytest's importlib import mode.
 
 **6. Scaffold the Chat Service**
 
 ```bash
-mkdir -p services/chat-service/app/{routes,core,services}
+mkdir -p services/chat-service/chat_service/{routes,core,services}
 mkdir -p services/chat-service/tests
 ```
 
@@ -214,7 +216,7 @@ COPY services/course-search-api/ services/course-search-api/
 RUN uv sync --package course-search-api --frozen --no-dev
 
 EXPOSE 8000
-CMD ["uv", "run", "--package", "course-search-api", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "--package", "course-search-api", "uvicorn", "course_search_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 `services/chat-service/Dockerfile`:
@@ -231,7 +233,7 @@ COPY services/chat-service/ services/chat-service/
 RUN uv sync --package chat-service --frozen --no-dev
 
 EXPOSE 8001
-CMD ["uv", "run", "--package", "chat-service", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uv", "run", "--package", "chat-service", "uvicorn", "chat_service.main:app", "--host", "0.0.0.0", "--port", "8001"]
 ```
 
 `frontend/Dockerfile`:
@@ -841,7 +843,7 @@ uv run python scripts/test_tool_calling.py
 
 #### Days 6-8: API Endpoints
 
-All endpoints in `services/course-search-api/app/routes/`. Every route uses `Depends(get_db)` for database sessions and returns Pydantic models.
+All endpoints in `services/course-search-api/course_search_api/routes/`. Every route uses `Depends(get_db)` for database sessions and returns Pydantic models.
 
 **Pagination convention** (resolves open question #11):
 ```python
@@ -1062,7 +1064,7 @@ This is the most complex piece. Build incrementally.
 
 **Priority**: Get a WebSocket endpoint running that Person B can connect to.
 
-`services/chat-service/app/routes/chat.py`:
+`services/chat-service/chat_service/routes/chat.py`:
 ```python
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from jose import JWTError
@@ -1102,7 +1104,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str, token: str = Que
 
 Register in `main.py`:
 ```python
-from app.routes.chat import router as chat_router
+from chat_service.routes.chat import router as chat_router
 app.include_router(chat_router)
 ```
 
@@ -1110,13 +1112,13 @@ app.include_router(chat_router)
 
 #### Days 7-9: Neo4j Service + Graph RAG
 
-`services/chat-service/app/services/neo4j_service.py`: Implements the Cypher queries from [architecture.md  Neo4j Graph Schema](architecture.md#neo4j-graph-schema). Implementation notes: use `AsyncGraphDatabase.driver` from the `neo4j` package. Three async functions: `vector_search` (calls `db.index.vector.queryNodes`), `get_prerequisite_chain` (variable-length `HAS_PREREQUISITE*` path traversal), `get_degree_requirements` (program -> requirements with optional course/alternative matches).
+`services/chat-service/chat_service/services/neo4j_service.py`: Implements the Cypher queries from [architecture.md  Neo4j Graph Schema](architecture.md#neo4j-graph-schema). Implementation notes: use `AsyncGraphDatabase.driver` from the `neo4j` package. Three async functions: `vector_search` (calls `db.index.vector.queryNodes`), `get_prerequisite_chain` (variable-length `HAS_PREREQUISITE*` path traversal), `get_degree_requirements` (program -> requirements with optional course/alternative matches).
 
 #### Days 9-11: LangGraph Engine + Tools
 
-`services/chat-service/app/core/tools.py`: Implements all 7 tools from [architecture.md  Tool Calling](architecture.md#tool-calling). Implementation notes: `@tool` decorator from `langchain_core.tools`. All functions are `async`. Docstrings are critical -- the LLM uses them to decide which tool to call. Each tool delegates to service functions in `neo4j_service`, `postgres_service`, or `ollama_service`.
+`services/chat-service/chat_service/core/tools.py`: Implements all 7 tools from [architecture.md  Tool Calling](architecture.md#tool-calling). Implementation notes: `@tool` decorator from `langchain_core.tools`. All functions are `async`. Docstrings are critical -- the LLM uses them to decide which tool to call. Each tool delegates to service functions in `neo4j_service`, `postgres_service`, or `ollama_service`.
 
-`services/chat-service/app/core/tool_executor.py`:
+`services/chat-service/chat_service/core/tool_executor.py`:
 ```python
 """Auth-enforcing wrapper around tool calls. NEVER trust the LLM for user_id."""
 
@@ -1155,7 +1157,7 @@ async def execute_tool_call(
     return result
 ```
 
-`services/chat-service/app/core/context_builder.py` — assembles context for the LLM prompt. See [architecture.md  Security](architecture.md#security-prompt-injection--abuse-prevention) for the RAG context isolation pattern. Key implementation detail -- the delimiter tag pattern for injected context:
+`services/chat-service/chat_service/core/context_builder.py` — assembles context for the LLM prompt. See [architecture.md  Security](architecture.md#security-prompt-injection--abuse-prevention) for the RAG context isolation pattern. Key implementation detail -- the delimiter tag pattern for injected context:
 
 ```python
 # Each context section is wrapped in XML-style delimiter tags:
@@ -1166,11 +1168,11 @@ sections.append(f"<retrieved_context>\n{results}\n</retrieved_context>")
 
 The `build_context()` function takes `intent`, `user_id`, optional `query_embedding`, and optional `conversation_summary`. It routes to different retrieval strategies based on intent (`course_search` uses vector search, `degree_planning` fetches program requirements).
 
-`services/chat-service/app/core/llm_engine.py` — the LangGraph state machine. Uses `ChatOllama` from `langchain_ollama`, binds all 7 tools via `llm.bind_tools()`. Follows the standard ReAct pattern from LangGraph docs: `StateGraph` with nodes for `classify_intent → build_context → call_llm → maybe_call_tools → respond`. The intent classifier routes to different system prompts, the context builder assembles retrieval results, then the LLM + tool loop runs.
+`services/chat-service/chat_service/core/llm_engine.py` — the LangGraph state machine. Uses `ChatOllama` from `langchain_ollama`, binds all 7 tools via `llm.bind_tools()`. Follows the standard ReAct pattern from LangGraph docs: `StateGraph` with nodes for `classify_intent → build_context → call_llm → maybe_call_tools → respond`. The intent classifier routes to different system prompts, the context builder assembles retrieval results, then the LLM + tool loop runs.
 
 #### Day 12: Redis Queue Integration
 
-`services/chat-service/app/services/redis_service.py`:
+`services/chat-service/chat_service/services/redis_service.py`:
 ```python
 """Redis client for sessions, conversation cache, and LLM inference queue."""
 
@@ -1229,7 +1231,7 @@ async def _wait_for_result(pubsub):
 
 ### Conversation Memory (Person A — Scott, Days 13-16)
 
-`services/chat-service/app/core/memory.py`:
+`services/chat-service/chat_service/core/memory.py`:
 ```python
 """Two-tier conversation memory: recent messages (Redis) + running summary."""
 
@@ -1475,6 +1477,8 @@ jobs:
       - run: uv run mypy .
       - run: uv run pytest
 ```
+
+The Python job runs `uv run pytest` from the repo root, which discovers all workspace test directories via `[tool.pytest.ini_options].testpaths`. Adding a new service does not require editing this workflow file — just update the root `pyproject.toml`. See `docs/development-workflow.md § How CI Discovers Tests`.
 
 **GitHub Actions Deploy** (`.github/workflows/deploy.yml`):
 ```yaml

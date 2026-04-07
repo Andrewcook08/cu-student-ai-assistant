@@ -35,8 +35,8 @@ docker compose up -d --build course-search-api  # Rebuild one service
 ### Run services locally (hot reload, outside Docker)
 ```bash
 # Backend (use .env.local with localhost connection strings)
-uv run --package course-search-api uvicorn app.main:app --reload --port 8000
-uv run --package chat-service uvicorn app.main:app --reload --port 8001
+uv run --package course-search-api uvicorn course_search_api.main:app --reload --port 8000
+uv run --package chat-service uvicorn chat_service.main:app --reload --port 8001
 
 # Frontend
 cd frontend && npm run dev

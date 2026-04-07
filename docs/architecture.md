@@ -776,7 +776,7 @@ The project uses **uv workspaces** — a single `uv.lock` at the root, with each
 
 ```
 # Install everything:    uv sync
-# Run a specific service: uv run --package chat-service uvicorn app.main:app
+# Run a specific service: uv run --package chat-service uvicorn chat_service.main:app
 # Run tests:             uv run pytest
 # Lint:                  uv run ruff check .
 # Format:                uv run ruff format .
@@ -828,7 +828,7 @@ cu-student-ai-assistant/
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml                  # On PR: uv sync, ruff check, ruff format --check,
-│       │                           #   mypy, pytest (both services)
+│       │                           #   mypy, pytest (workspace-discovered), vitest
 │       └── deploy.yml              # On push to main: build Docker images, deploy to GCP
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  SHARED LIBRARY  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
@@ -858,7 +858,7 @@ cu-student-ai-assistant/
 │   │   ├── pyproject.toml          # name = "course-search-api"
 │   │   │                           #   dependencies: fastapi, uvicorn[standard], shared
 │   │   │                           #   [tool.uv.sources] shared = { workspace = true }
-│   │   ├── app/
+│   │   ├── course_search_api/
 │   │   │   ├── __init__.py
 │   │   │   ├── main.py             # FastAPI app: CORS, lifespan (DB connect/disconnect)
 │   │   │   ├── dependencies.py     # FastAPI Depends: get_db_session, get_current_user
@@ -874,7 +874,6 @@ cu-student-ai-assistant/
 │   │   │       ├── __init__.py
 │   │   │       └── course_query.py # PostgreSQL query builders for course filtering
 │   │   └── tests/
-│   │       ├── __init__.py
 │   │       ├── conftest.py         # Fixtures: test DB, test client, auth headers
 │   │       ├── test_courses.py
 │   │       └── test_auth.py
@@ -886,7 +885,7 @@ cu-student-ai-assistant/
 │       │                           #   dependencies: fastapi, uvicorn[standard], shared,
 │       │                           #   langchain, langgraph, neo4j, redis, ollama
 │       │                           #   [tool.uv.sources] shared = { workspace = true }
-│       ├── app/
+│       ├── chat_service/
 │       │   ├── __init__.py
 │       │   ├── main.py             # FastAPI app: CORS, WebSocket, lifespan
 │       │   │                       #   (connect Neo4j, Redis, verify Ollama on startup)
@@ -925,7 +924,6 @@ cu-student-ai-assistant/
 │       │       ├── ollama_service.py   # Ollama HTTP client: chat completions, embeddings
 │       │       └── postgres_service.py # Student decisions + audit log read/write
 │       └── tests/
-│           ├── __init__.py
 │           ├── conftest.py             # Fixtures: mock Ollama, test Neo4j, test Redis
 │           ├── test_chat.py
 │           ├── test_graph_rag.py

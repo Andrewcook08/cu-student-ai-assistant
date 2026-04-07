@@ -1,23 +1,23 @@
-"""Course Search API — stateless REST over PostgreSQL."""
+"""Chat Service — stateful AI orchestration."""
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, courses, programs, students
 from shared.config import settings
-from shared.database import engine
-from shared.models import Base
+
+from chat_service.routes import chat
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    Base.metadata.create_all(bind=engine)
     yield
 
 
-app = FastAPI(title="CU Course Search API", lifespan=lifespan)
+app = FastAPI(title="CU Chat Service", lifespan=lifespan)
+
+app.include_router(chat.router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,12 +28,6 @@ app.add_middleware(
 )
 
 
-app.include_router(auth.router)
-app.include_router(courses.router)
-app.include_router(programs.router)
-app.include_router(students.router)
-
-
-@app.get("/api/health")
+@app.get("/api/chat/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}

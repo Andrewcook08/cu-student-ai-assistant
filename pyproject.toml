@@ -33,6 +33,15 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["services/course-search-api/tests", "services/chat-service/tests", "data/ingest/tests"]
+# Use importlib mode so multiple tests/conftest.py files across services don't
+# collide on the same module name. Under the default "prepend" mode, every
+# services/*/tests/conftest.py would be registered as plain `conftest`, and the
+# second one to load would crash with "Plugin already registered under a
+# different name". Importlib mode imports test files by file path, giving each
+# conftest a unique synthetic module name. The application packages themselves
+# (`chat_service`, `course_search_api`) have distinct names by construction, so
+# they coexist in sys.modules without any extra help.
+addopts = "--import-mode=importlib"
 
 [tool.mypy]
 python_version = "3.12"

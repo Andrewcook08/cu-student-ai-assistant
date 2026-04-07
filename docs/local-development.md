@@ -236,10 +236,10 @@ For faster iteration, you can run the backend services **outside Docker** while 
 docker compose up -d postgres neo4j redis ollama
 
 # Run course-search-api locally (hot reload)
-uv run --package course-search-api uvicorn app.main:app --reload --port 8000
+uv run --package course-search-api uvicorn course_search_api.main:app --reload --port 8000
 
 # Run chat-service locally (hot reload) in another terminal
-uv run --package chat-service uvicorn app.main:app --reload --port 8001
+uv run --package chat-service uvicorn chat_service.main:app --reload --port 8001
 ```
 
 When running locally (outside Docker), use `localhost` connection strings instead of Docker service names:
@@ -274,10 +274,10 @@ Typical development session:
 docker compose up -d postgres neo4j redis ollama
 
 # Terminal 2: Course Search API (hot reload)
-uv run --package course-search-api uvicorn app.main:app --reload --port 8000
+uv run --package course-search-api uvicorn course_search_api.main:app --reload --port 8000
 
 # Terminal 3: Chat Service (hot reload)
-uv run --package chat-service uvicorn app.main:app --reload --port 8001
+uv run --package chat-service uvicorn chat_service.main:app --reload --port 8001
 
 # Terminal 4: Frontend (hot reload)
 cd frontend && npm run dev
@@ -517,7 +517,7 @@ uv run --package data-ingest python -m data.ingest.run_all
 ### Hot reload not working for backend
 Make sure you're running uvicorn outside Docker with `--reload`:
 ```bash
-uv run --package course-search-api uvicorn app.main:app --reload --port 8000
+uv run --package course-search-api uvicorn course_search_api.main:app --reload --port 8000
 ```
 If running inside Docker, you need to mount the source code as a volume (the Dockerfile copies code at build time, so changes require a rebuild).
 
