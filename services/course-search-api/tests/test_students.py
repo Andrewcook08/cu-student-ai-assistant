@@ -6,6 +6,9 @@ a user with is_active=False must receive 401, not 200.
 
 from __future__ import annotations
 
+from shared.auth import create_access_token, hash_password
+from shared.models import User
+
 
 def test_students_route_exists(client):
     """The /api/students prefix must be registered (even if empty)."""
@@ -32,10 +35,31 @@ def test_students_me_rejects_invalid_token(client):
 
 def test_user_is_active_column_exists_in_model():
     """Regression test for PR #51: User model must have is_active field."""
-    from shared.models import User
-    import inspect
-
     columns = {col.name for col in User.__table__.columns}
     assert "is_active" in columns, (
         "User.is_active column missing — regression from PR #51 fix"
     )
+
+
+def test_inactive_user_rejected(client, db_session):
+    """Integration test: is_active=False must cause 401, not 200.
+
+    Exercises dependencies.py:29 — the runtime code path that rejects inactive
+    users. Locks in the PR #51 fix so it cannot silently regress.
+    """
+    inactive = User(
+        email="inactive-test@example.com",
+        password_hash=hash_password("irrelevant"),
+        name="Inactive Test",
+        is_active=False,
+    )
+    db_session.add(inactive)
+    db_session.commit()
+    db_session.refresh(inactive)
+
+    token = create_access_token(str(inactive.id))
+    response = client.get(
+        "/api/students/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code in (401, 403)

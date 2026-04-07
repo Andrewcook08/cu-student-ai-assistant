@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
+from shared.models import Program, Requirement
 from sqlalchemy.orm import Session
 
 from course_search_api.dependencies import get_db
-from shared.models import Program, Requirement
 
 router = APIRouter(prefix="/api/programs", tags=["programs"])
 
