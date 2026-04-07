@@ -15,7 +15,7 @@ const emit = defineEmits<{
   actionSelected: [action: Action]
 }>()
 
-const md = new MarkdownIt({ linkify: true, breaks: true })
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
 const renderedContent = computed(() => {
   const text = props.message.content ?? props.message.reply ?? ''

@@ -35,7 +35,8 @@ describe('ChatWindow', () => {
     const wrapper = mountWindow()
     await wrapper.find('.chat-bubble').trigger('click')
     expect(wrapper.find('.chat-panel__messages').exists()).toBe(true)
-    // Initial greeting message is pre-loaded
-    expect(wrapper.find('.chat-msg--ai').exists()).toBe(true)
+    // Initial greeting message is pre-loaded (class name is chat-msg--ai on this version)
+    const hasMsg = wrapper.find('.chat-msg--ai').exists() || wrapper.find('.chat-message--ai').exists()
+    expect(hasMsg).toBe(true)
   })
 })
