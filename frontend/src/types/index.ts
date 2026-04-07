@@ -58,7 +58,6 @@ export interface StudentProfile {
 export interface FilterValues {
   dept: string
   level: string
-  time: string
   credits: string
 }
 

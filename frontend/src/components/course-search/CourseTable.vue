@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import type { Course } from '@/types/index'
-import type { FilterValues } from '@/types/index'
 import CourseRow from './CourseRow.vue'
 
 const props = defineProps<{
   courses: Course[]
-  filters: FilterValues
 }>()
 
 const expandedCode = ref<string | null>(null)
@@ -14,25 +12,11 @@ const expandedCode = ref<string | null>(null)
 function toggleExpand(code: string) {
   expandedCode.value = expandedCode.value === code ? null : code
 }
-
-const filteredCourses = computed(() => {
-  return props.courses.filter((c) => {
-    if (props.filters.dept && c.dept !== props.filters.dept) return false
-    if (props.filters.credits && c.credits !== props.filters.credits) return false
-    if (props.filters.level) {
-      const num = parseInt(c.code.split(' ')[1] ?? '0', 10)
-      if (props.filters.level === 'undergrad-lower' && (num < 1000 || num > 2999)) return false
-      if (props.filters.level === 'undergrad-upper' && (num < 3000 || num > 4999)) return false
-      if (props.filters.level === 'graduate' && num < 5000) return false
-    }
-    return true
-  })
-})
 </script>
 
 <template>
   <div class="course-table-wrapper">
-    <div v-if="filteredCourses.length === 0" class="empty-state">
+    <div v-if="props.courses.length === 0" class="empty-state">
       No courses match your filters. Try adjusting your search criteria.
     </div>
     <table v-else class="course-table">
@@ -46,7 +30,7 @@ const filteredCourses = computed(() => {
         </tr>
       </thead>
       <tbody>
-        <template v-for="course in filteredCourses" :key="course.code">
+        <template v-for="course in props.courses" :key="course.code">
           <CourseRow
             :course="course"
             :is-expanded="expandedCode === course.code"
@@ -55,9 +39,6 @@ const filteredCourses = computed(() => {
         </template>
       </tbody>
     </table>
-    <div class="course-table-footer">
-      Showing {{ filteredCourses.length }} of {{ courses.length }} courses
-    </div>
   </div>
 </template>
 
@@ -89,12 +70,5 @@ const filteredCourses = computed(() => {
   text-align: center;
   color: #888;
   font-size: 14px;
-}
-.course-table-footer {
-  padding: 8px 12px;
-  font-size: 12px;
-  color: #888;
-  border-top: 1px solid #eee;
-  background: #fafafa;
 }
 </style>

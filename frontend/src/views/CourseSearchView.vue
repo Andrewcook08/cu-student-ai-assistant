@@ -1,27 +1,56 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
 import FilterBar from '@/components/layout/FilterBar.vue'
 import WelcomePane from '@/components/course-search/WelcomePane.vue'
 import CourseTable from '@/components/course-search/CourseTable.vue'
 import type { FilterValues } from '@/types/index'
+import type { CourseFilters } from '@/services/courseApi'
 import { useCourses } from '@/composables/useCourses'
 
-const { courses, total, loading, error, fetch: fetchCourses, resetPage } = useCourses()
+const {
+  courses,
+  total,
+  loading,
+  error,
+  offset,
+  fetch: fetchCourses,
+  nextPage,
+  prevPage,
+  resetPage,
+} = useCourses()
 
 const hasSearched = ref(false)
-const activeFilters = ref<FilterValues>({ dept: '', level: '', time: '', credits: '' })
+const activeFilters = ref<FilterValues>({ dept: '', level: '', credits: '' })
+
+function toApiFilters(filters: FilterValues): CourseFilters {
+  return {
+    dept: filters.dept || undefined,
+    level: filters.level || undefined,
+    credits: filters.credits || undefined,
+  }
+}
 
 async function onSearch(filters: FilterValues) {
   activeFilters.value = { ...filters }
   hasSearched.value = true
   resetPage()
-  await fetchCourses({
-    dept: filters.dept || undefined,
-    credits: filters.credits || undefined,
-  })
+  await fetchCourses(toApiFilters(filters))
 }
+
+async function onNext() {
+  await nextPage(toApiFilters(activeFilters.value))
+}
+
+async function onPrev() {
+  await prevPage(toApiFilters(activeFilters.value))
+}
+
+const canPrev = computed(() => offset.value > 0)
+const canNext = computed(() => offset.value + courses.value.length < total.value)
+const rangeStart = computed(() => (total.value === 0 ? 0 : offset.value + 1))
+const rangeEnd = computed(() => Math.min(offset.value + courses.value.length, total.value))
 </script>
 
 <template>
@@ -43,13 +72,30 @@ async function onSearch(filters: FilterValues) {
             <span class="search-status__text">{{ error }}</span>
           </div>
           <!-- Results -->
-          <CourseTable
-            :courses="courses"
-            :filters="activeFilters"
-          />
-          <!-- Pagination (real API only) -->
+          <CourseTable :courses="courses" />
+          <!-- Pagination -->
           <div v-if="total > 0" class="pagination">
-            <span class="pagination__info">{{ total }} total courses found</span>
+            <span class="pagination__info">
+              Showing {{ rangeStart }}–{{ rangeEnd }} of {{ total }}
+            </span>
+            <div class="pagination__controls">
+              <button
+                type="button"
+                class="pagination__btn"
+                :disabled="!canPrev || loading"
+                @click="onPrev"
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                class="pagination__btn"
+                :disabled="!canNext || loading"
+                @click="onNext"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </template>
       </div>
@@ -80,9 +126,36 @@ async function onSearch(filters: FilterValues) {
   font-style: italic;
 }
 .pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 20px;
   font-size: 12px;
-  color: #888;
+  color: #555;
   border-top: 1px solid #eee;
+  background: #fafafa;
+}
+.pagination__controls {
+  display: flex;
+  gap: 8px;
+}
+.pagination__btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.pagination__btn:hover:not(:disabled) {
+  background: #f0f0f0;
+}
+.pagination__btn:disabled {
+  color: #bbb;
+  background: #f5f5f5;
+  cursor: not-allowed;
 }
 </style>

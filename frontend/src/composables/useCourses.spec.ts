@@ -38,6 +38,68 @@ describe('useCourses', () => {
     expect(loading.value).toBe(false)
   })
 
+  it('threads level filter through to fetchCourses', async () => {
+    const spy = vi.spyOn(courseApi, 'fetchCourses').mockResolvedValue({
+      items: [],
+      total: 0,
+      offset: 0,
+      limit: 50,
+    })
+
+    const { fetch } = useCourses()
+    await fetch({ dept: 'CSCI', level: 'undergrad-lower' })
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ dept: 'CSCI', level: 'undergrad-lower', offset: 0, limit: 50 }),
+    )
+  })
+
+  it('nextPage advances offset and preserves filters', async () => {
+    const spy = vi.spyOn(courseApi, 'fetchCourses').mockResolvedValue({
+      items: [],
+      total: 200,
+      offset: 0,
+      limit: 50,
+    })
+
+    const { fetch, nextPage, offset } = useCourses()
+    await fetch({ dept: 'CSCI', level: 'undergrad-lower' })
+    await nextPage({ dept: 'CSCI', level: 'undergrad-lower' })
+
+    expect(offset.value).toBe(50)
+    expect(spy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dept: 'CSCI', level: 'undergrad-lower', offset: 50, limit: 50 }),
+    )
+  })
+
+  it('prevPage decreases offset and preserves filters', async () => {
+    const spy = vi.spyOn(courseApi, 'fetchCourses').mockResolvedValue({
+      items: [],
+      total: 200,
+      offset: 0,
+      limit: 50,
+    })
+
+    const { fetch, nextPage, prevPage, offset } = useCourses()
+    await fetch({ dept: 'CSCI' })
+    await nextPage({ dept: 'CSCI' })
+    await prevPage({ dept: 'CSCI' })
+
+    expect(offset.value).toBe(0)
+    expect(spy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dept: 'CSCI', offset: 0, limit: 50 }),
+    )
+  })
+
+  it('resetPage zeroes the offset without calling the api', () => {
+    const spy = vi.spyOn(courseApi, 'fetchCourses')
+    const { offset, resetPage } = useCourses()
+    offset.value = 100
+    resetPage()
+    expect(offset.value).toBe(0)
+    expect(spy).not.toHaveBeenCalled()
+  })
+
   it('loading is true during fetch and false after', async () => {
     let resolveFn!: (v: unknown) => void
     vi.spyOn(courseApi, 'fetchCourses').mockReturnValueOnce(

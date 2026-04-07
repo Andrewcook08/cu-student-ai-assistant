@@ -22,44 +22,37 @@ const sampleCourses: Course[] = [
   },
 ]
 
-const emptyFilters = { dept: '', level: '', time: '', credits: '' }
-
 describe('CourseTable', () => {
-  it('renders rows for each course', () => {
-    const wrapper = mount(CourseTable, {
-      props: { courses: sampleCourses, filters: emptyFilters },
-    })
-    expect(wrapper.findAll('[data-course-code], tr, .course-row').length).toBeGreaterThan(0)
+  it('renders a row for each course it is given', () => {
+    const wrapper = mount(CourseTable, { props: { courses: sampleCourses } })
     expect(wrapper.text()).toContain('CSCI 1300')
     expect(wrapper.text()).toContain('CSCI 2270')
+    expect(wrapper.findAll('tbody tr').length).toBe(sampleCourses.length)
   })
 
-  it('shows empty state when no courses provided', () => {
-    const wrapper = mount(CourseTable, {
-      props: { courses: [], filters: emptyFilters },
-    })
-    // Should either show empty message or render 0 rows
-    const rows = wrapper.findAll('[data-course-code], tbody tr, .course-row')
-    expect(rows.length).toBe(0)
+  it('shows the empty state when given no courses', () => {
+    const wrapper = mount(CourseTable, { props: { courses: [] } })
+    expect(wrapper.find('.empty-state').exists()).toBe(true)
+    expect(wrapper.findAll('tbody tr').length).toBe(0)
   })
 
-  it('filters courses by department', () => {
+  it('does not filter its input — it renders everything passed in', () => {
     const mixed: Course[] = [
       ...sampleCourses,
       { code: 'MATH 1300', title: 'Calculus 1', credits: '4', dept: 'MATH', sections: [] },
     ]
-    const wrapper = mount(CourseTable, {
-      props: { courses: mixed, filters: { dept: 'MATH', level: '', time: '', credits: '' } },
-    })
+    const wrapper = mount(CourseTable, { props: { courses: mixed } })
+    expect(wrapper.text()).toContain('CSCI 1300')
+    expect(wrapper.text()).toContain('CSCI 2270')
     expect(wrapper.text()).toContain('MATH 1300')
-    expect(wrapper.text()).not.toContain('CSCI 1300')
   })
 
-  it('mock data is isolated in mocks/courses.ts (not inlined)', async () => {
-    // Verify the component accepts courses as a prop (not hardcoding mock data internally)
-    const wrapper = mount(CourseTable, {
-      props: { courses: [], filters: emptyFilters },
-    })
-    expect(wrapper.exists()).toBe(true)
+  it('expands a row when clicked and collapses it on second click', async () => {
+    const wrapper = mount(CourseTable, { props: { courses: sampleCourses } })
+    const firstRow = wrapper.findAll('tbody tr.course-row')[0]
+    await firstRow.trigger('click')
+    expect(wrapper.findAll('tr.course-row--expanded').length).toBe(1)
+    await firstRow.trigger('click')
+    expect(wrapper.findAll('tr.course-row--expanded').length).toBe(0)
   })
 })
