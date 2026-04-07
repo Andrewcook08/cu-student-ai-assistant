@@ -5,7 +5,7 @@ Ollama and Neo4j are mocked so the test suite runs without live services.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 
@@ -19,20 +19,30 @@ _FAKE_RESULTS = [
 
 @pytest.fixture(autouse=True)
 def mock_search_services():
-    """Patch Ollama + Neo4j for every test in this module."""
+    """Patch Ollama + Neo4j at the routes level for every test in this module.
+
+    Yields (mock_get_embedding, mock_vector_search) so individual tests can
+    assert on call arguments.
+    """
     with (
         patch(
-            "course_search_api.services.ollama_service.get_embedding",
+            "course_search_api.routes.courses.get_embedding",
             new_callable=AsyncMock,
             return_value=_FAKE_EMBEDDING,
-        ),
+        ) as mock_embed,
         patch(
-            "course_search_api.services.neo4j_service.vector_search",
+            "course_search_api.routes.courses.vector_search",
             new_callable=AsyncMock,
             return_value=_FAKE_RESULTS,
-        ),
+        ) as mock_search,
     ):
-        yield
+        yield mock_embed, mock_search
+
+
+def test_search_route_not_swallowed_by_catch_all(client):
+    """Regression: /search must be declared before /{code:path} or it returns 404."""
+    response = client.get("/api/courses/search?q=x")
+    assert response.status_code != 404
 
 
 def test_search_requires_q_param(client):
@@ -41,9 +51,12 @@ def test_search_requires_q_param(client):
     assert response.status_code == 422
 
 
-def test_search_returns_200(client):
-    """GET /api/courses/search?q=... returns 200 with expected shape."""
+def test_search_returns_200(client, mock_search_services):
+    """GET /api/courses/search?q=... returns 200 with expected shape and calls services."""
+    mock_embed, mock_search = mock_search_services
+
     response = client.get("/api/courses/search?q=machine+learning")
+
     assert response.status_code == 200
     data = response.json()
     assert data["query"] == "machine learning"
@@ -54,22 +67,31 @@ def test_search_returns_200(client):
     assert "title" in first
     assert "score" in first
 
+    # Verify both services were called with the correct arguments
+    mock_embed.assert_called_once_with(ANY, "machine learning")
+    mock_search.assert_called_once_with(ANY, _FAKE_EMBEDDING, limit=10)
 
-def test_search_respects_limit(client):
-    """GET /api/courses/search?limit= is accepted and forwarded."""
+
+def test_search_respects_limit(client, mock_search_services):
+    """GET /api/courses/search?limit= is accepted and forwarded to vector_search."""
+    _, mock_search = mock_search_services
+
     response = client.get("/api/courses/search?q=data+science&limit=5")
+
     assert response.status_code == 200
+    mock_search.assert_called_once_with(ANY, _FAKE_EMBEDDING, limit=5)
 
 
 def test_search_handles_service_error(client):
-    """If Ollama raises, the endpoint must return 503."""
+    """If Ollama raises, the endpoint must return 503 with a generic message."""
     import httpx
 
     with patch(
-        "course_search_api.services.ollama_service.get_embedding",
+        "course_search_api.routes.courses.get_embedding",
         new_callable=AsyncMock,
         side_effect=httpx.ConnectError("connection refused"),
     ):
         response = client.get("/api/courses/search?q=anything")
+
     assert response.status_code == 503
-    assert "unavailable" in response.json()["detail"].lower()
+    assert response.json()["detail"] == "Search service temporarily unavailable"
