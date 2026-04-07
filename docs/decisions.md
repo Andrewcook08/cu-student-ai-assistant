@@ -31,6 +31,7 @@
 - [ADR-26: gpt-oss:20b as Default LLM](#adr-26-gpt-oss20b-as-default-llm)
 - [ADR-27: Normalize Course Attributes into a Join Table (CUAI-20 / DATA-001)](#adr-27-normalize-course-attributes-into-a-join-table-cuai-20--data-001)
 - [ADR-31: cu-classes.html as Design Baseline for the Course Search Page](#adr-31-cu-classeshtml-as-design-baseline-for-the-course-search-page)
+- [ADR-33: API & Infrastructure Security Hardening](#adr-33-api--infrastructure-security-hardening)
 
 ---
 
@@ -839,3 +840,54 @@ The original FilterBar scope (ADR-31, FE-002) matched CU's own class search at a
 - ADR-31 "Consequences" bullet naming "four controls (department, level, time, credits)" is amended — see the note appended to ADR-31 above.
 - Historical PRs and Sprint 1 story descriptions that reference the four-control set remain as-is; the Jira ticket descriptions (CUAI-45/46/47) were updated to reflect the new scope.
 - Shipped in PR #62 alongside the backend `level` filter and aggregate `status` field.
+
+---
+
+## ADR-33: API & Infrastructure Security Hardening
+
+### Decision
+
+Adopt a **five-control hardening layer** at the API and infrastructure surface that fills the gap between ADR-14 (tool-level auth) / ADR-17 (defense-in-depth strategy) above and ADR-23 (network/VPC isolation) below. All five controls are planned scope (Sprint 2); none is implemented yet.
+
+| Control | Ticket | What it enforces |
+|---------|--------|-----------------|
+| Auth on every catalog/search/programs route | SEC-005 / CUAI-79 | `Depends(get_current_user)` on all non-health routes |
+| Fail-fast production secret validation | SEC-006 / CUAI-80 | Service refuses to boot with weak secrets when `ENVIRONMENT=production` |
+| Rate limiting middleware (`slowapi`) | SEC-007 / CUAI-81 | Per-IP and per-user request caps; 429 + `Retry-After` |
+| Production docker-compose override | SEC-008 / CUAI-82 | Datastore ports hidden; required-secret syntax; triggers SEC-006 validator |
+| WebSocket hardening | SEC-009 / CUAI-83 | UUID shape check, 4 KB frame cap, per-connection token bucket, JWT captured at handshake |
+
+Health endpoints (`/api/health`, `/api/chat/health`) remain public for load balancer probes. Every other route requires a valid JWT.
+
+### Alternatives Considered
+
+1. **Trust developers to add auth on each route manually** — rejected. The merged catalog routes (`GET /api/courses`, `/api/courses/{code}`, `/api/courses/search`, `/api/programs`, `/api/programs/{slug}/requirements`) already shipped without `Depends(get_current_user)`, which is exactly how this gap forms in practice.
+
+2. **A single FastAPI middleware that requires auth on all paths** with an allowlist for health endpoints — rejected. Per-route `Depends(get_current_user)` is more explicit, survives router re-mounting, and shows up in the OpenAPI schema. An allowlist approach has real drift risk: every new public endpoint requires a manual allowlist update.
+
+3. **Defer all controls until after Sprint 2** — rejected. `/api/courses/search` triggers an Ollama embedding call plus a Neo4j vector search on every unauthenticated request. Unauthenticated + unrate-limited is a cost/DoS vector, not a polish item.
+
+4. **Centralize rate limiting at a reverse proxy (nginx / Cloud Armor)** — rejected for Phase 3. Per-user limits require the JWT subject (application context the proxy doesn't have). Cloud Armor is Phase 4 scope. `slowapi` is one decorator per route and survives the eventual move to a reverse proxy without code changes.
+
+### Why
+
+ADR-14 and ADR-17 secure the LLM/tool layer. ADR-23 secures the network perimeter. Neither layer covers the API surface between them: unauthenticated catalog routes, weak secrets reaching production, unbounded request rates, exposed datastore ports in the compose stack, and an unsanitized WebSocket endpoint.
+
+**`/api/courses/search` is the acute gap.** Each call fans out to Ollama (embedding) and Neo4j (vector search). Without auth or rate limiting, a single unauthenticated client can pin both datastores. The fix is mechanical — one `Depends()` and one `@limiter.limit()` — but it must land before the service is deployed.
+
+**Secret validation at boot** is cheap insurance. The committed defaults (`changeme`, `neo4j`, `secret`) are in the repo history. A service that starts successfully in production with those defaults provides a false sense of security. A one-time `validate_production()` call in the lifespan eliminates the entire class of "forgot to rotate the default" incidents.
+
+**Hiding datastore ports** in `docker-compose.prod.yml` complements ADR-23 for the self-hosted Data VM path (ADR-19) and local prod-simulation. The internal compose bridge network already provides isolation — the production override simply removes the escape hatch.
+
+**WebSocket hardening** is scoped to the properties the application can enforce without a proxy: session ID shape, frame size, and flood rate. JWT capture at handshake also prepares for the CUAI-38 tool executor user-id override specified in ADR-14.
+
+### Consequences
+
+- Five new Sprint 2 tickets: SEC-005..009 (CUAI-79..83). Label `security`, label `phase-3`. No epic parent (cross-cutting hardening).
+- Thirteen existing tickets receive appended security ACs: CHAT-002, CHAT-004, CHAT-009, CHAT-010, CHAT-011, FE-008, AUTH-001..004, DEPLOY-002, DEPLOY-004, CICD-002. No scope or status change; amendments are recorded in `jira-epics-and-stories.md`.
+- `slowapi` added as a dependency on both services.
+- `ENVIRONMENT` env var required on every deployment surface (`development` by default; `production` activates the secret validator).
+- Existing catalog/search/programs tests must pass an `Authorization: Bearer <token>` header. The `auth_headers` fixture pattern in `tests/test_students.py` is the model to follow.
+- Frontend (CUAI-56) must attach a Bearer token to every `/api/**` call before SEC-005 lands in a shared environment.
+- Cross-references: extends ADR-14 (tool-level auth) and ADR-17 (defense-in-depth) at the API surface; complements ADR-23 (network layer) and ADR-19 (self-hosted databases) for the prod compose path.
+- **Explicitly deferred to P1** (out of scope here, listed so they are not forgotten): refresh tokens + shorter access TTL; security headers middleware (HSTS, CSP, X-Frame-Options); CI security scanning (pip-audit, bandit, gitleaks); WebSocket token via subprotocol instead of query string; password reset + account lockout; SBOM + dependency pinning policy; secret rotation runbook.

@@ -352,7 +352,7 @@ This gives you hot reload on all application code while databases run in Docker.
 
 **Healthchecks**: all four data services (`postgres`, `neo4j`, `redis`, `ollama`) have healthchecks; application services use `depends_on: condition: service_healthy` so they only start once their dependencies are ready. Neo4j uses a 30s `start_period` because it's slow to boot.
 
-**Credentials (local only)**: postgres `postgres/postgres`, neo4j `neo4j/development`, DB name `cu_assistant`. These are dev-only — production values come from Terraform secrets (Phase 4).
+**Credentials (local only)**: postgres `postgres/postgres`, neo4j `neo4j/development`, DB name `cu_assistant`. These are dev-only — production values come from Terraform secrets (Phase 4). When the production override (SEC-008) lands, these defaults will be rejected at boot by the SEC-006 validator, and the stack will refuse to start without real secrets in the environment.
 
 **GPU**: the committed compose file has no GPU config. If you have an NVIDIA GPU and want Ollama to use it, add a `deploy.resources.reservations.devices` block to the `ollama` service locally (uncommitted) — or start Ollama natively on the host. See the Ollama Docker docs for the exact YAML.
 
@@ -368,6 +368,20 @@ This gives you hot reload on all application code while databases run in Docker.
 | 7687 | Neo4j Bolt | TCP |
 | 6379 | Redis | TCP |
 | 11434 | Ollama | HTTP |
+
+### Production override (planned — SEC-008)
+
+**Status**: Design only — not yet implemented. See [SEC-008 / CUAI-82](#) and [ADR-33 in decisions.md](decisions.md#adr-33-api--infrastructure-security-hardening).
+
+The local dev compose file (documented above) intentionally exposes every datastore on the host so developers can connect with `psql`, Neo4j Browser, `redis-cli`, etc. For production and prod-simulation, a planned `docker-compose.prod.yml` override will be layered on top of the base file to remove these host bindings. Services will still reach each other by service name on the internal compose bridge network — only the host-side ports go away.
+
+The override will introduce three changes:
+
+- **Cleared `ports:` mappings** on `postgres`, `neo4j`, `redis`, and `ollama` — no host binding, so datastores are unreachable from outside the compose network.
+- **Required secret syntax** (`${NEO4J_PASSWORD:?required}`, `${POSTGRES_PASSWORD:?required}`, `${JWT_SECRET_KEY:?required}`) — the stack refuses to start when any secret is unset.
+- **`ENVIRONMENT=production`** set on the app services, which trips the SEC-006 fail-fast secret validator at boot.
+
+Future invocation: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up`. Verification: `nc -zv localhost 5432` will fail from the host, while `docker compose exec course-search-api pg_isready -h postgres` will succeed.
 
 ---
 
