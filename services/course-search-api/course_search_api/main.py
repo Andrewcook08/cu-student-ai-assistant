@@ -3,8 +3,10 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from neo4j import AsyncGraphDatabase
 from shared.config import settings
 from shared.database import engine
 from shared.models import Base
@@ -15,7 +17,17 @@ from course_search_api.routes import auth, courses, programs, students
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Base.metadata.create_all(bind=engine)
-    yield
+    # Long-lived singletons — avoid per-request construction overhead.
+    app.state.http_client = httpx.AsyncClient(timeout=120.0)
+    app.state.neo4j_driver = AsyncGraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password),
+    )
+    try:
+        yield
+    finally:
+        await app.state.http_client.aclose()
+        await app.state.neo4j_driver.close()
 
 
 app = FastAPI(title="CU Course Search API", lifespan=lifespan)
