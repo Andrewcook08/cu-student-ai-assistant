@@ -40,10 +40,7 @@ def list_courses(
         if level not in _LEVEL_RANGES:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"Invalid level '{level}'. "
-                    f"Must be one of: {', '.join(_LEVEL_RANGES)}"
-                ),
+                detail=(f"Invalid level '{level}'. Must be one of: {', '.join(_LEVEL_RANGES)}"),
             )
         low, high = _LEVEL_RANGES[level]
         course_number = cast(func.substring(Course.code, r"[0-9]+"), Integer)
