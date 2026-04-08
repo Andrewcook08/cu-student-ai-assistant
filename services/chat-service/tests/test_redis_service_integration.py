@@ -149,9 +149,7 @@ async def test_append_and_get_messages_preserves_order(client: redis.Redis) -> N
 async def test_get_messages_trims_to_limit_against_real_redis(client: redis.Redis) -> None:
     session_id = f"itest-trim-{uuid.uuid4()}"
     for i in range(10):
-        await append_message(
-            client, user_id=9999, session_id=session_id, message={"i": i}
-        )
+        await append_message(client, user_id=9999, session_id=session_id, message={"i": i})
 
     messages = await get_messages(client, user_id=9999, session_id=session_id, limit=3)
 
@@ -224,9 +222,7 @@ async def test_enqueue_inference_concurrent_callers_get_their_own_results(
         await asyncio.sleep(0.05)
         await cast(
             Any,
-            client.publish(
-                f"ollama:result:{request['request_id']}", json.dumps(response)
-            ),
+            client.publish(f"ollama:result:{request['request_id']}", json.dumps(response)),
         )
 
     worker_a = asyncio.create_task(worker(response_a))

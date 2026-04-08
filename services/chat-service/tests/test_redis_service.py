@@ -375,9 +375,7 @@ async def test_enqueue_inference_subscribes_before_lpush() -> None:
     """Regression guard for the subscribe-after-publish race."""
     client = _make_client()
     result_payload = {"ok": True}
-    pubsub = _make_pubsub(
-        [{"type": "message", "data": json.dumps(result_payload).encode("utf-8")}]
-    )
+    pubsub = _make_pubsub([{"type": "message", "data": json.dumps(result_payload).encode("utf-8")}])
     client.pubsub = MagicMock(return_value=pubsub)
 
     call_order: list[str] = []
