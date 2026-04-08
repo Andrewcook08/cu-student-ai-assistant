@@ -15,6 +15,24 @@ import pytest
 from chat_service.core.intent_classifier import Intent, classify_intent
 from chat_service.services.ollama_service import OllamaServiceError
 
+# Heuristic-bypassing paraphrases — MUST stay in sync with the parametrize
+# values in ``test_intent_classifier_integration.py::_LLM_PROMPTS``. The
+# integration test asserts gpt-oss:20b classifies each one correctly; the
+# unit test below (``test_integration_paraphrases_actually_bypass_heuristic``)
+# pins the contract that each prompt continues to fall through the
+# heuristic, so we know the integration test is genuinely exercising the
+# LLM fallback path and not silently degenerating into a heuristic hit
+# after some future heuristic tweak. Cross-test imports are fragile under
+# ``--import-mode=importlib`` so the list is duplicated rather than
+# shared; if you change one, change the other.
+_HEURISTIC_BYPASSING_PROMPTS = [
+    "Show me anything in the machine learning area I could enroll in next term",
+    "What do I have to take first before I can sign up for data structures?",
+    "How many more semesters until I finish my computer science studies?",
+    "Do these two sections meet at the same time on Tuesdays?",
+    "What's the weather like in Boulder today?",
+]
+
 # ─── Acceptance criteria (no ollama_client) ──────────────────────────────
 
 
@@ -282,6 +300,28 @@ async def test_llm_fallback_handles_json_with_unknown_intent() -> None:
     ):
         result = await classify_intent("ramble ramble", ollama_client=fake_client)
     assert result == Intent.GENERAL_QUESTION
+
+
+@pytest.mark.parametrize("message", _HEURISTIC_BYPASSING_PROMPTS)
+@pytest.mark.asyncio
+async def test_integration_paraphrases_actually_bypass_heuristic(message: str) -> None:
+    """Pin the integration suite's contract: each paraphrase must fall through.
+
+    Without this assertion, a future heuristic change that happens to
+    catch one of the integration prompts would silently degrade the
+    integration suite into testing the heuristic path instead of the
+    LLM fallback path — same green checkmark, completely different
+    coverage. Calling ``classify_intent`` with ``ollama_client=None``
+    forces the heuristic path; we then assert it returns
+    ``GENERAL_QUESTION`` (the only result that triggers the fallback in
+    real use).
+    """
+    result = await classify_intent(message, ollama_client=None)
+    assert result == Intent.GENERAL_QUESTION, (
+        f"Heuristic now catches integration paraphrase {message!r} as {result!r}. "
+        f"The integration test no longer exercises the LLM fallback path for this "
+        f"prompt — pick a new paraphrase or update the heuristic."
+    )
 
 
 @pytest.mark.asyncio

@@ -78,7 +78,7 @@ _LLM_PROMPTS = [
         id="prereq_paraphrase_no_keyword",
     ),
     pytest.param(
-        "Am I on track to finish my computer science studies on time?",
+        "How many more semesters until I finish my computer science studies?",
         Intent.DEGREE_PLANNING,
         id="degree_progress_paraphrase",
     ),
