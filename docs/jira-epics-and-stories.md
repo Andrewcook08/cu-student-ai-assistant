@@ -327,10 +327,10 @@
 - **Blocked by**: INFRA-001 (Ollama from Docker Compose)
 - **Assignee**: Person C
 - **Status**: 📋 Planned
-- **Description**: Create `services/ollama_service.py`. Async HTTP client (`httpx.AsyncClient`) to Ollama API. Functions: `get_embedding(text)`, `chat_completion(messages, tools)`. 120s timeout with graceful error handling.
+- **Description**: Create `services/ollama_service.py`. Async HTTP client (`httpx.AsyncClient`) to Ollama API. Functions: `get_embedding(text)`, `chat_completion(messages, tools, *, format, options)`. `format` enables Ollama structured-output mode (JSON Schema) and `options` forwards sampler params like `temperature=0`; both are kwarg-only and default to None for back-compat. 120s timeout with graceful error handling.
 - **Acceptance criteria**:
   - [ ] `get_embedding("data science")` returns 768-dim vector
-  - [ ] `chat_completion(messages, tools)` returns model response with tool calls
+  - [ ] `chat_completion(messages, tools, *, format, options)` returns model response with tool calls; `format` and `options` are forwarded only when non-None
   - [ ] Timeout at 120s returns user-friendly error message
   - [ ] Connection errors are handled gracefully
 
@@ -383,15 +383,17 @@
 - **Phase**: 2 (Day 10-11)
 - **Blocked by**: CHAT-003
 - **Assignee**: Person C
-- **Status**: 📋 Planned
-- **Description**: Create `core/intent_classifier.py`. Classifies user messages into intents: `course_search`, `prereq_check`, `degree_planning`, `schedule_help`, `general_question`. Uses LLM classification or keyword heuristics. Routes to different retrieval strategies and system prompt variations.
+- **Status**: ✅ Implemented (shipped PR #79, commit 50f9bb5)
+- **Description**: Create `core/intent_classifier.py` with a hybrid heuristic-first + optional LLM fallback design. The heuristic regex/keyword pass resolves first (deterministic, no Ollama dependency, catches all five AC examples). If it returns `GENERAL_QUESTION` and an `ollama_client` is supplied, a single `ollama_service.chat_completion` call fires as a fallback using Ollama's structured-output mode — a JSON-schema enum built from the `Intent` StrEnum is passed as `format`, so the model is logit-masked to exactly the five labels. Temperature pinned to 0 via the new `options` kwarg for deterministic argmax. `classify_intent()` is async and never raises — every failure collapses to `GENERAL_QUESTION`. See [ADR-34](decisions.md#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007).
 - **Acceptance criteria**:
-  - [ ] "What CS electives are there?" → `course_search`
-  - [ ] "What are prerequisites for CSCI 3104?" → `prereq_check`
-  - [ ] "What do I need for my CS degree?" → `degree_planning`
-  - [ ] "Can you check my schedule for conflicts?" → `schedule_help`
-  - [ ] "What is your favorite color?" → `general_question`
-  - [ ] Classification is fast (< 500ms) — use heuristics or single LLM call
+  - [x] "What CS electives are there?" → `course_search`
+  - [x] "What are prerequisites for CSCI 3104?" → `prereq_check`
+  - [x] "What do I need for my CS degree?" → `degree_planning`
+  - [x] "Can you check my schedule for conflicts?" → `schedule_help`
+  - [x] "What is your favorite color?" → `general_question`
+  - [x] Classification is fast (< 500ms) — use heuristics or single LLM call
+  - [x] LLM fallback uses Ollama structured output (`format=<enum schema>`) so the model literally cannot emit anything outside the five labels
+  - [x] `classify_intent()` never raises — timeouts, malformed JSON, and unknown labels all collapse to `GENERAL_QUESTION`
 
 ### CHAT-008: LangGraph conversation engine
 - **Points**: 8
