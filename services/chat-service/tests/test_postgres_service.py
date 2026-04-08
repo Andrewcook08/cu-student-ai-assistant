@@ -10,16 +10,19 @@ test.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from chat_service.services.postgres_service import (
     VALID_DECISION_TYPES,
+    PostgresServiceError,
     _parse_meets,
     _time_overlaps,
     _to_async_url,
+    lookup_course,
     save_student_decision,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 # ─── _parse_meets ───────────────────────────────────────────────────────
 
@@ -187,3 +190,120 @@ async def test_save_student_decision_rejects_empty_course_code() -> None:
             decision_type="planned",
         )
     session.add.assert_not_called()
+
+
+# ─── lookup_course ──────────────────────────────────────────────────────
+
+
+def _make_section(
+    crn: str, section_number: str, type_: str, meets: str, instructor: str, status: str
+) -> MagicMock:
+    s = MagicMock()
+    s.crn = crn
+    s.section_number = section_number
+    s.type = type_
+    s.meets = meets
+    s.instructor = instructor
+    s.status = status
+    return s
+
+
+def _make_attribute(college: str, category: str) -> MagicMock:
+    a = MagicMock()
+    a.college = college
+    a.category = category
+    return a
+
+
+def _make_course() -> MagicMock:
+    course = MagicMock()
+    course.code = "CSCI 2270"
+    course.title = "Data Structures"
+    course.credits = "4"
+    course.description = "Fundamental data structures."
+    course.instruction_mode = "In-Person"
+    course.campus = "Boulder"
+    course.prerequisites_raw = "CSCI 1300 min grade C-"
+    course.topic_titles = None
+    course.sections = [
+        _make_section("30002", "001", "LEC", "MWF 10-10:50a", "Smith, J", "Open"),
+        _make_section("30001", "010", "REC", "F 11-11:50a", "Doe, A", "Open"),
+    ]
+    course.attributes = [
+        _make_attribute("Engineering", "Humanities & Social Science"),
+        _make_attribute("Arts & Sciences", "Natural Science"),
+    ]
+    return course
+
+
+def _session_returning(obj: object) -> AsyncMock:
+    """Return an AsyncSession mock whose execute() yields a scalars().first() == obj."""
+    scalars_mock = MagicMock()
+    scalars_mock.first.return_value = obj
+    result_mock = MagicMock()
+    result_mock.scalars.return_value = scalars_mock
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=result_mock)
+    return session
+
+
+@pytest.mark.asyncio
+async def test_lookup_course_returns_structured_dict() -> None:
+    """Full dict is returned; sections sorted by crn, attributes by (college, category)."""
+    session = _session_returning(_make_course())
+    result = await lookup_course(session, course_code="CSCI 2270")
+
+    assert result is not None
+    assert result["code"] == "CSCI 2270"
+    assert result["title"] == "Data Structures"
+    assert result["credits"] == "4"
+    assert result["prerequisites_raw"] == "CSCI 1300 min grade C-"
+
+    # Sections sorted by crn ascending: "30001" < "30002"
+    assert [s["crn"] for s in result["sections"]] == ["30001", "30002"]
+    assert result["sections"][0] == {
+        "crn": "30001",
+        "section_number": "010",
+        "type": "REC",
+        "meets": "F 11-11:50a",
+        "instructor": "Doe, A",
+        "status": "Open",
+    }
+
+    # Attributes sorted by (college, category): "Arts & Sciences" < "Engineering"
+    assert result["attributes"] == [
+        {"college": "Arts & Sciences", "category": "Natural Science"},
+        {"college": "Engineering", "category": "Humanities & Social Science"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_lookup_course_returns_none_for_missing_course() -> None:
+    """Returns None (not an exception) when the course code is not in the DB."""
+    session = _session_returning(None)
+    result = await lookup_course(session, course_code="XXXX 9999")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_lookup_course_returns_none_for_empty_course_code() -> None:
+    """Empty / whitespace course_code returns None without touching the DB."""
+    session = MagicMock()
+    session.execute = AsyncMock()
+
+    result = await lookup_course(session, course_code="   ")
+    assert result is None
+    session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_lookup_course_wraps_sqlalchemy_error_as_postgres_service_error() -> None:
+    """SQLAlchemyError is wrapped in PostgresServiceError with the original chained."""
+    session = MagicMock()
+    original = SQLAlchemyError("connection reset")
+    session.execute = AsyncMock(side_effect=original)
+
+    with pytest.raises(PostgresServiceError) as exc_info:
+        await lookup_course(session, course_code="CSCI 2270")
+
+    assert exc_info.value.__cause__ is original
