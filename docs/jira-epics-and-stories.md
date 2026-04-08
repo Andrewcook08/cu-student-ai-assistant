@@ -339,16 +339,16 @@
 - **Phase**: 2 (Day 8-9)
 - **Blocked by**: INFRA-001 (Redis from Docker Compose)
 - **Assignee**: Person C
-- **Status**: 📋 Planned
+- **Status**: ✅ Implemented (PR pending)
 - **Description**: Create `services/redis_service.py`. Async Redis client. Implement: session storage, conversation message caching (RPUSH/LRANGE), inference queue (LPUSH/BRPOP), result pub/sub channel. 120s timeout on queue wait with 30s progress update.
 - **Acceptance criteria**:
-  - [ ] Messages stored and retrieved by session_id
-  - [ ] Session TTL of 2 hours
-  - [ ] Inference request enqueued and result received via pub/sub
-  - [ ] 30s progress update sent if still waiting
-  - [ ] 120s timeout returns graceful error
-  - [ ] *(security ADR-33)* Production Redis requires `requirepass`, parameterized via `REDIS_PASSWORD` env var; added to `docker-compose.prod.yml` as part of the SEC-008 hand-off.
-  - [ ] *(security ADR-33)* Session keys are scoped by `user_id`, not just `session_id`, so enumerating session IDs cannot leak another user's session.
+  - [x] Messages stored and retrieved by session_id
+  - [x] Session TTL of 2 hours
+  - [x] Inference request enqueued and result received via pub/sub
+  - [x] 30s progress update sent if still waiting
+  - [x] 120s timeout returns graceful error
+  - [x] *(security ADR-33)* Production Redis requires `requirepass`, parameterized via `REDIS_PASSWORD` env var; added to `docker-compose.prod.yml` as part of the SEC-008 hand-off. *(chat service reads `redis_password` from `shared.config` via `build_redis_client`; SEC-008 still owns the prod compose override that supplies the env var)*
+  - [x] *(security ADR-33)* Session keys are scoped by `user_id`, not just `session_id`, so enumerating session IDs cannot leak another user's session.
 
 ### CHAT-005: Tool definitions (@tool functions)
 - **Points**: 3
