@@ -32,6 +32,7 @@
 - [ADR-27: Normalize Course Attributes into a Join Table (CUAI-20 / DATA-001)](#adr-27-normalize-course-attributes-into-a-join-table-cuai-20--data-001)
 - [ADR-31: cu-classes.html as Design Baseline for the Course Search Page](#adr-31-cu-classeshtml-as-design-baseline-for-the-course-search-page)
 - [ADR-33: API & Infrastructure Security Hardening](#adr-33-api--infrastructure-security-hardening)
+- [ADR-34: Hybrid Intent Classifier with Structured-Output LLM Fallback (CUAI-39 / CHAT-007)](#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007)
 
 ---
 
@@ -891,3 +892,32 @@ ADR-14 and ADR-17 secure the LLM/tool layer. ADR-23 secures the network perimete
 - Frontend (CUAI-56) must attach a Bearer token to every `/api/**` call before SEC-005 lands in a shared environment.
 - Cross-references: extends ADR-14 (tool-level auth) and ADR-17 (defense-in-depth) at the API surface; complements ADR-23 (network layer) and ADR-19 (self-hosted databases) for the prod compose path.
 - **Explicitly deferred to P1** (out of scope here, listed so they are not forgotten): refresh tokens + shorter access TTL; security headers middleware (HSTS, CSP, X-Frame-Options); CI security scanning (pip-audit, bandit, gitleaks); WebSocket token via subprotocol instead of query string; password reset + account lockout; SBOM + dependency pinning policy; secret rotation runbook.
+
+---
+
+## ADR-34: Hybrid Intent Classifier with Structured-Output LLM Fallback (CUAI-39 / CHAT-007)
+
+### Decision
+`core/intent_classifier.py` runs a **heuristic-first, LLM-fallback** pipeline. A pure regex + keyword pass resolves first; if (and only if) that returns `GENERAL_QUESTION` and the caller supplied an `ollama_client`, a single Ollama chat call classifies the message using **structured-output mode** — a JSON Schema with an `enum` constraint derived from the `Intent` StrEnum is passed as Ollama's `format` argument so the model is logit-masked to exactly the five labels. Sampling is pinned to `temperature=0` via the new `options` kwarg on `chat_completion`. `classify_intent()` is `async` and **never raises** — every timeout, malformed response, or unknown label collapses to `Intent.GENERAL_QUESTION`.
+
+To support this, `ollama_service.chat_completion` gained two optional kwarg-only parameters, `format` and `options`, forwarded to the Ollama request body only when non-None to preserve back-compat. CHAT-008 will reuse the same kwargs for tool-call reliability on the main LLM path.
+
+### Alternatives Considered
+1. **LLM-only classification** — rejected. Every classification would require an Ollama round-trip even for unambiguous messages like "prereqs for CSCI 3104", which the heuristic catches in microseconds. Unit tests would also need an Ollama mock for every case.
+2. **Heuristic-only classification** — rejected. The five Jira acceptance examples are all catchable by keywords, but real student phrasing drifts outside the keyword set ("Am I on track to graduate?", "How many more semesters until I finish?"). Without a fallback, those messages silently misroute to `GENERAL_QUESTION`.
+3. **LLM fallback with free-form text parsing** — rejected as the *sole* mechanism. Even with a strict system prompt, gpt-oss-tier models routinely add wrapper phrasing ("Intent: course_search"), trailing punctuation, and case/separator variants. A lenient parser is still kept as a second-line defence, but the **primary** path uses Ollama's `format` arg for constrained decoding so the wire format is guaranteed JSON matching the schema.
+4. **Hand-maintained schema literal instead of deriving from `Intent`** — rejected. The schema is built from `[intent.value for intent in Intent]` so adding a new intent automatically updates the constrained vocabulary. Single source of truth, zero drift.
+
+### Why
+The heuristic gives deterministic, instant, trivially-unit-testable coverage of the common case with no Ollama dependency — all five Jira acceptance examples hit the heuristic path, so the unit tests don't need a live model. The LLM fallback catches the long tail without sacrificing that test ergonomics: when it fires, the `format` enum guarantees the model literally cannot emit anything outside the five labels, which is a much stronger contract than "the prompt tells it to output a label". Temperature-0 makes the fallback deterministic under fixed inputs, so unit tests of the fallback path are reproducible.
+
+The "never raises" contract matters because intent classification sits on the hot path of every chat request. An exception here would drop the entire request; degrading to `GENERAL_QUESTION` preserves the user's message and lets the downstream LLM engine (CHAT-008) still produce a response, even if retrieval is less targeted.
+
+### Consequences
+- `Intent` is a `StrEnum` (Python 3.11+) so its values serialise cleanly into LangGraph state and JSON without a custom encoder.
+- The LLM fallback's system prompt and schema are the single source of truth for the five labels — future intents are added by editing `Intent` alone.
+- `chat_completion(messages, tools, *, format, options)` is the new public signature. Existing callers that passed only `(messages, tools)` continue to work because both new kwargs default to `None` and are only added to the request body when non-None.
+- **Test structure**: 41 unit tests cover all acceptance criteria, edge cases, the full LLM-fallback parser tree, and a perf budget. 6 integration tests (gated behind `pytest -m integration`, excluded from CI via pyproject `addopts`) hit a live `gpt-oss:20b` on `localhost:11434` with paraphrases deliberately crafted to bypass every heuristic keyword so the LLM is the only thing classifying.
+- **Heuristic-coverage pin**: a parametrized unit test runs each integration-suite paraphrase through `classify_intent(..., ollama_client=None)` and asserts it returns `GENERAL_QUESTION`. Without this pin, a future heuristic tweak that happens to catch one of the integration prompts would silently degrade the integration test into hitting the heuristic path while still showing green. Writing this test immediately caught a real instance: `"Am I on track to finish…"` matched `"track"` in `_DEGREE_KEYWORDS`, so the integration test had been classifying it via the heuristic, not gpt-oss:20b.
+- The integration paraphrase list is duplicated between the unit and integration test files with a sync directive rather than extracting a shared constant, because cross-test imports are fragile under `--import-mode=importlib` with no `__init__.py` in the tests directory.
+- **CHAT-008 reuse**: the `format` and `options` kwargs on `chat_completion` are the same surface the main LangGraph LLM call will use for tool-call reliability (JSON-schema-constrained tool arguments) and sampler pinning, so this is not a one-off extension.
