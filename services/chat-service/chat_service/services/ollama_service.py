@@ -93,16 +93,32 @@ async def chat_completion(
     client: httpx.AsyncClient,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
+    *,
+    format: dict[str, Any] | str | None = None,
+    options: dict[str, Any] | None = None,
 ) -> ChatMessage:
     """Return the assistant message dict from an Ollama chat completion.
 
-    POSTs to ``/api/chat`` with ``stream=False``. The ``tools`` key is only
-    included in the request body when *tools* is not ``None`` — Ollama
-    treats the presence of the key as "tool calling enabled", and we don't
-    want to flip that on for plain completions.
+    POSTs to ``/api/chat`` with ``stream=False``. The ``tools``, ``format``,
+    and ``options`` keys are each only included in the request body when
+    the corresponding argument is not ``None`` — Ollama treats the
+    presence of these keys as feature flags, and we don't want to flip
+    them on accidentally.
+
+    *format* enables Ollama's structured-output mode. Pass ``"json"`` for
+    free-form JSON, or a JSON Schema dict for constrained decoding (the
+    model is forced via logit masking to emit only schema-conforming
+    tokens). The intent classifier uses an enum schema to guarantee one
+    of five labels.
+
+    *options* is forwarded to Ollama's request ``options`` field. Used by
+    callers that need to pin sampler params — e.g. ``{"temperature": 0}``
+    for deterministic classification.
 
     Returns the inner ``message`` dict, which contains ``content`` and
-    (when the model elected to call a tool) ``tool_calls``.
+    (when the model elected to call a tool) ``tool_calls``. When *format*
+    is a JSON schema, ``content`` will be a JSON string the caller is
+    responsible for parsing.
     """
     body: dict[str, Any] = {
         "model": settings.ollama_model,
@@ -111,6 +127,10 @@ async def chat_completion(
     }
     if tools is not None:
         body["tools"] = tools
+    if format is not None:
+        body["format"] = format
+    if options is not None:
+        body["options"] = options
 
     try:
         response = await client.post("/api/chat", json=body)
