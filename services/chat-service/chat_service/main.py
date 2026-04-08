@@ -18,6 +18,7 @@ from chat_service.services.redis_service import build_redis_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    settings.validate_production()
     # Long-lived singleton — the driver owns a connection pool and must
     # outlive individual requests. Tool handlers pull it off app.state.
     app.state.neo4j_driver = AsyncGraphDatabase.driver(
