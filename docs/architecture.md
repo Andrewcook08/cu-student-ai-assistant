@@ -1182,8 +1182,10 @@ JWT_SECRET_KEY=
 A new `docker-compose.prod.yml` override will be layered on top of the base compose file. It introduces three changes:
 
 1. The `ports:` mapping on `postgres`, `neo4j`, `redis`, and `ollama` is cleared, so the host machine binds no ports — services still reach each other by service name on the internal bridge network.
-2. Required secrets use the `${VAR:?error message}` form so the stack refuses to start if `NEO4J_PASSWORD`, `POSTGRES_PASSWORD`, or `JWT_SECRET_KEY` are unset.
+2. Required secrets use the `${VAR:?error message}` form so the stack refuses to start if `NEO4J_PASSWORD`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, or `JWT_SECRET_KEY` are unset.
 3. App services receive `ENVIRONMENT=production`, which trips the SEC-006 validator at boot.
+
+The chat service already reads `REDIS_PASSWORD` from `shared.config.settings.redis_password` (added in CHAT-004 / CUAI-36); SEC-008 only needs to wire it through the override and Secret Manager.
 
 This complements [ADR-23](decisions.md#adr-23-network-security-private-subnet--iap-over-bastion) (the cloud VPC story) for the local prod-simulation path and the self-hosted Data VM described in [ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm). A simple verification: `nc -zv localhost 5432` must fail from the host while `docker compose exec course-search-api pg_isready -h postgres` succeeds.
 

@@ -1170,50 +1170,18 @@ The `build_context()` function takes `intent`, `user_id`, optional `query_embedd
 
 #### Day 12: Redis Queue Integration
 
-`services/chat-service/chat_service/services/redis_service.py`:
-```python
-"""Redis client for sessions, conversation cache, and LLM inference queue."""
+`services/chat-service/chat_service/services/redis_service.py` is implemented in CUAI-36 / CHAT-004. The module follows the same dependency-injection pattern as `neo4j_service.py` and `ollama_service.py`: a `build_redis_client(url, password)` factory is called once from `main.py` `lifespan()`, the long-lived client is stored on `app.state.redis`, and every helper takes the `redis.asyncio.Redis` as its first argument. There is no module-level connection pool or singleton.
 
-import asyncio
-import json
-import uuid
+What the module exposes (downstream stories should treat this as the public surface):
 
-import redis.asyncio as redis
-from shared.config import settings
+- **Session storage**: `store_session(client, *, user_id, session_id, data)` / `get_session(...)` — `SETEX` / `GET` with a 2-hour TTL, keyed `session:{user_id}:{session_id}` so user_id scoping prevents cross-user leakage if a `session_id` is guessed.
+- **Conversation cache**: `append_message(...)` / `get_messages(..., limit=20)` — `RPUSH` + `EXPIRE` / `LRANGE -limit -1`, keyed `messages:{user_id}:{session_id}` (same user-scoped key shape).
+- **Inference queue**: `enqueue_inference(client, request, *, timeout=120.0, progress_interval=30.0, on_progress=None)` — subscribes to `ollama:result:{request_id}` **before** LPUSHing to `ollama:inference_queue` (pub/sub has no backlog, so subscribing after the push would race a fast worker), uses a wall-clock deadline with a per-tick budget of `min(progress_interval, remaining_total)` so `on_progress` fires roughly every ~30s while the hard 120s `timeout` is still enforced, raises `RedisTimeoutError` on expiry, and tears the pubsub down in a `finally` block on every exit path. Never silently retried.
+- **Error family**: `RedisError` / `RedisTimeoutError` / `RedisServiceError`, mirroring `OllamaError` / `OllamaTimeoutError` / `OllamaServiceError` from `ollama_service.py`.
 
-pool = redis.ConnectionPool.from_url(settings.redis_url)
+The chat service already reads `shared.config.settings.redis_password` and passes it to `build_redis_client`, so SEC-008 (CUAI-82) can wire `REDIS_PASSWORD` through the prod compose override without touching this module.
 
-async def get_redis():
-    return redis.Redis(connection_pool=pool)
-
-async def enqueue_inference(request: dict, timeout: float = 120.0) -> dict:
-    """Push inference request to Redis queue, wait for result."""
-    r = await get_redis()
-    request_id = str(uuid.uuid4())
-    request["request_id"] = request_id
-
-    # Push to queue
-    await r.lpush("ollama:inference_queue", json.dumps(request))
-
-    # Subscribe to result channel
-    pubsub = r.pubsub()
-    await pubsub.subscribe(f"ollama:result:{request_id}")
-
-    try:
-        result = await asyncio.wait_for(
-            _wait_for_result(pubsub), timeout=timeout
-        )
-        return json.loads(result)
-    except asyncio.TimeoutError:
-        return {"error": "The AI is taking longer than expected. Please try again in a moment."}
-    finally:
-        await pubsub.unsubscribe()
-
-async def _wait_for_result(pubsub):
-    async for message in pubsub.listen():
-        if message["type"] == "message":
-            return message["data"]
-```
+A real-Redis integration suite lives at `services/chat-service/tests/test_redis_service_integration.py` and runs under the project-wide `integration` pytest marker (`uv run pytest -m integration` after `docker compose up -d redis`).
 
 **Phase 2 deliverable**: Course search works end-to-end with real data. Chat connects via WebSocket, sends messages, LLM calls tools, returns structured responses.
 

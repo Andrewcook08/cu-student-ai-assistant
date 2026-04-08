@@ -405,6 +405,23 @@ uv run pytest services/chat-service/tests/test_security.py -v
 uv run pytest data/ingest/tests/test_build_embeddings.py -v
 ```
 
+### Integration tests
+
+The default `uv run pytest` skips integration tests via the project-wide `-m 'not integration'` addopts in the root `pyproject.toml`. To run them, opt in with `-m integration` and make sure the relevant infra is up first.
+
+```bash
+# Start the infra the integration suite needs
+docker compose up -d redis
+
+# Run all integration tests
+uv run pytest -m integration
+
+# Run just one integration suite
+uv run pytest -m integration services/chat-service/tests/test_redis_service_integration.py
+```
+
+New integration test files must declare `pytestmark = pytest.mark.integration` at the module level (or `@pytest.mark.integration` per test). The marker is registered in the root `pyproject.toml` `[tool.pytest.ini_options].markers` table — add new infra-dependent markers there if a new category is needed.
+
 ### Linting and formatting
 ```bash
 # Check for issues
