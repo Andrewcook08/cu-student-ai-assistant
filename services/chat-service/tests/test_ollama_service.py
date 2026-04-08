@@ -161,8 +161,45 @@ async def test_chat_completion_omits_tools_key_when_none() -> None:
 
     body = client.post.await_args.kwargs["json"]
     assert "tools" not in body
+    assert "format" not in body
+    assert "options" not in body
     assert body["stream"] is False
     assert body["model"] == settings.ollama_model
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_forwards_format_schema() -> None:
+    """A JSON schema passed via *format* must reach Ollama's request body verbatim."""
+    schema = {
+        "type": "object",
+        "properties": {"intent": {"type": "string", "enum": ["a", "b"]}},
+        "required": ["intent"],
+    }
+    client = _make_client({"message": {"content": '{"intent": "a"}'}})
+
+    await chat_completion(
+        client,
+        [{"role": "user", "content": "hi"}],
+        format=schema,
+    )
+
+    body = client.post.await_args.kwargs["json"]
+    assert body["format"] == schema
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_forwards_options() -> None:
+    """*options* is forwarded so callers can pin temperature etc."""
+    client = _make_client({"message": {"content": "hi"}})
+
+    await chat_completion(
+        client,
+        [{"role": "user", "content": "hi"}],
+        options={"temperature": 0},
+    )
+
+    body = client.post.await_args.kwargs["json"]
+    assert body["options"] == {"temperature": 0}
 
 
 @pytest.mark.asyncio
