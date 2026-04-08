@@ -177,9 +177,7 @@ async def test_get_student_data_returns_full_profile(
     seeded_session: AsyncSession,
 ) -> None:
     user = (
-        await seeded_session.execute(
-            select(User).where(User.email == "test@colorado.edu")
-        )
+        await seeded_session.execute(select(User).where(User.email == "test@colorado.edu"))
     ).scalar_one()
 
     data = await get_student_data(seeded_session, user_id=user.id)
@@ -212,9 +210,7 @@ async def test_save_student_decision_round_trips(
     seeded_session: AsyncSession,
 ) -> None:
     user = (
-        await seeded_session.execute(
-            select(User).where(User.email == "test@colorado.edu")
-        )
+        await seeded_session.execute(select(User).where(User.email == "test@colorado.edu"))
     ).scalar_one()
 
     saved = await save_student_decision(
@@ -241,9 +237,7 @@ async def test_save_student_decision_invalid_type_does_not_insert(
     seeded_session: AsyncSession,
 ) -> None:
     user = (
-        await seeded_session.execute(
-            select(User).where(User.email == "test@colorado.edu")
-        )
+        await seeded_session.execute(select(User).where(User.email == "test@colorado.edu"))
     ).scalar_one()
     before = (
         await seeded_session.execute(
@@ -280,9 +274,7 @@ async def test_save_student_decision_sql_injection_is_inert(
     it as a value, not that it's a full ``DROP TABLE`` statement.
     """
     user = (
-        await seeded_session.execute(
-            select(User).where(User.email == "test@colorado.edu")
-        )
+        await seeded_session.execute(select(User).where(User.email == "test@colorado.edu"))
     ).scalar_one()
 
     payload = "x';DROP--"  # 9 chars, fits in String(10); has ';-- metachars

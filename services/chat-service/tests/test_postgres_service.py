@@ -119,9 +119,7 @@ def test_parse_meets_unparseable_returns_none(meets: str | None) -> None:
         (600, 700, 800, 900, False),  # disjoint
     ],
 )
-def test_time_overlaps(
-    a_start: int, a_end: int, b_start: int, b_end: int, expected: bool
-) -> None:
+def test_time_overlaps(a_start: int, a_end: int, b_start: int, b_end: int, expected: bool) -> None:
     assert _time_overlaps(a_start, a_end, b_start, b_end) is expected
 
 

@@ -113,9 +113,7 @@ _VALID_DAY_CODES: frozenset[str] = frozenset({"M", "T", "W", "R", "F", "S", "U"}
 # Sentinel meets strings that mean "no scheduled time" — comparing them
 # would be meaningless, so the parser returns ``None`` and the conflict
 # detector skips the section.
-_UNSCHEDULED_MEETS: frozenset[str] = frozenset(
-    {"tba", "no time assigned", "arranged", "arr"}
-)
+_UNSCHEDULED_MEETS: frozenset[str] = frozenset({"tba", "no time assigned", "arranged", "arr"})
 
 # ``<hour>(:<minute>)?(<a|p>)?`` — anchored, no leading/trailing whitespace.
 # Hour 1-12, optional :MM in 0-59. The am/pm marker is optional here
@@ -214,10 +212,7 @@ async def get_student_data(session: AsyncSession, *, user_id: int) -> dict[str, 
     program_name: str | None = row[1]
 
     completed = sorted(
-        (
-            {"course_code": cc.course_code, "grade": cc.grade}
-            for cc in user.completed_courses
-        ),
+        ({"course_code": cc.course_code, "grade": cc.grade} for cc in user.completed_courses),
         key=lambda c: c["course_code"] or "",
     )
 
@@ -348,9 +343,7 @@ async def get_schedule_conflicts(
     # at today's section counts but strictly wasted work. Sections
     # whose ``meets`` doesn't parse (``None``) are filtered out here
     # so the conflict loop only sees usable slots.
-    by_course: dict[
-        str, list[tuple[str, str | None, list[tuple[frozenset[str], int, int]]]]
-    ] = {}
+    by_course: dict[str, list[tuple[str, str | None, list[tuple[frozenset[str], int, int]]]]] = {}
     for code, crn, _section_number, meets in rows:
         slots = _parse_meets(meets)
         if slots is None:
