@@ -10,6 +10,7 @@ from neo4j import AsyncGraphDatabase
 from shared.config import settings
 
 from chat_service.routes import chat
+from chat_service.services.postgres_service import build_postgres_engine
 from chat_service.services.redis_service import build_redis_client
 
 
@@ -34,6 +35,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # so the same instance is reused across requests by every helper in
     # chat_service.services.redis_service.
     app.state.redis = build_redis_client(settings.redis_url, settings.redis_password)
+    # Long-lived async Postgres engine. Owns its own pool, separate
+    # from course-search-api's sync engine in shared/shared/database.py.
+    app.state.postgres_engine = build_postgres_engine(settings.database_url)
     try:
         yield
     finally:
@@ -45,7 +49,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             try:
                 await app.state.ollama_client.aclose()
             finally:
-                await app.state.redis.aclose()
+                try:
+                    await app.state.redis.aclose()
+                finally:
+                    await app.state.postgres_engine.dispose()
 
 
 app = FastAPI(title="CU Chat Service", lifespan=lifespan)
