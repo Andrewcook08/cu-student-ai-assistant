@@ -21,3 +21,19 @@ def test_lifespan_configures_ollama_client_with_120s_read_timeout() -> None:
         assert client.timeout.read == 120.0
         # Tight connect timeout — see Fix 2 in ollama_service hardening.
         assert client.timeout.connect == 10.0
+
+
+def test_lifespan_builds_postgres_engine() -> None:
+    """Pin that the lifespan wires an async Postgres engine onto app.state.
+
+    ``create_async_engine`` is lazy, so this assertion does not require
+    a running Postgres — it just proves the wiring is present so a
+    future refactor that forgets to construct the engine fails here
+    instead of at first tool call.
+    """
+    from chat_service.main import app
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+    with TestClient(app):
+        engine = app.state.postgres_engine
+        assert isinstance(engine, AsyncEngine)
