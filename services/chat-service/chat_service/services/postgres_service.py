@@ -238,6 +238,78 @@ async def get_student_data(session: AsyncSession, *, user_id: int) -> dict[str, 
     }
 
 
+# ─── Single-course lookup ───────────────────────────────────────────────
+
+
+async def lookup_course(session: AsyncSession, *, course_code: str) -> dict[str, Any] | None:
+    """Return full details for a single course by exact code, or None if missing.
+
+    Joins courses → sections and courses → course_attributes (both eager-loaded
+    via selectinload in a single round trip). Returns a structured dict suitable
+    for the LangChain tool layer, never a raw ORM row.
+
+    An empty or whitespace-only ``course_code`` returns ``None`` immediately
+    without hitting the DB — the tool retry loop treats ``None`` as "not found"
+    and surfaces an informative message rather than raising.
+
+    Sections are sorted by ``crn``; attributes by ``(college, category)`` so
+    callers and tests can depend on stable ordering.
+    """
+    cleaned_code = course_code.strip() if isinstance(course_code, str) else ""
+    if not cleaned_code:
+        return None
+
+    try:
+        stmt = (
+            select(Course)
+            .options(
+                selectinload(Course.sections),
+                selectinload(Course.attributes),
+            )
+            .where(Course.code == cleaned_code)
+        )
+        result = await session.execute(stmt)
+        course = result.scalars().first()
+    except (SQLAlchemyError, DBAPIError) as exc:
+        raise PostgresServiceError(_SERVICE_MESSAGE) from exc
+
+    if course is None:
+        return None
+
+    sections = sorted(
+        (
+            {
+                "crn": s.crn,
+                "section_number": s.section_number,
+                "type": s.type,
+                "meets": s.meets,
+                "instructor": s.instructor,
+                "status": s.status,
+            }
+            for s in course.sections
+        ),
+        key=lambda s: s["crn"] or "",
+    )
+
+    attributes = sorted(
+        ({"college": a.college, "category": a.category} for a in course.attributes),
+        key=lambda a: (a["college"] or "", a["category"] or ""),
+    )
+
+    return {
+        "code": course.code,
+        "title": course.title,
+        "credits": course.credits,
+        "description": course.description,
+        "instruction_mode": course.instruction_mode,
+        "campus": course.campus,
+        "prerequisites_raw": course.prerequisites_raw,
+        "topic_titles": course.topic_titles,
+        "attributes": attributes,
+        "sections": sections,
+    }
+
+
 # ─── Decision write ─────────────────────────────────────────────────────
 
 

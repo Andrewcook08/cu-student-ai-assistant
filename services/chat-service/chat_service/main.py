@@ -8,7 +8,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from neo4j import AsyncGraphDatabase
 from shared.config import settings
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from chat_service.core.tools import make_tools
 from chat_service.routes import chat
 from chat_service.services.postgres_service import build_postgres_engine
 from chat_service.services.redis_service import build_redis_client
@@ -38,6 +40,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Long-lived async Postgres engine. Owns its own pool, separate
     # from course-search-api's sync engine in shared/shared/database.py.
     app.state.postgres_engine = build_postgres_engine(settings.database_url)
+    # Sessionmaker constructed once here so each tool call opens its own
+    # short-lived session without re-creating the maker. expire_on_commit=False
+    # keeps attributes readable after commit (e.g. server_default timestamps).
+    app.state.postgres_sessionmaker = async_sessionmaker(
+        app.state.postgres_engine, expire_on_commit=False, class_=AsyncSession
+    )
+    # Build all seven LangChain tools as closures over the live service
+    # handles. CHAT-008 binds app.state.tools to the LLM; CHAT-006's
+    # executor dispatches via app.state.tool_registry.
+    toolset = make_tools(
+        neo4j_driver=app.state.neo4j_driver,
+        postgres_sessionmaker=app.state.postgres_sessionmaker,
+        ollama_client=app.state.ollama_client,
+    )
+    app.state.tools = toolset.tools
+    app.state.tool_registry = toolset.registry
     try:
         yield
     finally:
