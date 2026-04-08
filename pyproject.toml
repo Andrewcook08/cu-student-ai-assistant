@@ -44,7 +44,7 @@ extend-immutable-calls = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["services/course-search-api/tests", "services/chat-service/tests", "data/ingest/tests"]
+testpaths = ["shared/tests", "services/course-search-api/tests", "services/chat-service/tests", "data/ingest/tests"]
 # Use importlib mode so multiple tests/conftest.py files across services don't
 # collide on the same module name. Under the default "prepend" mode, every
 # services/*/tests/conftest.py would be registered as plain `conftest`, and the

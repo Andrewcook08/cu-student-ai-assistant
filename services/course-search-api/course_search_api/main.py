@@ -16,6 +16,7 @@ from course_search_api.routes import auth, courses, programs, students
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    settings.validate_production()
     Base.metadata.create_all(bind=engine)
     # Long-lived singletons — avoid per-request construction overhead.
     app.state.http_client = httpx.AsyncClient(timeout=120.0)
