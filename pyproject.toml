@@ -53,7 +53,10 @@ testpaths = ["services/course-search-api/tests", "services/chat-service/tests", 
 # conftest a unique synthetic module name. The application packages themselves
 # (`chat_service`, `course_search_api`) have distinct names by construction, so
 # they coexist in sys.modules without any extra help.
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m 'not integration'"
+markers = [
+    "integration: tests that require live infrastructure (Redis, Postgres, Neo4j, Ollama). Opt-in via `pytest -m integration`. Skipped in the default test run.",
+]
 
 [tool.mypy]
 python_version = "3.12"

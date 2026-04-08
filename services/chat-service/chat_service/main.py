@@ -10,6 +10,7 @@ from neo4j import AsyncGraphDatabase
 from shared.config import settings
 
 from chat_service.routes import chat
+from chat_service.services.redis_service import build_redis_client
 
 
 @asynccontextmanager
@@ -29,15 +30,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         base_url=settings.ollama_url,
         timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0),
     )
+    # Long-lived Redis client. Owns its own connection pool internally,
+    # so the same instance is reused across requests by every helper in
+    # chat_service.services.redis_service.
+    app.state.redis = build_redis_client(settings.redis_url, settings.redis_password)
     try:
         yield
     finally:
         # Nested try/finally so a failure closing one resource still lets
-        # the other close — otherwise the second aclose would be skipped.
+        # the others close — otherwise a later aclose would be skipped.
         try:
             await app.state.neo4j_driver.close()
         finally:
-            await app.state.ollama_client.aclose()
+            try:
+                await app.state.ollama_client.aclose()
+            finally:
+                await app.state.redis.aclose()
 
 
 app = FastAPI(title="CU Chat Service", lifespan=lifespan)
