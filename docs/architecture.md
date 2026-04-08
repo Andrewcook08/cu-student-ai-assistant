@@ -521,6 +521,15 @@ tool_audit_log (
 )
 ```
 
+**Audit log retention.** POC runs with unbounded retention — there is
+no automated pruning of `tool_audit_log`. Production target (future
+work, tracked separately): retain 90 days, with a scheduled job that
+drops older rows. The
+`chat_service.services.postgres_service.TOOL_AUDIT_LOG_RETENTION_POLICY`
+constant documents this stance at the code level so the SEC review's
+"retention policy documented" AC ties back to a real importable
+symbol.
+
 ### Schema Migration Strategy
 
 During initial development, there is **no migration tool** (no Alembic). If the schema changes during development:
