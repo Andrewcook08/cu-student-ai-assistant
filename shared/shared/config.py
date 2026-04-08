@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     neo4j_user: str
     neo4j_password: str
     redis_url: str
+    redis_password: str | None = None
 
     # Ollama
     ollama_url: str
