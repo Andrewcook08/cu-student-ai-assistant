@@ -26,6 +26,10 @@ from shared.auth import decode_access_token
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+# TODO(SEC-007): get_remote_address reads request.client.host (the immediate TCP peer).
+# Behind nginx/CloudFront/any load balancer all requests appear as the proxy's IP, so all
+# users share one rate-limit bucket.  Switch key_func to read X-Forwarded-For / X-Real-IP
+# before this service is deployed behind a reverse proxy.
 limiter = Limiter(key_func=get_remote_address)
 
 
@@ -36,6 +40,7 @@ def user_key_func(request: Request) -> str:
     FastAPI's dependency injection (slowapi checks limits before dependencies
     are resolved). Falls back to remote IP if the token is missing or invalid —
     in that case get_current_user will still reject the request with 401.
+    The IP fallback has the same reverse-proxy caveat as get_remote_address above.
     """
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):

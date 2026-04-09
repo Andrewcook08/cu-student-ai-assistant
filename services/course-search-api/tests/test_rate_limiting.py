@@ -51,12 +51,56 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         yield c
 
 
+@pytest.fixture()
+def auth_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """TestClient with auth and DB dependencies overridden for authenticated endpoint tests.
+
+    Overrides get_current_user and get_db so the completed-courses endpoint
+    succeeds without a real database or valid JWT.  decode_access_token is
+    patched to return a deterministic user_id from any token string, enabling
+    per-user isolation tests.
+    """
+    monkeypatch.setattr("course_search_api.main.engine", MagicMock())
+    monkeypatch.setattr("course_search_api.main.Base", MagicMock())
+    mock_driver = AsyncMock()
+    mock_graph_db = MagicMock()
+    mock_graph_db.driver.return_value = mock_driver
+    monkeypatch.setattr("course_search_api.main.AsyncGraphDatabase", mock_graph_db)
+
+    from course_search_api.dependencies import get_current_user
+    from shared.database import get_db
+
+    mock_user = MagicMock()
+    mock_user.id = 1
+
+    mock_db = MagicMock()
+    # Empty payload means the route skips course-code validation and returns [].
+    mock_db.query.return_value.filter.return_value.all.return_value = []
+
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    with TestClient(app) as c:
+        yield c
+
+    app.dependency_overrides.clear()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 _FAKE_EMBEDDING = [0.1] * 768
 _FAKE_RESULTS = [{"code": "CSCI 4830", "title": "Machine Learning", "score": 0.95}]
+
+
+def _bearer(user_id: str) -> dict[str, str]:
+    """Return an Authorization header whose token encodes *user_id*.
+
+    decode_access_token is patched in auth_client tests to parse the token
+    value as a plain user_id string, so the actual JWT format doesn't matter.
+    """
+    return {"Authorization": f"Bearer {user_id}"}
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +119,8 @@ def test_6th_login_returns_429(client: TestClient) -> None:
     assert sixth.status_code == 429
     assert sixth.json() == {"detail": "Too many requests"}
     assert "retry-after" in sixth.headers
+    retry = int(sixth.headers["retry-after"])
+    assert 1 <= retry <= 60  # 1-minute window
 
 
 def test_login_5th_request_still_allowed(client: TestClient) -> None:
@@ -84,6 +130,34 @@ def test_login_5th_request_still_allowed(client: TestClient) -> None:
 
     fifth = client.post("/api/auth/login", json={})
     assert fifth.status_code == 501  # stub, not 429
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/register — 3/hour per IP
+# ---------------------------------------------------------------------------
+
+
+def test_4th_register_returns_429(client: TestClient) -> None:
+    """The 4th POST /api/auth/register within an hour must return 429."""
+    for i in range(3):
+        resp = client.post("/api/auth/register", json={})
+        assert resp.status_code == 501, f"Expected 501 on request {i + 1}, got {resp.status_code}"
+
+    fourth = client.post("/api/auth/register", json={})
+    assert fourth.status_code == 429
+    assert fourth.json() == {"detail": "Too many requests"}
+    assert "retry-after" in fourth.headers
+    retry = int(fourth.headers["retry-after"])
+    assert 1 <= retry <= 3600  # 1-hour window
+
+
+def test_register_3rd_request_still_allowed(client: TestClient) -> None:
+    """The 3rd POST /api/auth/register must NOT be rate-limited (boundary check)."""
+    for _ in range(2):
+        client.post("/api/auth/register", json={})
+
+    third = client.post("/api/auth/register", json={})
+    assert third.status_code == 501  # stub, not 429
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +190,8 @@ def test_31st_search_returns_429(client: TestClient) -> None:
     assert thirty_first.status_code == 429
     assert thirty_first.json() == {"detail": "Too many requests"}
     assert "retry-after" in thirty_first.headers
+    retry = int(thirty_first.headers["retry-after"])
+    assert 1 <= retry <= 60  # 1-minute window
 
 
 def test_search_30th_request_still_allowed(client: TestClient) -> None:
@@ -137,3 +213,120 @@ def test_search_30th_request_still_allowed(client: TestClient) -> None:
 
         thirtieth = client.get("/api/courses/search?q=test")
         assert thirtieth.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/students/me/completed-courses — 10/minute per user (user_key_func)
+# ---------------------------------------------------------------------------
+
+
+def test_11th_completed_courses_returns_429(auth_client: TestClient) -> None:
+    """The 11th PUT /api/students/me/completed-courses within a minute must return 429."""
+    with patch(
+        "course_search_api.limiter.decode_access_token",
+        return_value="1",
+    ):
+        for i in range(10):
+            resp = auth_client.put(
+                "/api/students/me/completed-courses",
+                json=[],
+                headers=_bearer("user1"),
+            )
+            assert resp.status_code == 200, (
+                f"Expected 200 on request {i + 1}, got {resp.status_code}"
+            )
+
+        eleventh = auth_client.put(
+            "/api/students/me/completed-courses",
+            json=[],
+            headers=_bearer("user1"),
+        )
+
+    assert eleventh.status_code == 429
+    assert eleventh.json() == {"detail": "Too many requests"}
+    assert "retry-after" in eleventh.headers
+    retry = int(eleventh.headers["retry-after"])
+    assert 1 <= retry <= 60  # 1-minute window
+
+
+def test_completed_courses_10th_request_still_allowed(auth_client: TestClient) -> None:
+    """The 10th PUT /api/students/me/completed-courses must NOT be rate-limited."""
+    with patch(
+        "course_search_api.limiter.decode_access_token",
+        return_value="1",
+    ):
+        for _ in range(9):
+            auth_client.put(
+                "/api/students/me/completed-courses",
+                json=[],
+                headers=_bearer("user1"),
+            )
+
+        tenth = auth_client.put(
+            "/api/students/me/completed-courses",
+            json=[],
+            headers=_bearer("user1"),
+        )
+
+    assert tenth.status_code == 200
+
+
+def test_completed_courses_per_user_isolation(auth_client: TestClient) -> None:
+    """Exhausting user A's quota must not affect user B's quota."""
+
+    def _decode(token: str) -> str:
+        # token value is used directly as the user_id
+        return token
+
+    with patch("course_search_api.limiter.decode_access_token", side_effect=_decode):
+        # Exhaust user A's 10-request quota
+        for _ in range(10):
+            auth_client.put(
+                "/api/students/me/completed-courses",
+                json=[],
+                headers=_bearer("userA"),
+            )
+        over_limit = auth_client.put(
+            "/api/students/me/completed-courses",
+            json=[],
+            headers=_bearer("userA"),
+        )
+        assert over_limit.status_code == 429
+
+        # User B should still be within their own quota
+        user_b_resp = auth_client.put(
+            "/api/students/me/completed-courses",
+            json=[],
+            headers=_bearer("userB"),
+        )
+        assert user_b_resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Cross-endpoint isolation
+# ---------------------------------------------------------------------------
+
+
+def test_login_limit_does_not_bleed_into_search(client: TestClient) -> None:
+    """Exhausting the login limit must not consume the search quota."""
+    # Exhaust login (5/minute)
+    for _ in range(5):
+        client.post("/api/auth/login", json={})
+    assert client.post("/api/auth/login", json={}).status_code == 429
+
+    # Search quota is completely independent
+    with (
+        patch(
+            "course_search_api.routes.courses.get_embedding",
+            new_callable=AsyncMock,
+            return_value=_FAKE_EMBEDDING,
+        ),
+        patch(
+            "course_search_api.routes.courses.vector_search",
+            new_callable=AsyncMock,
+            return_value=_FAKE_RESULTS,
+        ),
+    ):
+        search_resp = client.get("/api/courses/search?q=test")
+
+    assert search_resp.status_code == 200
