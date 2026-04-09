@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
 import FilterBar from '@/components/layout/FilterBar.vue'
@@ -8,6 +9,7 @@ import CourseTable from '@/components/course-search/CourseTable.vue'
 import type { FilterValues } from '@/types/index'
 import type { CourseFilters } from '@/services/courseApi'
 import { useCourses } from '@/composables/useCourses'
+import { useCourseStore } from '@/stores/courseStore'
 
 const {
   courses,
@@ -21,8 +23,8 @@ const {
   resetPage,
 } = useCourses()
 
-const hasSearched = ref(false)
-const activeFilters = ref<FilterValues>({ dept: '', level: '', credits: '' })
+const store = useCourseStore()
+const { hasSearched, activeFilters } = storeToRefs(store)
 
 function toApiFilters(filters: FilterValues): CourseFilters {
   return {
@@ -33,8 +35,8 @@ function toApiFilters(filters: FilterValues): CourseFilters {
 }
 
 async function onSearch(filters: FilterValues) {
-  activeFilters.value = { ...filters }
-  hasSearched.value = true
+  store.setActiveFilters(filters)
+  store.setHasSearched(true)
   resetPage()
   await fetchCourses(toApiFilters(filters))
 }

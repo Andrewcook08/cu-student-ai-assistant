@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import type { Course } from '@/types/index'
 import CourseRow from './CourseRow.vue'
+import { useCourseStore } from '@/stores/courseStore'
 
 const props = defineProps<{
   courses: Course[]
 }>()
 
-const expandedCode = ref<string | null>(null)
+const store = useCourseStore()
+const { expandedCode } = storeToRefs(store)
 
 function toggleExpand(code: string) {
-  expandedCode.value = expandedCode.value === code ? null : code
+  store.toggleExpanded(code)
 }
 </script>
 
