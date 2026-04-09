@@ -1092,3 +1092,23 @@ async def test_build_graph_context_text_stored_in_state() -> None:
         final_state = await ctx.graph.ainvoke(_base_state())
 
     assert final_state["context_text"] == context_text
+
+
+@pytest.mark.asyncio
+async def test_tool_node_early_return_when_last_message_is_not_ai_message() -> None:
+    """tool_node returns {} when the last message is not an AIMessage with tool_calls.
+
+    This defensive branch (llm_engine.py line 292) is unreachable via the
+    normal graph routing (should_continue guards the edge), but the closure
+    is callable directly via graph.nodes['tool_node'].bound.afunc.
+
+    Note: the ``bound.afunc`` access path is a LangGraph internal
+    (``RunnableCallable``) validated against langgraph >=0.2.  If LangGraph
+    changes its compiled-graph node wrapper, this test will need updating.
+    """
+    async with _GraphCtx() as ctx:
+        tool_node_func = ctx.graph.nodes["tool_node"].bound.afunc
+        state = _base_state(messages=[HumanMessage(content="hello")])
+        result = await tool_node_func(state)
+
+    assert result == {}

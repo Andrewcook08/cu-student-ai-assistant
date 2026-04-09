@@ -513,6 +513,83 @@ async def test_prereq_check_calls_vector_search_and_prereq_chain() -> None:
 
 
 @pytest.mark.asyncio
+async def test_prereq_check_no_embedding_returns_no_retrieved_context() -> None:
+    """Line 288: _retrieve_for_prereq_check returns "" when query_embedding is None."""
+    with (
+        patch(
+            "chat_service.core.context_builder.neo4j_service.vector_search",
+            new=AsyncMock(return_value=SAMPLE_COURSES),
+        ) as mock_search,
+        patch(
+            "chat_service.core.context_builder.postgres_service.get_student_data",
+            new=AsyncMock(return_value=SAMPLE_PROFILE),
+        ),
+    ):
+        result = await build_context(
+            Intent.PREREQ_CHECK,
+            user_id=1,
+            query_embedding=None,
+            neo4j_driver=_make_neo4j_driver(),
+            postgres_sessionmaker=_make_postgres_sessionmaker(),
+        )
+    mock_search.assert_not_awaited()
+    assert "<retrieved_context>" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_prereq_check_empty_vector_search_returns_no_retrieved_context() -> None:
+    """Line 292: _retrieve_for_prereq_check returns "" when vector_search returns []."""
+    mock_chain = AsyncMock(return_value={"course": None, "edges": []})
+    with (
+        patch(
+            "chat_service.core.context_builder.neo4j_service.vector_search",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "chat_service.core.context_builder.neo4j_service.get_prerequisite_chain",
+            new=mock_chain,
+        ),
+        patch(
+            "chat_service.core.context_builder.postgres_service.get_student_data",
+            new=AsyncMock(return_value=SAMPLE_PROFILE),
+        ),
+    ):
+        result = await build_context(
+            Intent.PREREQ_CHECK,
+            user_id=1,
+            query_embedding=[0.1] * 768,
+            neo4j_driver=_make_neo4j_driver(),
+            postgres_sessionmaker=_make_postgres_sessionmaker(),
+        )
+    mock_chain.assert_not_awaited()
+    assert "<retrieved_context>" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_degree_planning_no_program_returns_no_retrieved_context() -> None:
+    """Line 318: _retrieve_for_degree_planning returns "" when program_name is falsy."""
+    profile_no_program = {**SAMPLE_PROFILE, "program": None}
+    with (
+        patch(
+            "chat_service.core.context_builder.neo4j_service.get_degree_requirements",
+            new=AsyncMock(return_value=SAMPLE_DEGREE_REQS),
+        ) as mock_deg,
+        patch(
+            "chat_service.core.context_builder.postgres_service.get_student_data",
+            new=AsyncMock(return_value=profile_no_program),
+        ),
+    ):
+        result = await build_context(
+            Intent.DEGREE_PLANNING,
+            user_id=1,
+            neo4j_driver=_make_neo4j_driver(),
+            postgres_sessionmaker=_make_postgres_sessionmaker(),
+        )
+    mock_deg.assert_not_awaited()
+    assert "<retrieved_context>" not in result.text
+
+
+@pytest.mark.asyncio
 async def test_schedule_help_profile_only() -> None:
     with (
         patch(
