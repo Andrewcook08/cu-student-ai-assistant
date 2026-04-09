@@ -10,6 +10,8 @@ from neo4j import AsyncGraphDatabase
 from shared.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from chat_service.core.llm_engine import build_graph
+from chat_service.core.tool_executor import ToolExecutor
 from chat_service.core.tools import make_tools
 from chat_service.routes import chat
 from chat_service.services.postgres_service import build_postgres_engine
@@ -57,6 +59,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     app.state.tools = toolset.tools
     app.state.tool_registry = toolset.registry
+    # Auth-enforcing tool executor — CHAT-006's ToolExecutor wraps every
+    # LLM-generated tool call with JWT user_id override, rate limiting,
+    # parameter whitelisting, and audit logging.
+    app.state.tool_executor = ToolExecutor(
+        tool_registry=app.state.tool_registry,
+        postgres_sessionmaker=app.state.postgres_sessionmaker,
+    )
+    # Compiled LangGraph conversation graph — CHAT-008.  Built once at
+    # startup; each ainvoke() operates on an independent state copy so
+    # concurrent WebSocket sessions are safe.
+    app.state.conversation_graph = build_graph(
+        ollama_base_url=settings.ollama_url,
+        ollama_model=settings.ollama_model,
+        tools=app.state.tools,
+        tool_executor=app.state.tool_executor,
+        ollama_client=app.state.ollama_client,
+        neo4j_driver=app.state.neo4j_driver,
+        postgres_sessionmaker=app.state.postgres_sessionmaker,
+    )
     try:
         yield
     finally:

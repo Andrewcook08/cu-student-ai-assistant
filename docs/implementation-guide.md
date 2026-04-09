@@ -961,7 +961,7 @@ Wire up `courseStore.ts` (Pinia) to call `courseApi.ts` and populate `CourseTabl
 
 #### Days 6-7: Build Remaining Components
 
-Finish any chat UI components not done in Phase 1. Then wait for Person C's WebSocket stub.
+Finish any chat UI components not done in Phase 1. Then connect to Person C's WebSocket endpoint (initially an echo stub, now the full LangGraph engine after CHAT-008).
 
 #### Days 8-12: WebSocket Integration
 
@@ -1058,47 +1058,11 @@ export function useChat() {
 
 This is the most complex piece. Build incrementally.
 
-#### Day 6-7: Stub WebSocket + Service Connections
+#### Day 6-7: WebSocket Endpoint + Service Connections
 
 **Priority**: Get a WebSocket endpoint running that Person B can connect to.
 
-`services/chat-service/chat_service/routes/chat.py`:
-```python
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
-from jose import JWTError
-from shared.auth import decode_access_token
-import json
-
-router = APIRouter()
-
-@router.websocket("/ws/chat/{session_id}")
-async def chat_websocket(websocket: WebSocket, session_id: str, token: str = Query(...)):
-    # Validate JWT
-    # Note: decode_access_token returns the subject string directly, not a payload dict.
-    try:
-        user_id = int(decode_access_token(token))
-    except (JWTError, ValueError):
-        await websocket.close(code=4001, reason="Invalid token")
-        return
-
-    await websocket.accept()
-    try:
-        while True:
-            data = await websocket.receive_text()
-            msg = json.loads(data)
-
-            # Stub: echo back with typing indicator
-            await websocket.send_json({"type": "typing"})
-
-            # TODO: Replace with real LangGraph engine
-            await websocket.send_json({
-                "type": "chat_response",
-                "reply": f"Echo: {msg.get('message', '')}",
-                "session_id": session_id,
-            })
-    except WebSocketDisconnect:
-        pass
-```
+`services/chat-service/chat_service/routes/chat.py` — initially shipped as an echo stub so Person B could integrate the frontend WebSocket client immediately. The echo stub was replaced by the full LangGraph conversation engine in CUAI-40 / CHAT-008; see [Days 9-11](#days-9-11-langgraph-engine--tools) below for the implemented design. The endpoint shape (`/ws/chat/{session_id}` with JWT `token` query param) is unchanged.
 
 Register in `main.py`:
 ```python
@@ -1106,7 +1070,7 @@ from chat_service.routes.chat import router as chat_router
 app.include_router(chat_router)
 ```
 
-**Checkpoint**: Person B can connect to the WebSocket and see echo responses.
+**Checkpoint**: Person B can connect to the WebSocket and see responses (echo during stub phase, real LLM responses after CHAT-008).
 
 #### Days 7-9: Neo4j Service + Graph RAG
 
@@ -1168,9 +1132,16 @@ The `build_context()` function takes `intent`, `user_id`, optional `query_embedd
 
 `services/chat-service/chat_service/core/intent_classifier.py` is implemented in CUAI-39 / CHAT-007. The module exports an `Intent` `StrEnum` (`course_search`, `prereq_check`, `degree_planning`, `schedule_help`, `general_question`) and a single public `async def classify_intent(message, *, ollama_client=None) -> Intent`. The design is hybrid: a pure regex + keyword `_heuristic_classify` pass runs first and catches all five Jira acceptance examples with no Ollama dependency (deterministic, ~microseconds, trivially unit-tested). If the heuristic returns `GENERAL_QUESTION` and an `ollama_client` is supplied, a single `ollama_service.chat_completion` call fires as a fallback using Ollama's structured-output mode — a JSON-schema enum built from the `Intent` members themselves is passed as `format`, so the model is logit-masked to exactly the five labels. `options={"temperature": 0}` pins sampling for deterministic argmax. A lenient text parser (`_parse_llm_label`) handles the small mutations gpt-oss-tier models add even when the system prompt asks for a bare label (wrapper phrasing like `"Intent: course_search"`, trailing punctuation, `-`/space separator variants). **`classify_intent()` never raises** — every failure path (`OllamaError`, `JSONDecodeError`, unknown label, empty content) collapses to `Intent.GENERAL_QUESTION` so a downstream exception cannot drop a chat request. See [ADR-34](decisions.md#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007).
 
-This ticket also extended `ollama_service.chat_completion` with two optional kwarg-only parameters, `format` and `options`, forwarded to the Ollama request body only when non-`None` to preserve back-compat with existing callers. CHAT-008 will reuse the same kwargs on the main LLM path for tool-call reliability (JSON-schema-constrained tool arguments) and sampler pinning. Integration tests for the classifier live at `services/chat-service/tests/test_intent_classifier_integration.py` and are gated behind `pytest -m integration` (excluded from CI via the pyproject default `addopts`); they hit a live `gpt-oss:20b` on `localhost:11434` with paraphrases deliberately crafted to bypass every heuristic keyword. A parametrized unit test pins each integration paraphrase against the heuristic path (asserting `classify_intent(..., ollama_client=None)` returns `GENERAL_QUESTION`) so a future heuristic tweak cannot silently degrade the integration test into hitting the heuristic instead of the LLM.
+This ticket also extended `ollama_service.chat_completion` with two optional kwarg-only parameters, `format` and `options`, forwarded to the Ollama request body only when non-`None` to preserve back-compat with existing callers. CHAT-008 reuses the same kwargs on the main LLM path for tool-call reliability (JSON-schema-constrained tool arguments) and sampler pinning — see [ADR-35](decisions.md#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008). Integration tests for the classifier live at `services/chat-service/tests/test_intent_classifier_integration.py` and are gated behind `pytest -m integration` (excluded from CI via the pyproject default `addopts`); they hit a live `gpt-oss:20b` on `localhost:11434` with paraphrases deliberately crafted to bypass every heuristic keyword. A parametrized unit test pins each integration paraphrase against the heuristic path (asserting `classify_intent(..., ollama_client=None)` returns `GENERAL_QUESTION`) so a future heuristic tweak cannot silently degrade the integration test into hitting the heuristic instead of the LLM.
 
-`services/chat-service/chat_service/core/llm_engine.py` — the LangGraph state machine. Uses `ChatOllama` from `langchain_ollama`, binds all 7 tools via `llm.bind_tools()`. Follows the standard ReAct pattern from LangGraph docs: `StateGraph` with nodes for `classify_intent → build_context → call_llm → maybe_call_tools → respond`. The intent classifier routes to different system prompts, the context builder assembles retrieval results, then the LLM + tool loop runs.
+`services/chat-service/chat_service/core/llm_engine.py` is implemented in CUAI-40 / CHAT-008. The module is a LangGraph `StateGraph` with 5 nodes (`classify_intent → build_context → call_llm → execute_tools → respond`). `ChatOllama` from `langchain_ollama` is configured with `reasoning=False` and `temperature=0` for tool-calling reliability (see [ADR-35](decisions.md#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008)). All 7 tools are bound via `llm.bind_tools()`. Key implementation details:
+
+- **Retry-without-tools fallback**: When the LLM emits a malformed tool call, the engine strips tool bindings and retries the same prompt so the user still gets a natural-language answer instead of an error. See [ADR-36](decisions.md#adr-36-retry-without-tools-fallback-on-malformed-tool-calls-cuai-40--chat-008).
+- **Parallel tool execution**: Multiple tool calls in a single LLM turn are dispatched concurrently via `asyncio.gather` for lower latency. See [ADR-37](decisions.md#adr-37-parallel-tool-execution-via-asynciogather-cuai-40--chat-008).
+- **180-second graph timeout**: The compiled graph runs under a 180s wall-clock deadline to prevent runaway inference from blocking a WebSocket indefinitely. See [ADR-39](decisions.md#adr-39-180s-langgraph-timeout-cuai-40--chat-008).
+- **Atomic Redis persist**: Conversation state (messages + session metadata) is written via a Redis `pipeline` so partial writes on crash cannot leave inconsistent state. See [ADR-38](decisions.md#adr-38-atomic-redis-persist-via-pipeline-cuai-40--chat-008).
+
+The intent classifier routes to different system prompts, the context builder assembles retrieval results, then the LLM + tool loop runs. The `respond` node formats the final `ChatResponse` Pydantic model streamed back over the WebSocket.
 
 #### Day 12: Redis Queue Integration
 
@@ -1179,7 +1150,7 @@ This ticket also extended `ollama_service.chat_completion` with two optional kwa
 What the module exposes (downstream stories should treat this as the public surface):
 
 - **Session storage**: `store_session(client, *, user_id, session_id, data)` / `get_session(...)` — `SETEX` / `GET` with a 2-hour TTL, keyed `session:{user_id}:{session_id}` so user_id scoping prevents cross-user leakage if a `session_id` is guessed.
-- **Conversation cache**: `append_message(...)` / `get_messages(..., limit=20)` — `RPUSH` + `EXPIRE` / `LRANGE -limit -1`, keyed `messages:{user_id}:{session_id}` (same user-scoped key shape).
+- **Conversation cache**: `append_messages(...)` (batch) / `append_message(...)` (single) / `get_messages(..., limit=20)` — `RPUSH` + `EXPIRE` / `LRANGE -limit -1`, keyed `messages:{user_id}:{session_id}` (same user-scoped key shape). The WebSocket handler uses `append_messages()` to atomically persist the user message and assistant response via a Redis pipeline.
 - **Inference queue**: `enqueue_inference(client, request, *, timeout=120.0, progress_interval=30.0, on_progress=None)` — subscribes to `ollama:result:{request_id}` **before** LPUSHing to `ollama:inference_queue` (pub/sub has no backlog, so subscribing after the push would race a fast worker), uses a wall-clock deadline with a per-tick budget of `min(progress_interval, remaining_total)` so `on_progress` fires roughly every ~30s while the hard 120s `timeout` is still enforced, raises `RedisTimeoutError` on expiry, and tears the pubsub down in a `finally` block on every exit path. Never silently retried.
 - **Error family**: `RedisError` / `RedisTimeoutError` / `RedisServiceError`, mirroring `OllamaError` / `OllamaTimeoutError` / `OllamaServiceError` from `ollama_service.py`.
 
@@ -1309,7 +1280,7 @@ Implement in order of priority from [architecture.md § Security](architecture.m
 8. **SEC-006 — Fail-fast production secret validation** — Add `environment` field and `validate_production()` method to `shared/shared/config.py`. Call from each service's FastAPI lifespan. Refuses boot when `ENVIRONMENT=production` and any default/weak secret is detected.
 9. **SEC-007 — Rate limiting middleware** — Add `slowapi` to both services. Module-level `Limiter` next to CORS middleware. Per-route decorators on auth, search, and PUT-completed-courses. Redis storage in production, in-process locally.
 10. **SEC-008 — Production docker-compose override** — New `docker-compose.prod.yml` that hides datastore ports, requires secrets via `${VAR:?}` syntax, and sets `ENVIRONMENT=production` on app services. Used by both the local prod-simulation path and the self-hosted Data VM (DEPLOY-002).
-11. **SEC-009 — WebSocket hardening** — Layer UUID-shape check, 4 KB frame cap, per-connection token bucket (20 msg / 10 s), and JWT `user_id` capture on the merged `/ws/chat/{session_id}` stub.
+11. **SEC-009 — WebSocket hardening** — Layer UUID-shape check, 4 KB frame cap, per-connection token bucket (20 msg / 10 s), and JWT `user_id` capture on the `/ws/chat/{session_id}` endpoint.
 
 These five items are Sprint 2 retrofit tickets filling gaps in already-merged code (Phase 1 / early Phase 2 work shipped without these controls). They share the `security` and `phase-3` labels. See [ADR-33 in decisions.md](decisions.md#adr-33-api--infrastructure-security-hardening) and the "API & Infrastructure Security" section in [architecture.md](architecture.md#api--infrastructure-security) for the architectural source of truth.
 
@@ -1568,7 +1539,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy .
 | Risk | Mitigation | When to Act |
 |------|-----------|-------------|
 | LLM can't reliably call tools | Test on Day 4-5. Switch model via `OLLAMA_MODEL`. | If < 80% accuracy on test script |
-| LangGraph integration is harder than expected | Start with raw Ollama tool calling loop (no LangGraph). Add LangGraph later. | If Day 10 and no working chat |
+| ~~LangGraph integration is harder than expected~~ | ~~Start with raw Ollama tool calling loop (no LangGraph). Add LangGraph later.~~ — Resolved: CUAI-40 / CHAT-008 shipped the full LangGraph engine with 5 nodes, parallel tool execution, and retry fallback. | ~~If Day 10 and no working chat~~ |
 | Neo4j vector search quality is poor | Fall back to PostgreSQL `ILIKE` search. Vector search is a bonus, not critical. | If embedding results are irrelevant |
 | Redis queue complexity | Simplify to direct HTTP calls to Ollama with `httpx.AsyncClient(timeout=120)`. Add queue later. | If Day 12 and queue isn't working |
 | Terraform issues on GCP | Manual deployment via `gcloud` CLI as backup. Terraform is nice-to-have for the demo. | If Day 22 and Terraform is broken |

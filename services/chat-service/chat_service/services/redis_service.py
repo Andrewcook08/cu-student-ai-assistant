@@ -218,6 +218,33 @@ async def append_message(
         raise RedisServiceError(_SERVICE_MESSAGE) from exc
 
 
+async def append_messages(
+    client: redis.Redis,
+    *,
+    user_id: int,
+    session_id: str,
+    messages: list[dict[str, Any]],
+) -> None:
+    """Atomically append multiple *messages* via a Redis pipeline.
+
+    All RPUSHes and the final EXPIRE run in a single pipeline round-trip,
+    so either all messages are persisted or none are — no partial history.
+    """
+    if not messages:
+        return
+    key = _messages_key(user_id, session_id)
+    try:
+        async with client.pipeline(transaction=True) as pipe:
+            for msg in messages:
+                pipe.rpush(key, json.dumps(msg))
+            pipe.expire(key, SESSION_TTL_SECONDS)
+            await pipe.execute()
+    except RedisLibraryTimeoutError as exc:
+        raise RedisTimeoutError(_TIMEOUT_MESSAGE) from exc
+    except (RedisConnectionError, RedisLibraryError) as exc:
+        raise RedisServiceError(_SERVICE_MESSAGE) from exc
+
+
 async def get_messages(
     client: redis.Redis,
     *,

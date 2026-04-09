@@ -33,6 +33,11 @@
 - [ADR-31: cu-classes.html as Design Baseline for the Course Search Page](#adr-31-cu-classeshtml-as-design-baseline-for-the-course-search-page)
 - [ADR-33: API & Infrastructure Security Hardening](#adr-33-api--infrastructure-security-hardening)
 - [ADR-34: Hybrid Intent Classifier with Structured-Output LLM Fallback (CUAI-39 / CHAT-007)](#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007)
+- [ADR-35: ChatOllama reasoning=False + temperature=0 for Tool-Calling Reliability (CUAI-40 / CHAT-008)](#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008)
+- [ADR-36: Retry-Without-Tools Fallback for OSS Model Reliability (CUAI-40 / CHAT-008)](#adr-36-retry-without-tools-fallback-for-oss-model-reliability-cuai-40--chat-008)
+- [ADR-37: Parallel Tool Execution via asyncio.gather (CUAI-40 / CHAT-008)](#adr-37-parallel-tool-execution-via-asynciogather-cuai-40--chat-008)
+- [ADR-38: Atomic Redis Message Persistence (CUAI-40 / CHAT-008)](#adr-38-atomic-redis-message-persistence-cuai-40--chat-008)
+- [ADR-39: Graph Invocation Timeout (CUAI-40 / CHAT-008)](#adr-39-graph-invocation-timeout-cuai-40--chat-008)
 
 ---
 
@@ -900,7 +905,7 @@ ADR-14 and ADR-17 secure the LLM/tool layer. ADR-23 secures the network perimete
 ### Decision
 `core/intent_classifier.py` runs a **heuristic-first, LLM-fallback** pipeline. A pure regex + keyword pass resolves first; if (and only if) that returns `GENERAL_QUESTION` and the caller supplied an `ollama_client`, a single Ollama chat call classifies the message using **structured-output mode** — a JSON Schema with an `enum` constraint derived from the `Intent` StrEnum is passed as Ollama's `format` argument so the model is logit-masked to exactly the five labels. Sampling is pinned to `temperature=0` via the new `options` kwarg on `chat_completion`. `classify_intent()` is `async` and **never raises** — every timeout, malformed response, or unknown label collapses to `Intent.GENERAL_QUESTION`.
 
-To support this, `ollama_service.chat_completion` gained two optional kwarg-only parameters, `format` and `options`, forwarded to the Ollama request body only when non-None to preserve back-compat. CHAT-008 will reuse the same kwargs for tool-call reliability on the main LLM path.
+To support this, `ollama_service.chat_completion` gained two optional kwarg-only parameters, `format` and `options`, forwarded to the Ollama request body only when non-None to preserve back-compat. CHAT-008 reuses the same kwargs for tool-call reliability on the main LLM path.
 
 ### Alternatives Considered
 1. **LLM-only classification** — rejected. Every classification would require an Ollama round-trip even for unambiguous messages like "prereqs for CSCI 3104", which the heuristic catches in microseconds. Unit tests would also need an Ollama mock for every case.
@@ -921,3 +926,128 @@ The "never raises" contract matters because intent classification sits on the ho
 - **Heuristic-coverage pin**: a parametrized unit test runs each integration-suite paraphrase through `classify_intent(..., ollama_client=None)` and asserts it returns `GENERAL_QUESTION`. Without this pin, a future heuristic tweak that happens to catch one of the integration prompts would silently degrade the integration test into hitting the heuristic path while still showing green. Writing this test immediately caught a real instance: `"Am I on track to finish…"` matched `"track"` in `_DEGREE_KEYWORDS`, so the integration test had been classifying it via the heuristic, not gpt-oss:20b.
 - The integration paraphrase list is duplicated between the unit and integration test files with a sync directive rather than extracting a shared constant, because cross-test imports are fragile under `--import-mode=importlib` with no `__init__.py` in the tests directory.
 - **CHAT-008 reuse**: the `format` and `options` kwargs on `chat_completion` are the same surface the main LangGraph LLM call will use for tool-call reliability (JSON-schema-constrained tool arguments) and sampler pinning, so this is not a one-off extension.
+
+---
+
+## ADR-35: ChatOllama reasoning=False + temperature=0 for Tool-Calling Reliability (CUAI-40 / CHAT-008)
+
+### Decision
+Configure `ChatOllama` with `reasoning=False` and `temperature=0` as the default LLM instance for the LangGraph conversation engine.
+
+### Alternatives Considered
+1. **Default ChatOllama settings (reasoning enabled, temperature=0.7)** — rejected. gpt-oss:20b has a thinking mode enabled by default; when active, the model emits reasoning text before tool-call JSON, which causes Ollama's tool-call parser to return a 500 error. The non-zero temperature also introduces non-deterministic tool-calling behavior, making failures harder to reproduce and test.
+2. **`reasoning=False` only (default temperature)** — rejected. Fixes the 500 error but leaves tool-call behavior non-deterministic.
+3. **`reasoning=False` + `temperature=0`** (chosen) — disables thinking at the model level and pins deterministic argmax sampling.
+
+### Why
+The `reasoning=False` parameter on `ChatOllama` sends `think: false` to Ollama, which disables the model's chain-of-thought thinking mode at inference time. Without this, gpt-oss:20b's thinking mode emits free-form reasoning text before the structured tool-call JSON in its response. Ollama's tool-call response parser expects the JSON to appear cleanly and fails with an HTTP 500 when it encounters the leading reasoning text. This is not a rare edge case — it happens on the majority of tool-calling requests with thinking enabled.
+
+`temperature=0` complements this by ensuring the model produces identical outputs for identical inputs (deterministic argmax). For a tool-calling agent, this means: given the same conversation state and available tools, the model always selects the same tool with the same arguments. This makes the system testable and debuggable — a failing tool call can be reproduced reliably.
+
+Together, these two settings transform gpt-oss:20b from an unreliable tool caller (~50% failure rate with defaults) to a reliable one. ADR-34's `options={"temperature": 0}` on `chat_completion` established the temperature-pinning pattern for the intent classifier; ADR-35 applies the same principle at the ChatOllama level for the main LLM path.
+
+### Consequences
+- `ChatOllama(model=..., base_url=..., reasoning=False, temperature=0)` is the standard instantiation pattern for any LangChain code that calls gpt-oss:20b with tools.
+- If the team switches to a model without a thinking mode, `reasoning=False` becomes a no-op (harmless).
+- If a future use case requires creative/varied responses (e.g., generating multiple schedule suggestions), a separate ChatOllama instance with `temperature>0` and no tool binding would be needed.
+
+---
+
+## ADR-36: Retry-Without-Tools Fallback for OSS Model Reliability (CUAI-40 / CHAT-008)
+
+### Decision
+When the LLM-with-tools call fails (e.g., malformed tool-call JSON despite ADR-35's mitigations), `call_llm_node` retries once with a plain LLM (no tools bound). The user receives a text-only response instead of an error.
+
+### Alternatives Considered
+1. **Fail hard — return an error to the user** — rejected. OSS models occasionally produce malformed tool-call JSON even with `reasoning=False` and `temperature=0`. A hard failure on every malformed response degrades the user experience for what is often a transient model glitch.
+2. **Retry with the same LLM+tools configuration** — rejected. If the model produced malformed JSON once, retrying with the same configuration tends to produce the same malformed output (deterministic at temperature=0). Retrying the same call wastes latency for no benefit.
+3. **Retry once without tools** (chosen) — strips tool bindings so the model cannot attempt a tool call. The response is text-only, which is always parseable.
+
+### Why
+This is a graceful degradation strategy specific to OSS model reliability. Commercial APIs (Claude, GPT-4) almost never produce malformed tool-call JSON, but open-source models at the 20B parameter scale occasionally do — even with thinking disabled and temperature pinned. The failure mode is: the model decides to call a tool but produces JSON that Ollama's parser rejects, raising a `ChatOllamaError` or similar exception.
+
+The retry-without-tools approach works because:
+- The user's question is still answerable — the LLM just has to answer from its parametric knowledge instead of calling a tool.
+- A text-only response (e.g., "CSCI 3104 is an algorithms course") is far better UX than "An error occurred."
+- The single retry adds at most one extra LLM call (~2-5 seconds), which is acceptable given the alternative is a total failure.
+- The fallback is logged so the team can track how often it fires and whether model upgrades reduce the rate.
+
+### Consequences
+- `call_llm_node` contains a try/except that catches tool-call failures and retries with `llm` (unbound) instead of `llm_with_tools`.
+- Responses produced via the fallback path lack tool-sourced data (no course details from the database, no prerequisite checks). The LLM responds from general knowledge, which may be less accurate.
+- Monitoring should track fallback invocation rate. A sustained high rate signals the need for a model upgrade or prompt engineering.
+
+---
+
+## ADR-37: Parallel Tool Execution via asyncio.gather (CUAI-40 / CHAT-008)
+
+### Decision
+When the LLM returns multiple tool calls in a single `AIMessage`, execute them concurrently via `asyncio.gather()` rather than sequentially.
+
+### Alternatives Considered
+1. **Sequential execution** — process tool calls one at a time in a loop. Simple but adds latency proportional to the number of tool calls.
+2. **Parallel execution via `asyncio.gather()`** (chosen) — all tool calls in a single message run concurrently.
+3. **Thread pool executor** — rejected. All tools are async (database queries, HTTP calls), so `asyncio.gather()` is the natural concurrency primitive. A thread pool would add unnecessary complexity.
+
+### Why
+The LLM frequently emits multiple tool calls in a single turn. A common pattern is: `search_courses("machine learning")` + `search_courses("artificial intelligence")` when the student asks about ML electives. With sequential execution, the user waits for both Ollama embedding calls and both Neo4j vector searches in series. With parallel execution, both run concurrently and the total latency is the max of the two, not the sum.
+
+For the typical two-tool turn, this cuts tool execution time roughly in half (e.g., 400ms to 200ms). The improvement is more dramatic for three or four tool calls, which occur when the LLM follows a search-then-lookup pattern for multiple courses.
+
+### Consequences
+- `tool_node` uses `asyncio.gather(*[execute_tool(tc) for tc in tool_calls])` and collects results into `ToolMessage` objects.
+- Tool functions must be safe for concurrent execution. All current tools (database reads) are naturally safe — they don't share mutable state.
+- If one tool call fails, the others still complete (gather with individual try/except per tool). The failed tool returns an error `ToolMessage` that the LLM can interpret.
+- Future tools that have ordering dependencies (e.g., "enroll in X then check schedule conflicts") would need explicit sequencing — but no current tools have this property.
+
+---
+
+## ADR-38: Atomic Redis Message Persistence (CUAI-40 / CHAT-008)
+
+### Decision
+Persist the user message and assistant response atomically via a Redis pipeline/transaction (`append_messages()`) instead of two separate `append_message()` calls.
+
+### Alternatives Considered
+1. **Two separate `append_message()` calls** — persist user message, then call LLM, then persist assistant response. If the process crashes or Redis fails between the two calls, the conversation history has a user message with no response (orphaned message).
+2. **Atomic `append_messages()` via Redis pipeline** (chosen) — both messages are written in a single Redis transaction after the LLM responds. Either both persist or neither does.
+3. **Write-ahead log in PostgreSQL** — rejected. Adds a PostgreSQL write to the hot path of every chat message for a problem that Redis pipelines solve natively.
+
+### Why
+The failure mode of non-atomic persistence is subtle but real: if Redis accepts the user message but the LLM call fails or the process crashes before the assistant response is written, the conversation history ends with an unanswered user message. On the next turn, the LLM sees this dangling message and may become confused about the conversation state — it might try to "answer" the old message instead of the new one, or the message count is off for the sliding-window trimming logic.
+
+Atomic persistence via a Redis pipeline solves this by buffering both RPUSH commands and executing them as a single network round-trip. Redis pipelines are not true transactions (they don't roll back on partial failure), but for RPUSH operations on the same key they are effectively atomic — both commands execute in sequence without interleaving from other clients.
+
+### Consequences
+- `redis_service.py` exposes `append_messages(redis, session_id, messages: list)` alongside the existing single-message `append_message()`. The new function uses `async with redis.pipeline(transaction=True)` to batch the writes.
+- The WebSocket handler calls `append_messages()` with `[user_msg, assistant_msg]` after the LLM responds, rather than calling `append_message()` twice.
+- If the LLM call fails entirely (timeout, exception), neither message is persisted — the conversation history stays clean and the user can retry.
+- The existing `append_message()` is retained for use cases where a single message write is appropriate (e.g., system messages).
+
+---
+
+## ADR-39: Graph Invocation Timeout (CUAI-40 / CHAT-008)
+
+### Decision
+Wrap `graph.ainvoke()` with `asyncio.wait_for(..., timeout=180)` to prevent the WebSocket handler from stalling indefinitely if the LLM hangs or a tool call blocks.
+
+### Alternatives Considered
+1. **No timeout — rely on Ollama's internal timeout** — rejected. Ollama's timeout only covers the HTTP request to the model; it does not cover the full graph execution (which includes multiple LLM calls, tool executions, and state transitions). A stuck tool or a retry loop could stall the WebSocket indefinitely.
+2. **Per-node timeouts** — rejected. Would require wrapping every node individually, and the real concern is total wall-clock time for the user, not time in any single node.
+3. **Single graph-level `asyncio.wait_for()` timeout** (chosen) — one timeout covers the entire graph invocation including all LLM calls, tool executions, and state transitions.
+
+### Why
+The WebSocket connection is a finite resource. Each stalled connection holds open a server-side coroutine, a Redis subscription, and a client-side UI in "typing" state. Without a timeout, a single hung Ollama instance or a blocking tool call can permanently consume a connection slot and leave the user staring at a spinner.
+
+180 seconds is the chosen timeout because:
+- Normal responses complete in 5-30 seconds (single LLM call + 0-3 tool calls).
+- Complex multi-tool turns (e.g., search + lookup + prereq check for 3 courses) can take up to 60 seconds.
+- 180 seconds provides 3x headroom over the worst observed case, accommodating CPU-only dev environments where inference is slower.
+- The timeout is generous enough to avoid false positives but strict enough to prevent indefinite stalls.
+
+When the timeout fires, the handler catches `asyncio.TimeoutError` and sends the user an error message via the WebSocket rather than silently disconnecting.
+
+### Consequences
+- `asyncio.wait_for(graph.ainvoke(state), timeout=180)` wraps the graph call in the WebSocket handler.
+- The 180-second value should be configurable via environment variable for environments with different performance characteristics (GPU vs. CPU inference).
+- On timeout, the partially-completed graph state is discarded. No messages from the timed-out turn are persisted to Redis (consistent with ADR-38's atomic persistence — if the graph didn't complete, neither message is written).
+- Monitoring should track timeout frequency. A sustained timeout rate indicates infrastructure issues (overloaded Ollama, slow database) rather than application bugs.

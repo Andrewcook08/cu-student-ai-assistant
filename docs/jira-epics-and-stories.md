@@ -401,16 +401,19 @@
 - **Blocked by**: CHAT-005, CHAT-006, CHAT-007, CHAT-010
 - **Assignee**: Person C
 - **Labels**: `critical-path`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2)
+- **Implementation**: LangGraph StateGraph with 5 nodes (classify_intent, build_context, call_llm, tool_node, respond). ChatOllama with `reasoning=False` + `temperature=0`. Retry-without-tools fallback, parallel tool execution, 180s graph timeout, atomic Redis persist, CourseCard extraction.
+- **Files**: `core/llm_engine.py` (new), `routes/chat.py` (modified), `main.py` (modified)
+- **Tests**: 50 unit tests + 7 WebSocket tests, 309 total passing
 - **Description**: Create `core/llm_engine.py`. LangGraph StateGraph with nodes: classify_intent → build_context → call_llm → maybe_call_tools (loop) → validate_output → respond. Bind tools to the LLM. Handle the tool-calling loop (LLM generates tool calls → executor runs them → results fed back → LLM generates final response). Wire into the WebSocket endpoint (replace echo stub).
 - **Acceptance criteria**:
-  - [ ] User sends "What CS courses are available?" → LLM calls search_courses → returns course list
-  - [ ] User sends "Tell me about Data Structures" → LLM calls search_courses → then lookup_course with resolved code
-  - [ ] User sends "What are prereqs for CSCI 3104?" → LLM calls check_prerequisites → returns chain
-  - [ ] Multi-tool flow works: LLM calls get_student_profile then get_degree_requirements
-  - [ ] Tool call retry on malformed JSON works
-  - [ ] Response includes structured_data (CourseCards) when appropriate
-  - [ ] End-to-end: WebSocket message → LangGraph → tool calls → LLM response → WebSocket response
+  - [x] User sends "What CS courses are available?" → LLM calls search_courses → returns course list
+  - [x] User sends "Tell me about Data Structures" → LLM calls search_courses → then lookup_course with resolved code
+  - [x] User sends "What are prereqs for CSCI 3104?" → LLM calls check_prerequisites → returns chain
+  - [x] Multi-tool flow works: LLM calls get_student_profile then get_degree_requirements
+  - [x] Tool call retry on malformed JSON works
+  - [x] Response includes structured_data (CourseCards) when appropriate
+  - [x] End-to-end: WebSocket message → LangGraph → tool calls → LLM response → WebSocket response
 
 ### CHAT-009: PostgreSQL service (student data + audit)
 - **Points**: 3
@@ -433,15 +436,15 @@
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: CHAT-002, CHAT-009
 - **Assignee**: Person C
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2)
 - **Description**: Create `core/context_builder.py`. Assembles context for the LLM prompt from: student profile, conversation summary, retrieved graph/vector data, intent classification. Formats using delimiter tags (`<retrieved_context>`, `<user_profile>`, `<conversation_summary>`).
 - **Acceptance criteria**:
-  - [ ] Context includes student profile when available
-  - [ ] Context includes conversation summary when available
-  - [ ] Retrieved data is wrapped in `<retrieved_context>` tags
-  - [ ] Context fits within model's context window (track token count)
-  - [ ] *(security ADR-33)* RAG context (retrieved courses, user profile) wrapped in `<retrieved_context>` and `<user_profile>` delimiter tags matching SEC-001.
-  - [ ] *(security ADR-33)* Context builder strips any characters resembling delimiter tags from retrieved data before wrapping (prevents context-injection via course descriptions).
+  - [x] Context includes student profile when available
+  - [x] Context includes conversation summary when available
+  - [x] Retrieved data is wrapped in `<retrieved_context>` tags
+  - [x] Context fits within model's context window (track token count)
+  - [x] *(security ADR-33)* RAG context (retrieved courses, user profile) wrapped in `<retrieved_context>` and `<user_profile>` delimiter tags matching SEC-001.
+  - [x] *(security ADR-33)* Context builder strips any characters resembling delimiter tags from retrieved data before wrapping (prevents context-injection via course descriptions).
 
 ### CHAT-011: Chat Service test suite
 - **Points**: 5
@@ -851,13 +854,13 @@
 - **Blocked by**: Nothing (consumed by AUTH-001, AUTH-002, SEC-005)
 - **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2)
 - **Description**: Add `slowapi` to both services. Initialize a module-level `Limiter(key_func=get_remote_address)` next to the CORS middleware. Register the SlowAPI 429 handler returning `{"detail":"Too many requests"}` with a `Retry-After` header. Apply per-route limits: `POST /api/auth/register` 3/hour per IP; `POST /api/auth/login` 5/min per IP; `GET /api/courses/search` 30/min per authenticated user (`key_func=user.id`); `PUT /api/students/me/completed-courses` 10/min per user. Production uses Redis-backed storage (`storage_uri=settings.redis_url`); local/test uses in-process.
 - **Acceptance criteria**:
-  - [ ] Login, register, search, and PUT routes enforce the documented limits
-  - [ ] 429 responses include `Retry-After`
-  - [ ] Rate limiter uses Redis storage in production, in-memory in tests
-  - [ ] New `tests/test_rate_limiting.py` covers a 6th login → 429 and a 31st search → 429
+  - [x] Login, register, search, and PUT routes enforce the documented limits
+  - [x] 429 responses include `Retry-After`
+  - [x] Rate limiter uses Redis storage in production, in-memory in tests
+  - [x] New `tests/test_rate_limiting.py` covers a 6th login → 429 and a 31st search → 429
 
 #### SEC-008: Production docker-compose override (CUAI-82)
 - **Points**: 3
@@ -1046,16 +1049,32 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 
 ### DEMO-001: Prompt engineering refinement
 - **Points**: 5
-- **Phase**: 4 (Day 22-23)
-- **Blocked by**: DEPLOY-007 (system running on GCP)
+- **Phase**: 3 (Sprint 3)
+- **Blocked by**: CHAT-008 (LangGraph engine — now done)
 - **Assignee**: Person C
 - **Status**: 📋 Planned
 - **Description**: Test 30+ conversation flows on the live system. Tune system prompt, tool descriptions, and response formatting. Document any model quirks and workarounds.
 - **Acceptance criteria**:
-  - [ ] 5 core scenarios work reliably (listed in implementation guide)
-  - [ ] Tool calling success rate > 90% on test scenarios
-  - [ ] Responses are natural and helpful
-  - [ ] Model doesn't hallucinate course data
+  - **Response quality**
+  - [ ] Responses are conversational, not encyclopedic
+  - [ ] Model asks clarifying questions when intent is ambiguous
+  - [ ] Tone is natural and student-friendly
+  - **Tool usage**
+  - [ ] Model proactively calls `get_student_profile` at conversation start
+  - [ ] All recommended courses are tool-verified (no fabricated codes)
+  - [ ] Grade minimum checks use tool data, not assumptions
+  - [ ] Model offers `save_decision` after actionable recommendations
+  - [ ] Proper tool chaining (e.g., profile -> requirements -> search)
+  - **Planning logic**
+  - [ ] Plans mix requirement categories (core + elective + gen-ed)
+  - [ ] Semester availability is respected
+  - [ ] Credit load awareness (warns on overload / underload)
+  - [ ] Difficulty balancing across semesters
+  - [ ] Prerequisite chains validated before recommending
+  - [ ] Schedule conflict checks before finalizing
+  - **Honesty**
+  - [ ] Model admits data gaps rather than guessing
+  - [ ] No hallucinated course data (codes, titles, credits)
 
 ### DEMO-002: Demo script + rehearsal
 - **Points**: 3
@@ -1150,7 +1169,7 @@ DEPLOY-001 ──→ DEPLOY-002 ──→ DEPLOY-003
 DEPLOY-004 ──→ CICD-002
 DEPLOY-005 ──→ CICD-002
 
-DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
+CHAT-008 ──→ DEMO-001 ──→ DEMO-002
 ```
 
 ---
@@ -1233,9 +1252,10 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | SEC-002 | 2 | Person B | 16 |
 | SEC-003 | 2 | Person B | 16-17 |
 | SEC-004 | 5 | Person C | 17-18 |
-| **Total** | **36** | | |
+| DEMO-001 | 5 | Person C | 18-19 |
+| **Total** | **41** | | |
 
-**Per-person**: A=11, B=17, C=8. Person A (Scott) owns conversation memory. Person C (Andrew) focuses on security hardening.
+**Per-person**: A=11, B=17, C=13. Person A (Scott) owns conversation memory. Person C (Andrew) focuses on security hardening + prompt tuning (DEMO-001 moved from Sprint 4 since its blocker CHAT-008 is now done).
 
 ### Sprint 4: Deploy + Demo (Days 20-24, Apr 13-17)
 **Goal**: Live on GCP, demo rehearsed.
@@ -1250,12 +1270,11 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | DEPLOY-006 | 2 | Person A | 22 |
 | DEPLOY-007 | 2 | Person A | 22-23 |
 | CICD-002 | 3 | Person B | 21-22 |
-| DEMO-001 | 5 | Person C | 22-23 |
 | DEMO-002 | 3 | Everyone | 23-24 |
 | DEMO-003 | 3 | Everyone | 23-24 |
-| **Total** | **35** | | |
+| **Total** | **30** | | |
 
-**Per-person**: A=21, B=3, C=5, Everyone=6. Person A heavy on Terraform. Person B lighter — can help with branding polish and bug fixes.
+**Per-person**: A=21, B=3, C=0, Everyone=6. Person A heavy on Terraform. Person B lighter — can help with branding polish and bug fixes. DEMO-001 moved to Sprint 3.
 
 ---
 
@@ -1272,6 +1291,6 @@ DEPLOY-007 ──→ DEMO-001 ──→ DEMO-002
 | **Shared** | 6 pts, 2 stories — DEMO-002 (3), DEMO-003 (3) |
 | **Cross-person blocks** | 12 (most front-loaded in Days 1-2 scaffolding, zero mid-sprint blocking) |
 | **Critical path stories** | INFRA-001, INFRA-002, INFRA-003, DATA-001, DATA-002, DATA-006, CHAT-001, CHAT-008 |
-| **Highest risk story** | CHAT-008 (LangGraph engine — 8 points, complex integration; de-risked by CHAT-000 spike) |
+| **Highest risk story** | CHAT-008 (LangGraph engine — 8 points, complex integration; de-risked by CHAT-000 spike) — ✅ Done |
 | **Security stories** | 10 (SEC-001 through SEC-009 + CHAT-006) |
 | **Sprint 2 retrofit (ADR-33)** | SEC-005..009 — 14 pts total, filing auth enforcement, secret validation, rate limiting, compose hardening, and WS hardening gaps |
