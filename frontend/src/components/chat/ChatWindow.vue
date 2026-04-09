@@ -16,10 +16,6 @@ function toggle() {
   isOpen.value = !isOpen.value
 }
 
-function sendMessage(text: string) {
-  send(text)
-}
-
 function handleActionSelected(action: Action) {
   send(action.label, {
     action_response: { type: action.type, value: action.label },
@@ -69,7 +65,7 @@ watch(
 
     <ChatInput
       :disabled="store.isTyping || !!store.connectionError"
-      @send="sendMessage"
+      @send="send"
     />
   </div>
 </template>

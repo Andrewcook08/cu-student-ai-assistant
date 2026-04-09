@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createPinia } from 'pinia'
+import { createPinia, setActivePinia } from 'pinia'
 import { useChatStore } from '@/stores/chatStore'
 import ChatWindow from './ChatWindow.vue'
 
@@ -15,6 +15,7 @@ vi.mock('@/composables/useChat', () => ({
 
 function mountWindow() {
   const pinia = createPinia()
+  setActivePinia(pinia)  // ensure useChatStore() resolves against the same pinia the component uses
   return {
     wrapper: mount(ChatWindow, { global: { plugins: [pinia] } }),
     store: useChatStore(),
@@ -65,6 +66,17 @@ describe('ChatWindow', () => {
     await wrapper.find('.chat-bubble').trigger('click')
 
     store.setError('Authentication failed. Please log in again.')
+    await wrapper.vm.$nextTick()
+
+    const input = wrapper.findComponent({ name: 'ChatInput' })
+    expect(input.props('disabled')).toBe(true)
+  })
+
+  it('disables ChatInput when isTyping is true', async () => {
+    const { wrapper, store } = mountWindow()
+    await wrapper.find('.chat-bubble').trigger('click')
+
+    store.setTyping(true)
     await wrapper.vm.$nextTick()
 
     const input = wrapper.findComponent({ name: 'ChatInput' })
