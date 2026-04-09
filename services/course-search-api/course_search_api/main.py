@@ -10,7 +10,10 @@ from neo4j import AsyncGraphDatabase
 from shared.config import settings
 from shared.database import engine
 from shared.models import Base
+from shared.rate_limit import make_rate_limit_handler
+from slowapi.errors import RateLimitExceeded
 
+from course_search_api.limiter import limiter
 from course_search_api.routes import auth, courses, programs, students
 
 
@@ -32,6 +35,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="CU Course Search API", lifespan=lifespan)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, make_rate_limit_handler(limiter))  # type: ignore[arg-type]
 
 app.add_middleware(
     CORSMiddleware,

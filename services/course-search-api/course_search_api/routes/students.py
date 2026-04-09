@@ -1,11 +1,12 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from shared.models import CompletedCourse, Course, User
 from sqlalchemy.orm import Session
 
 from course_search_api.dependencies import get_current_user, get_db
+from course_search_api.limiter import limiter, user_key_func
 
 router = APIRouter(prefix="/api/students", tags=["students"])
 
@@ -37,7 +38,9 @@ def get_current_student(user: User = Depends(get_current_user)) -> dict[str, Any
 
 
 @router.put("/me/completed-courses")
+@limiter.limit("10/minute", key_func=user_key_func)
 def update_completed_courses(
+    request: Request,
     courses: Annotated[list[CompletedCourseItem], Field(max_length=_MAX_COMPLETED_COURSES)],
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

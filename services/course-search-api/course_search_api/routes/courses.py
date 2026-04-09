@@ -2,13 +2,14 @@ import logging
 
 import httpx
 import neo4j.exceptions
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from neo4j import AsyncDriver
 from shared.models import Course, Section
 from sqlalchemy import Integer, cast, distinct, func
 from sqlalchemy.orm import Session, joinedload
 
 from course_search_api.dependencies import get_db, get_http_client, get_neo4j_driver
+from course_search_api.limiter import limiter
 from course_search_api.services.neo4j_service import vector_search
 from course_search_api.services.ollama_service import get_embedding
 
@@ -91,7 +92,9 @@ def list_courses(
 
 
 @router.get("/search")
+@limiter.limit("30/minute")  # TODO SEC-005: switch key_func to user_key_func once auth is added
 async def search_courses(
+    request: Request,
     q: str = Query(..., description="Natural language search query"),
     limit: int = Query(10, ge=1, le=50),
     http_client: httpx.AsyncClient = Depends(get_http_client),
