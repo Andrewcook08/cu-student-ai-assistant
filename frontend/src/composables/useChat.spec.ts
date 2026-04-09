@@ -345,6 +345,20 @@ describe('useChat — onclose (security)', () => {
   })
 })
 
+describe('useChat — onclose (general)', () => {
+  it('clears isTyping on any close', () => {
+    const { connect } = useChat()
+    const store = useChatStore()
+    connect()
+    instance.simulateOpen()
+    store.setTyping(true)
+
+    instance.simulateClose(1000)
+
+    expect(store.isTyping).toBe(false)
+  })
+})
+
 describe('useChat — send', () => {
   it('adds user message to store and sends JSON to WebSocket', () => {
     const { connect, send } = useChat()

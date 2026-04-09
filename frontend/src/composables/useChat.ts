@@ -3,6 +3,7 @@ import { useChatStore } from '@/stores/chatStore'
 import type { WsClientMessage, WsServerMessage } from '@/types/index'
 
 const WS_OPEN = 1 // WebSocket.OPEN — avoids dependency on global being set correctly
+const WS_BASE_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8001'
 const NO_RECONNECT_CODES = new Set([4001, 4002, 1008, 1009])
 const MAX_RECONNECT_DELAY = 30_000
 
@@ -22,7 +23,7 @@ export function useChat() {
   function connect() {
     const sid = store.initSession()
     const token = localStorage.getItem('token') ?? ''
-    ws = new WebSocket(`ws://localhost:8001/ws/chat/${sid}?token=${token}`)
+    ws = new WebSocket(`${WS_BASE_URL}/ws/chat/${sid}?token=${token}`)
 
     ws.onopen = () => {
       store.setConnected(true)
@@ -60,6 +61,7 @@ export function useChat() {
 
     ws.onclose = (event: CloseEvent) => {
       store.setConnected(false)
+      store.setTyping(false)
 
       if (NO_RECONNECT_CODES.has(event.code)) {
         const errMsg = CLOSE_ERROR_MESSAGES[event.code] ?? 'Connection closed.'
@@ -94,6 +96,7 @@ export function useChat() {
     }
     ws?.close()
     ws = null
+    reconnectAttempt = 0
   }
 
   onUnmounted(disconnect)
