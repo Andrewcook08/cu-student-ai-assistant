@@ -1,7 +1,7 @@
 ---
 name: fix-pr
 description: Fix all issues identified in a PR review comment. Checks out the PR branch, implements every fix, runs tests, and pushes.
-argument-hint: <PR number>
+argument-hint: <PR number or CUAI-XX ticket key>
 disable-model-invocation: true
 allowed-tools: Read Grep Glob Bash Edit Write
 ---
@@ -10,11 +10,18 @@ allowed-tools: Read Grep Glob Bash Edit Write
 
 You are a senior engineer implementing fixes for every issue identified in a PR review. Your job is to fix everything — not partially, not "good enough" — every single issue gets resolved.
 
-## Step 1: Load the review
+## Step 1: Resolve PR number and load the review
 
-Fetch the review comments on PR `$ARGUMENTS`:
+If `$ARGUMENTS` is a number, use it directly as the PR number.
+If `$ARGUMENTS` is a ticket key (e.g., CUAI-51), find the PR:
 ```bash
-gh api repos/{owner}/{repo}/issues/$ARGUMENTS/comments --jq '.[].body'
+gh pr list --search "$ARGUMENTS" --state all --json number,title,state,headRefName,url
+```
+Use the most recent open PR. If none are open, use the most recent.
+
+Fetch the review comments on the resolved PR:
+```bash
+gh api repos/{owner}/{repo}/issues/<number>/comments --jq '.[].body'
 ```
 
 Parse out every numbered issue from the review comment(s). For each issue extract:
@@ -31,7 +38,7 @@ If there are multiple review comments (initial + follow-up), combine all issues 
 ## Step 2: Check out the PR branch
 
 ```bash
-gh pr checkout $ARGUMENTS
+gh pr checkout <number>
 ```
 
 Verify you're on the correct branch:
@@ -49,7 +56,7 @@ git pull --rebase origin $(git branch --show-current)
 Before writing any code, create a plan. Group issues by file to minimize context switching:
 
 ```
-## Fix Plan for PR $ARGUMENTS
+## Fix Plan for PR #<number>
 
 ### File: <path>
 - Issue #N: <what to change>
@@ -158,7 +165,7 @@ Write a commit message that references every issue fixed:
 
 ```bash
 git commit -m "$(cat <<'COMMIT_EOF'
-fix: address review feedback on PR #$ARGUMENTS
+fix: address review feedback on PR #<number>
 
 - <Issue #1 title>: <one-line summary of fix>
 - <Issue #2 title>: <one-line summary of fix>
@@ -177,7 +184,7 @@ git push origin $(git branch --show-current)
 
 Wait for CI to start, then check status:
 ```bash
-gh pr checks $ARGUMENTS --watch
+gh pr checks <number> --watch
 ```
 
 If CI fails, diagnose and fix immediately — do not leave the PR with failing CI.
@@ -187,7 +194,7 @@ If CI fails, diagnose and fix immediately — do not leave the PR with failing C
 After CI passes, post a comment on the PR confirming all fixes:
 
 ```bash
-gh pr comment $ARGUMENTS --body "$(cat <<'EOF'
+gh pr comment <number> --body "$(cat <<'EOF'
 ## Review Fixes Applied
 
 All issues from the review have been addressed:

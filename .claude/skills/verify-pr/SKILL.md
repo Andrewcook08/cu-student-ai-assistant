@@ -1,7 +1,7 @@
 ---
 name: verify-pr
 description: Re-review a PR after fixes have been pushed. Loads the original review, checks every issue was resolved, and either approves or flags remaining gaps.
-argument-hint: <PR number>
+argument-hint: <PR number or CUAI-XX ticket key>
 disable-model-invocation: true
 allowed-tools: Read Grep Glob Bash
 ---
@@ -10,11 +10,18 @@ allowed-tools: Read Grep Glob Bash
 
 You are a staff engineer doing a second-pass review. A review was posted, fixes were pushed — your job is to verify every single issue was properly resolved. No rubber-stamping.
 
-## Step 1: Load the original review
+## Step 1: Resolve PR number and load the original review
 
-Fetch all comments on PR `$ARGUMENTS`:
+If `$ARGUMENTS` is a number, use it directly as the PR number.
+If `$ARGUMENTS` is a ticket key (e.g., CUAI-51), find the PR:
 ```bash
-gh api repos/{owner}/{repo}/issues/$ARGUMENTS/comments --jq '.[].body'
+gh pr list --search "$ARGUMENTS" --state all --json number,title,state,headRefName,url
+```
+Use the most recent open PR. If none are open, use the most recent.
+
+Fetch all comments on the resolved PR:
+```bash
+gh api repos/{owner}/{repo}/issues/<number>/comments --jq '.[].body'
 ```
 
 Parse every numbered issue from the review comment(s). Build a checklist:
@@ -32,18 +39,18 @@ Include issues from ALL review comments (initial, follow-up, defensive boundary 
 
 Find what was pushed since the review:
 ```bash
-gh pr diff $ARGUMENTS --name-only
-gh pr diff $ARGUMENTS
+gh pr diff <number> --name-only
+gh pr diff <number>
 ```
 
 Also check the commits pushed after the review comments:
 ```bash
-gh pr view $ARGUMENTS --json commits --jq '.commits[-5:] | .[] | "\(.oid[:7]) \(.messageHeadline)"'
+gh pr view <number> --json commits --jq '.commits[-5:] | .[] | "\(.oid[:7]) \(.messageHeadline)"'
 ```
 
 Check CI status:
 ```bash
-gh pr view $ARGUMENTS --json statusCheckRollup,mergeable
+gh pr view <number> --json statusCheckRollup,mergeable
 ```
 
 ## Step 3: Verify each issue — one by one
@@ -95,7 +102,7 @@ Don't just verify the review issues — re-run the defensive checks on the curre
 
 Verify all tests pass on the latest commit:
 ```bash
-gh pr checks $ARGUMENTS
+gh pr checks <number>
 ```
 
 If CI is not green, this is an automatic blocker — report it.
