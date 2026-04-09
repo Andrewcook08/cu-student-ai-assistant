@@ -1,42 +1,73 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
+import { useChatStore } from '@/stores/chatStore'
 import ChatWindow from './ChatWindow.vue'
 
+// Mock useChat so no real WebSocket is opened during component tests
+vi.mock('@/composables/useChat', () => ({
+  useChat: () => ({
+    connect: vi.fn(),
+    send: vi.fn(),
+    disconnect: vi.fn(),
+  }),
+}))
+
 function mountWindow() {
-  return mount(ChatWindow, {
-    global: { plugins: [createPinia()] },
-  })
+  const pinia = createPinia()
+  return {
+    wrapper: mount(ChatWindow, { global: { plugins: [pinia] } }),
+    store: useChatStore(),
+  }
 }
 
 describe('ChatWindow', () => {
   it('renders the collapsed bubble by default', () => {
-    const wrapper = mountWindow()
-    // Collapsed state: bubble button visible, panel not visible
+    const { wrapper } = mountWindow()
     expect(wrapper.find('.chat-bubble').exists()).toBe(true)
     expect(wrapper.find('.chat-panel').exists()).toBe(false)
   })
 
   it('expands when bubble is clicked', async () => {
-    const wrapper = mountWindow()
+    const { wrapper } = mountWindow()
     await wrapper.find('.chat-bubble').trigger('click')
     expect(wrapper.find('.chat-panel').exists()).toBe(true)
   })
 
   it('collapses again when header is clicked', async () => {
-    const wrapper = mountWindow()
+    const { wrapper } = mountWindow()
     await wrapper.find('.chat-bubble').trigger('click')
-    expect(wrapper.find('.chat-panel').exists()).toBe(true)
     await wrapper.find('.chat-panel__header').trigger('click')
     expect(wrapper.find('.chat-panel').exists()).toBe(false)
   })
 
-  it('shows initial assistant greeting when expanded', async () => {
-    const wrapper = mountWindow()
+  it('messages area is present and empty on fresh open', async () => {
+    const { wrapper } = mountWindow()
     await wrapper.find('.chat-bubble').trigger('click')
     expect(wrapper.find('.chat-panel__messages').exists()).toBe(true)
-    // Initial greeting message is pre-loaded (class name is chat-msg--ai on this version)
-    const hasMsg = wrapper.find('.chat-msg--ai').exists() || wrapper.find('.chat-message--ai').exists()
-    expect(hasMsg).toBe(true)
+    // No mock messages pre-loaded — live connection populates them
+    expect(wrapper.findAll('.chat-message')).toHaveLength(0)
+  })
+
+  it('shows reconnecting banner when store.isReconnecting is true', async () => {
+    const { wrapper, store } = mountWindow()
+    await wrapper.find('.chat-bubble').trigger('click')
+    expect(wrapper.find('.chat-reconnecting').exists()).toBe(false)
+
+    store.setReconnecting(true)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.chat-reconnecting').exists()).toBe(true)
+    expect(wrapper.find('.chat-reconnecting').text()).toBe('Reconnecting...')
+  })
+
+  it('disables ChatInput when connectionError is set', async () => {
+    const { wrapper, store } = mountWindow()
+    await wrapper.find('.chat-bubble').trigger('click')
+
+    store.setError('Authentication failed. Please log in again.')
+    await wrapper.vm.$nextTick()
+
+    const input = wrapper.findComponent({ name: 'ChatInput' })
+    expect(input.props('disabled')).toBe(true)
   })
 })
