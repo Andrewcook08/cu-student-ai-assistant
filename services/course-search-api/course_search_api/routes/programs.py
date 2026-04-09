@@ -1,14 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
-from shared.models import Program, Requirement
+from shared.models import Program, Requirement, User
 from sqlalchemy.orm import Session
 
-from course_search_api.dependencies import get_db
+from course_search_api.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/api/programs", tags=["programs"])
 
 
 @router.get("")
-def list_programs(db: Session = Depends(get_db)) -> list[dict]:
+def list_programs(
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> list[dict]:
     programs = db.query(Program).order_by(Program.name).all()
     return [
         {
@@ -22,7 +25,11 @@ def list_programs(db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.get("/{program_id}/requirements")
-def get_program_requirements(program_id: int, db: Session = Depends(get_db)) -> dict:
+def get_program_requirements(
+    program_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
     program = db.query(Program).filter(Program.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")

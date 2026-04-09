@@ -3,7 +3,9 @@ from collections.abc import Generator
 import pytest
 from course_search_api.main import app
 from fastapi.testclient import TestClient
+from shared.auth import create_access_token, hash_password
 from shared.database import engine, get_db
+from shared.models import User
 from sqlalchemy.orm import Session
 
 
@@ -47,3 +49,27 @@ def db_session() -> Generator[Session, None, None]:
 def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as c:
         yield c
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def auth_headers(db_session: Session) -> dict[str, str]:
+    """Create a test user and return Bearer auth headers.
+
+    Depends on db_session so the user is visible to get_current_user via the
+    overridden get_db dependency.  The user is rolled back with the session at
+    test teardown.
+    """
+    user = User(
+        email="testuser@example.com",
+        password_hash=hash_password("irrelevant"),
+        name="Test User",
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return _auth(create_access_token(user.id))
