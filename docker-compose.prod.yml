@@ -1,0 +1,51 @@
+# Production compose override — layer on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+#
+# Three changes from the base file:
+#   1. Datastore ports cleared — no host binding; services reach each other by service name
+#   2. Required-secret syntax — stack refuses to start if any secret is unset
+#   3. ENVIRONMENT=production on app services — trips the SEC-006 fail-fast validator at boot
+#
+# Required environment variables (set in the shell or a secrets manager before starting):
+#   POSTGRES_PASSWORD  — strong password for PostgreSQL
+#   NEO4J_PASSWORD     — strong password for Neo4j (replaces the "development" dev default)
+#   REDIS_PASSWORD     — requirepass password for Redis
+#   JWT_SECRET_KEY     — ≥32-char random string
+#                        Generate: python -c "import secrets; print(secrets.token_hex(32))"
+
+services:
+  # ── Data services — host ports cleared, strong secrets required ─────────────
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+
+  neo4j:
+    ports: !reset []
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
+
+  redis:
+    ports: !reset []
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+
+  ollama:
+    ports: !reset []
+
+  # ── Application services — secrets injected, production validator tripped ───
+  course-search-api:
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/cu_assistant
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY required}
+
+  chat-service:
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/cu_assistant
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY required}
