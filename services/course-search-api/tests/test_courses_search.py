@@ -39,23 +39,39 @@ def mock_search_services():
         yield mock_embed, mock_search
 
 
-def test_search_route_not_swallowed_by_catch_all(client):
+# ---------------------------------------------------------------------------
+# Auth lock-in
+# ---------------------------------------------------------------------------
+
+
+def test_search_requires_auth(client):
+    """GET /api/courses/search without a Bearer token must return 401 or 403."""
+    response = client.get("/api/courses/search?q=machine+learning")
+    assert response.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Route behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_search_route_not_swallowed_by_catch_all(client, auth_headers):
     """Regression: /search must be declared before /{code:path} or it returns 404."""
-    response = client.get("/api/courses/search?q=x")
+    response = client.get("/api/courses/search?q=x", headers=auth_headers)
     assert response.status_code != 404
 
 
-def test_search_requires_q_param(client):
+def test_search_requires_q_param(client, auth_headers):
     """GET /api/courses/search without ?q= must return 422."""
-    response = client.get("/api/courses/search")
+    response = client.get("/api/courses/search", headers=auth_headers)
     assert response.status_code == 422
 
 
-def test_search_returns_200(client, mock_search_services):
+def test_search_returns_200(client, auth_headers, mock_search_services):
     """GET /api/courses/search?q=... returns 200 with expected shape and calls services."""
     mock_embed, mock_search = mock_search_services
 
-    response = client.get("/api/courses/search?q=machine+learning")
+    response = client.get("/api/courses/search?q=machine+learning", headers=auth_headers)
 
     assert response.status_code == 200
     data = response.json()
@@ -72,17 +88,17 @@ def test_search_returns_200(client, mock_search_services):
     mock_search.assert_called_once_with(ANY, _FAKE_EMBEDDING, limit=10)
 
 
-def test_search_respects_limit(client, mock_search_services):
+def test_search_respects_limit(client, auth_headers, mock_search_services):
     """GET /api/courses/search?limit= is accepted and forwarded to vector_search."""
     _, mock_search = mock_search_services
 
-    response = client.get("/api/courses/search?q=data+science&limit=5")
+    response = client.get("/api/courses/search?q=data+science&limit=5", headers=auth_headers)
 
     assert response.status_code == 200
     mock_search.assert_called_once_with(ANY, _FAKE_EMBEDDING, limit=5)
 
 
-def test_search_handles_service_error(client):
+def test_search_handles_service_error(client, auth_headers):
     """If Ollama raises, the endpoint must return 503 with a generic message."""
     import httpx
 
@@ -91,7 +107,7 @@ def test_search_handles_service_error(client):
         new_callable=AsyncMock,
         side_effect=httpx.ConnectError("connection refused"),
     ):
-        response = client.get("/api/courses/search?q=anything")
+        response = client.get("/api/courses/search?q=anything", headers=auth_headers)
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Search service temporarily unavailable"

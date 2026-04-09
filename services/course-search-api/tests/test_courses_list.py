@@ -34,13 +34,29 @@ def _make_course(
     return course
 
 
-def test_list_courses_returns_200(client):
+# ---------------------------------------------------------------------------
+# Auth lock-in
+# ---------------------------------------------------------------------------
+
+
+def test_list_courses_requires_auth(client):
+    """GET /api/courses without a Bearer token must return 401 or 403."""
     response = client.get("/api/courses")
+    assert response.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Basic response shape
+# ---------------------------------------------------------------------------
+
+
+def test_list_courses_returns_200(client, auth_headers):
+    response = client.get("/api/courses", headers=auth_headers)
     assert response.status_code == 200
 
 
-def test_list_courses_response_shape(client):
-    response = client.get("/api/courses")
+def test_list_courses_response_shape(client, auth_headers):
+    response = client.get("/api/courses", headers=auth_headers)
     data = response.json()
     assert "items" in data
     assert "total" in data
@@ -48,16 +64,16 @@ def test_list_courses_response_shape(client):
     assert "limit" in data
 
 
-def test_list_courses_empty_db_returns_empty_list(client):
+def test_list_courses_empty_db_returns_empty_list(client, auth_headers):
     """With no data seeded, items is an empty list and total is 0."""
-    response = client.get("/api/courses")
+    response = client.get("/api/courses", headers=auth_headers)
     data = response.json()
     assert isinstance(data["items"], list)
     assert data["total"] >= 0
 
 
-def test_list_courses_pagination_offset(client):
-    response = client.get("/api/courses?offset=0&limit=10")
+def test_list_courses_pagination_offset(client, auth_headers):
+    response = client.get("/api/courses?offset=0&limit=10", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data["items"]) <= 10
@@ -65,16 +81,16 @@ def test_list_courses_pagination_offset(client):
     assert data["limit"] == 10
 
 
-def test_list_courses_dept_filter(client):
-    response = client.get("/api/courses?dept=CSCI")
+def test_list_courses_dept_filter(client, auth_headers):
+    response = client.get("/api/courses?dept=CSCI", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     for course in data["items"]:
         assert course["dept"] == "CSCI"
 
 
-def test_list_courses_status_filter(client):
-    response = client.get("/api/courses?status=Open")
+def test_list_courses_status_filter(client, auth_headers):
+    response = client.get("/api/courses?status=Open", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     # Each returned course must have at least one Open section
@@ -83,14 +99,14 @@ def test_list_courses_status_filter(client):
         assert "Open" in statuses
 
 
-def test_list_courses_text_search(client):
-    response = client.get("/api/courses?q=computer")
+def test_list_courses_text_search(client, auth_headers):
+    response = client.get("/api/courses?q=computer", headers=auth_headers)
     assert response.status_code == 200
     assert response.json()["items"] is not None
 
 
-def test_list_courses_invalid_limit_rejected(client):
-    response = client.get("/api/courses?limit=9999")
+def test_list_courses_invalid_limit_rejected(client, auth_headers):
+    response = client.get("/api/courses?limit=9999", headers=auth_headers)
     assert response.status_code == 422
 
 
@@ -105,52 +121,52 @@ def test_list_courses_invalid_limit_rejected(client):
 # of what else lives in the shared dev database.
 
 
-def test_list_courses_level_undergrad_lower(client, db_session):
+def test_list_courses_level_undergrad_lower(client, db_session, auth_headers):
     _make_course(db_session, code="ZZZA 1300", dept="ZZZA", title="Intro")
     _make_course(db_session, code="ZZZA 3104", dept="ZZZA", title="Algorithms")
     _make_course(db_session, code="ZZZA 5555", dept="ZZZA", title="Advanced")
 
-    response = client.get("/api/courses?dept=ZZZA&level=undergrad-lower")
+    response = client.get("/api/courses?dept=ZZZA&level=undergrad-lower", headers=auth_headers)
     assert response.status_code == 200
     codes = [c["code"] for c in response.json()["items"]]
     assert codes == ["ZZZA 1300"]
 
 
-def test_list_courses_level_undergrad_upper(client, db_session):
+def test_list_courses_level_undergrad_upper(client, db_session, auth_headers):
     _make_course(db_session, code="ZZZA 1300", dept="ZZZA", title="Intro")
     _make_course(db_session, code="ZZZA 3104", dept="ZZZA", title="Algorithms")
     _make_course(db_session, code="ZZZA 5555", dept="ZZZA", title="Advanced")
 
-    response = client.get("/api/courses?dept=ZZZA&level=undergrad-upper")
+    response = client.get("/api/courses?dept=ZZZA&level=undergrad-upper", headers=auth_headers)
     assert response.status_code == 200
     codes = [c["code"] for c in response.json()["items"]]
     assert codes == ["ZZZA 3104"]
 
 
-def test_list_courses_level_graduate(client, db_session):
+def test_list_courses_level_graduate(client, db_session, auth_headers):
     _make_course(db_session, code="ZZZA 1300", dept="ZZZA", title="Intro")
     _make_course(db_session, code="ZZZA 3104", dept="ZZZA", title="Algorithms")
     _make_course(db_session, code="ZZZA 5555", dept="ZZZA", title="Advanced")
 
-    response = client.get("/api/courses?dept=ZZZA&level=graduate")
+    response = client.get("/api/courses?dept=ZZZA&level=graduate", headers=auth_headers)
     assert response.status_code == 200
     codes = [c["code"] for c in response.json()["items"]]
     assert codes == ["ZZZA 5555"]
 
 
-def test_list_courses_level_combined_with_dept(client, db_session):
+def test_list_courses_level_combined_with_dept(client, db_session, auth_headers):
     _make_course(db_session, code="ZZZA 1300", dept="ZZZA", title="Intro A")
     _make_course(db_session, code="ZZZB 1300", dept="ZZZB", title="Intro B")
     _make_course(db_session, code="ZZZA 3104", dept="ZZZA", title="Algorithms")
 
-    response = client.get("/api/courses?dept=ZZZA&level=undergrad-lower")
+    response = client.get("/api/courses?dept=ZZZA&level=undergrad-lower", headers=auth_headers)
     assert response.status_code == 200
     codes = [c["code"] for c in response.json()["items"]]
     assert codes == ["ZZZA 1300"]
 
 
-def test_list_courses_level_invalid_returns_400(client):
-    response = client.get("/api/courses?level=bogus")
+def test_list_courses_level_invalid_returns_400(client, auth_headers):
+    response = client.get("/api/courses?level=bogus", headers=auth_headers)
     assert response.status_code == 400
 
 
@@ -166,7 +182,7 @@ def _find_item(response_json: dict, code: str) -> dict:
     raise AssertionError(f"course {code!r} not in response")
 
 
-def test_list_courses_status_aggregate_open(client, db_session):
+def test_list_courses_status_aggregate_open(client, db_session, auth_headers):
     _make_course(
         db_session,
         code="TEST 1001",
@@ -175,12 +191,12 @@ def test_list_courses_status_aggregate_open(client, db_session):
         section_statuses=["Open", "Closed"],
     )
 
-    response = client.get("/api/courses?dept=TEST")
+    response = client.get("/api/courses?dept=TEST", headers=auth_headers)
     assert response.status_code == 200
     assert _find_item(response.json(), "TEST 1001")["status"] == "Open"
 
 
-def test_list_courses_status_aggregate_closed(client, db_session):
+def test_list_courses_status_aggregate_closed(client, db_session, auth_headers):
     _make_course(
         db_session,
         code="TEST 1002",
@@ -189,12 +205,12 @@ def test_list_courses_status_aggregate_closed(client, db_session):
         section_statuses=["Closed", "Closed"],
     )
 
-    response = client.get("/api/courses?dept=TEST")
+    response = client.get("/api/courses?dept=TEST", headers=auth_headers)
     assert response.status_code == 200
     assert _find_item(response.json(), "TEST 1002")["status"] == "Closed"
 
 
-def test_list_courses_status_aggregate_waitlist(client, db_session):
+def test_list_courses_status_aggregate_waitlist(client, db_session, auth_headers):
     _make_course(
         db_session,
         code="TEST 1003",
@@ -203,12 +219,12 @@ def test_list_courses_status_aggregate_waitlist(client, db_session):
         section_statuses=["Closed", "Waitlist"],
     )
 
-    response = client.get("/api/courses?dept=TEST")
+    response = client.get("/api/courses?dept=TEST", headers=auth_headers)
     assert response.status_code == 200
     assert _find_item(response.json(), "TEST 1003")["status"] == "Waitlist"
 
 
-def test_list_courses_status_aggregate_no_sections(client, db_session):
+def test_list_courses_status_aggregate_no_sections(client, db_session, auth_headers):
     _make_course(
         db_session,
         code="TEST 1004",
@@ -217,12 +233,12 @@ def test_list_courses_status_aggregate_no_sections(client, db_session):
         section_statuses=None,
     )
 
-    response = client.get("/api/courses?dept=TEST")
+    response = client.get("/api/courses?dept=TEST", headers=auth_headers)
     assert response.status_code == 200
     assert _find_item(response.json(), "TEST 1004")["status"] is None
 
 
-def test_list_courses_sections_include_type_and_number(client, db_session):
+def test_list_courses_sections_include_type_and_number(client, db_session, auth_headers):
     """Each serialized section carries its type (LEC/REC/LAB/etc.) and number."""
     course = Course(code="TEST 1005", dept="TEST", title="With section types")
     db_session.add(course)
@@ -247,7 +263,7 @@ def test_list_courses_sections_include_type_and_number(client, db_session):
     )
     db_session.flush()
 
-    response = client.get("/api/courses?dept=TEST")
+    response = client.get("/api/courses?dept=TEST", headers=auth_headers)
     assert response.status_code == 200
     item = _find_item(response.json(), "TEST 1005")
     by_crn = {s["crn"]: s for s in item["sections"]}

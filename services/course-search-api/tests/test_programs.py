@@ -2,20 +2,41 @@
 
 from __future__ import annotations
 
+# ---------------------------------------------------------------------------
+# Auth lock-in
+# ---------------------------------------------------------------------------
 
-def test_list_programs_returns_200(client):
+
+def test_list_programs_requires_auth(client):
+    """GET /api/programs without a Bearer token must return 401 or 403."""
     response = client.get("/api/programs")
+    assert response.status_code in (401, 403)
+
+
+def test_program_requirements_requires_auth(client):
+    """GET /api/programs/{id}/requirements without a Bearer token must return 401 or 403."""
+    response = client.get("/api/programs/1/requirements")
+    assert response.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Route behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_list_programs_returns_200(client, auth_headers):
+    response = client.get("/api/programs", headers=auth_headers)
     assert response.status_code == 200
 
 
-def test_list_programs_returns_list(client):
-    response = client.get("/api/programs")
+def test_list_programs_returns_list(client, auth_headers):
+    response = client.get("/api/programs", headers=auth_headers)
     data = response.json()
     assert isinstance(data, list)
 
 
-def test_list_programs_item_shape(client):
-    response = client.get("/api/programs")
+def test_list_programs_item_shape(client, auth_headers):
+    response = client.get("/api/programs", headers=auth_headers)
     data = response.json()
     if not data:
         return  # No data seeded — skip shape check
@@ -24,19 +45,19 @@ def test_list_programs_item_shape(client):
     assert "name" in prog
 
 
-def test_program_requirements_404_for_nonexistent(client):
-    response = client.get("/api/programs/999999/requirements")
+def test_program_requirements_404_for_nonexistent(client, auth_headers):
+    response = client.get("/api/programs/999999/requirements", headers=auth_headers)
     assert response.status_code == 404
 
 
-def test_program_requirements_response_shape(client):
+def test_program_requirements_response_shape(client, auth_headers):
     # Find a real program first
-    programs = client.get("/api/programs").json()
+    programs = client.get("/api/programs", headers=auth_headers).json()
     if not programs:
         return  # No data seeded
 
     prog_id = programs[0]["id"]
-    response = client.get(f"/api/programs/{prog_id}/requirements")
+    response = client.get(f"/api/programs/{prog_id}/requirements", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert "program" in data
