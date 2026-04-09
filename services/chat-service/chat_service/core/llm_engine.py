@@ -288,6 +288,9 @@ def build_graph(
         concurrently via ``asyncio.gather`` to reduce latency.
         """
         last_message = state["messages"][-1]
+        # Defensive: should_continue guards this edge today, but if the
+        # graph is restructured the guard prevents tool_node from crashing
+        # on a non-AIMessage.  Covered by test_tool_node_early_return_*.
         if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
             return {}
 

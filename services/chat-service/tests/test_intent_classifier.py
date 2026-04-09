@@ -325,6 +325,15 @@ async def test_integration_paraphrases_actually_bypass_heuristic(message: str) -
 
 
 @pytest.mark.asyncio
+async def test_need_to_take_with_course_code_is_prereq_check() -> None:
+    """'need to take CSCI X before CSCI Y' heuristic → PREREQ_CHECK."""
+    assert (
+        await classify_intent("Do I need to take CSCI 2270 before CSCI 3104?")
+        == Intent.PREREQ_CHECK
+    )
+
+
+@pytest.mark.asyncio
 async def test_llm_fallback_skipped_when_heuristic_matches() -> None:
     """If the heuristic is confident, the LLM must NOT be called even if a client is supplied."""
     fake_client = MagicMock()
