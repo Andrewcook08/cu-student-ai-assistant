@@ -173,13 +173,13 @@ def test_estimate_tokens_empty() -> None:
 
 
 def test_estimate_tokens_known_length() -> None:
-    assert _estimate_tokens("12345678") == 2   # 8 chars → 2
-    assert _estimate_tokens("1234") == 1        # 4 chars → 1
+    assert _estimate_tokens("12345678") == 2  # 8 chars → 2
+    assert _estimate_tokens("1234") == 1  # 4 chars → 1
 
 
 def test_estimate_tokens_rounds_down() -> None:
-    assert _estimate_tokens("12345") == 1       # 5 chars → 1
-    assert _estimate_tokens("123") == 0         # 3 chars → 0
+    assert _estimate_tokens("12345") == 1  # 5 chars → 1
+    assert _estimate_tokens("123") == 0  # 3 chars → 0
 
 
 # ─── _format_courses ─────────────────────────────────────────────────────
@@ -209,10 +209,22 @@ def test_format_courses_empty_list() -> None:
 
 def test_format_courses_multiple() -> None:
     courses = [
-        {"code": "CSCI 2270", "title": "Data Structures", "credits": 4,
-         "instruction_mode": "In-Person", "description": "DS", "score": 0.9},
-        {"code": "CSCI 3104", "title": "Algorithms", "credits": 3,
-         "instruction_mode": "Online", "description": "Algo", "score": 0.85},
+        {
+            "code": "CSCI 2270",
+            "title": "Data Structures",
+            "credits": 4,
+            "instruction_mode": "In-Person",
+            "description": "DS",
+            "score": 0.9,
+        },
+        {
+            "code": "CSCI 3104",
+            "title": "Algorithms",
+            "credits": 3,
+            "instruction_mode": "Online",
+            "description": "Algo",
+            "score": 0.85,
+        },
     ]
     result = _format_courses(courses)
     assert "CSCI 2270" in result
@@ -226,10 +238,20 @@ def test_format_prereq_chain_with_edges() -> None:
     chain = {
         "course": {"code": "CSCI 3104", "title": "Algorithms"},
         "edges": [
-            {"from": "CSCI 3104", "to": "CSCI 2270", "type": "required",
-             "min_grade": "C-", "raw_text": None},
-            {"from": "CSCI 3104", "to": "CSCI 2400", "type": "required",
-             "min_grade": "C", "raw_text": None},
+            {
+                "from": "CSCI 3104",
+                "to": "CSCI 2270",
+                "type": "required",
+                "min_grade": "C-",
+                "raw_text": None,
+            },
+            {
+                "from": "CSCI 3104",
+                "to": "CSCI 2400",
+                "type": "required",
+                "min_grade": "C",
+                "raw_text": None,
+            },
         ],
     }
     result = _format_prereq_chain(chain)
@@ -341,8 +363,12 @@ def test_format_student_profile_full() -> None:
         "program": "Computer Science",
         "completed": [{"course_code": "CSCI 1300", "grade": "A"}],
         "decisions": [
-            {"course_code": "CSCI 2270", "decision_type": "planned",
-             "notes": "Next semester", "created_at": "2026-01-01"}
+            {
+                "course_code": "CSCI 2270",
+                "decision_type": "planned",
+                "notes": "Next semester",
+                "created_at": "2026-01-01",
+            }
         ],
     }
     result = _format_student_profile(data)
@@ -368,13 +394,17 @@ def test_format_student_profile_empty_completed() -> None:
 def test_format_student_profile_caps_at_10_decisions() -> None:
     """Only the 10 most recent decisions are shown to keep profiles concise."""
     decisions = [
-        {"course_code": f"CSCI {3000 + i}", "decision_type": "planned",
-         "notes": None, "created_at": f"2026-01-{i + 1:02d}"}
+        {
+            "course_code": f"CSCI {3000 + i}",
+            "decision_type": "planned",
+            "notes": None,
+            "created_at": f"2026-01-{i + 1:02d}",
+        }
         for i in range(15)
     ]
     data = {"program": "CS", "completed": [], "decisions": decisions}
     result = _format_student_profile(data)
-    assert "CSCI 3009" in result    # 10th (index 9)
+    assert "CSCI 3009" in result  # 10th (index 9)
     assert "CSCI 3010" not in result  # 11th — should be capped
 
 
@@ -713,9 +743,7 @@ async def test_large_profile_is_truncated_when_budget_tight() -> None:
     big_profile = {
         "user_id": 1,
         "program": "Computer Science",
-        "completed": [
-            {"course_code": f"CSCI {1000 + i}", "grade": "A"} for i in range(100)
-        ],
+        "completed": [{"course_code": f"CSCI {1000 + i}", "grade": "A"} for i in range(100)],
         "decisions": [],
     }
     with patch(

@@ -370,21 +370,30 @@ def _assemble_with_budget(
 
     if profile_text:
         wrapped, running_tokens = _wrap_section(
-            "user_profile", profile_text, running_tokens, max_tokens,
+            "user_profile",
+            profile_text,
+            running_tokens,
+            max_tokens,
         )
         if wrapped:
             sections.append(wrapped)
 
     if summary_text:
         wrapped, running_tokens = _wrap_section(
-            "conversation_summary", summary_text, running_tokens, max_tokens,
+            "conversation_summary",
+            summary_text,
+            running_tokens,
+            max_tokens,
         )
         if wrapped:
             sections.append(wrapped)
 
     if retrieved_text:
         wrapped, running_tokens = _wrap_section(
-            "retrieved_context", retrieved_text, running_tokens, max_tokens,
+            "retrieved_context",
+            retrieved_text,
+            running_tokens,
+            max_tokens,
         )
         if wrapped:
             sections.append(wrapped)
@@ -456,9 +465,7 @@ async def build_context(
     try:
         if intent is Intent.COURSE_SEARCH:
             if query_embedding is not None:
-                retrieved_text = await _retrieve_for_course_search(
-                    neo4j_driver, query_embedding
-                )
+                retrieved_text = await _retrieve_for_course_search(neo4j_driver, query_embedding)
         elif intent is Intent.PREREQ_CHECK:
             retrieved_text = await _retrieve_for_prereq_check(neo4j_driver, query_embedding)
         elif intent is Intent.DEGREE_PLANNING:
