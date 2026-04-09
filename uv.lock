@@ -256,7 +256,6 @@ dependencies = [
     { name = "neo4j" },
     { name = "redis" },
     { name = "shared" },
-    { name = "slowapi" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -272,7 +271,6 @@ requires-dist = [
     { name = "neo4j", specifier = ">=5.25" },
     { name = "redis", specifier = ">=5.2" },
     { name = "shared", editable = "shared" },
-    { name = "slowapi", specifier = ">=0.1,<0.2" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
