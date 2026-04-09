@@ -17,6 +17,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from course_search_api.dependencies import get_current_user
 from course_search_api.limiter import limiter
 from course_search_api.main import app
 from fastapi.testclient import TestClient
@@ -47,8 +48,12 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     mock_graph_db = MagicMock()
     mock_graph_db.driver.return_value = mock_driver
     monkeypatch.setattr("course_search_api.main.AsyncGraphDatabase", mock_graph_db)
+    # Override get_current_user so rate-limit tests for authenticated routes
+    # (e.g. GET /api/courses/search) don't fail with 401 before the limiter fires.
+    app.dependency_overrides[get_current_user] = lambda: MagicMock()
     with TestClient(app) as c:
         yield c
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture()
