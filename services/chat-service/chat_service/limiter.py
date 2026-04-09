@@ -23,4 +23,8 @@ shared.config.settings.redis_url from CHAT-004 / CUAI-36).
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+# TODO(SEC-007): get_remote_address reads request.client.host (the immediate TCP peer).
+# Behind nginx/CloudFront/any load balancer all requests appear as the proxy's IP, so all
+# users share one rate-limit bucket.  Switch key_func to read X-Forwarded-For / X-Real-IP
+# before this service is deployed behind a reverse proxy.
 limiter = Limiter(key_func=get_remote_address)
