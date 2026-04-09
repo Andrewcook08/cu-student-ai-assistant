@@ -48,7 +48,8 @@ export const useCourseStore = defineStore('courses', () => {
   }
 
   function advancePage(direction: 1 | -1) {
-    offset.value = Math.max(0, offset.value + limit.value * direction)
+    const next = offset.value + limit.value * direction
+    offset.value = Math.max(0, Math.min(next, Math.max(0, total.value - limit.value)))
   }
 
   return {

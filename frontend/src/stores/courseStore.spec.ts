@@ -78,6 +78,7 @@ describe('courseStore', () => {
 
   it('resetPage sets offset to 0', () => {
     const store = useCourseStore()
+    store.setCourses([], 200)
     store.advancePage(1)
     expect(store.offset).toBe(50)
     store.resetPage()
@@ -86,6 +87,7 @@ describe('courseStore', () => {
 
   it('advancePage(1) increments offset by limit; advancePage(-1) decrements, clamped to 0', () => {
     const store = useCourseStore()
+    store.setCourses([], 200)
     store.advancePage(1)
     expect(store.offset).toBe(50)
     store.advancePage(1)
@@ -96,5 +98,16 @@ describe('courseStore', () => {
     expect(store.offset).toBe(0)
     store.advancePage(-1)
     expect(store.offset).toBe(0)
+  })
+
+  it('advancePage(1) clamps to last valid page', () => {
+    const store = useCourseStore()
+    store.setCourses([], 120)
+    store.advancePage(1)
+    expect(store.offset).toBe(50)
+    store.advancePage(1)
+    expect(store.offset).toBe(70)
+    store.advancePage(1)
+    expect(store.offset).toBe(70)
   })
 })
