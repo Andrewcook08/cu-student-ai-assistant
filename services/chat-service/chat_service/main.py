@@ -1,16 +1,20 @@
 """Chat Service — stateful AI orchestration."""
 
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from neo4j import AsyncGraphDatabase
 from shared.config import settings
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from chat_service.core.tools import make_tools
+from chat_service.limiter import limiter
 from chat_service.routes import chat
 from chat_service.services.postgres_service import build_postgres_engine
 from chat_service.services.redis_service import build_redis_client
@@ -74,7 +78,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     await app.state.postgres_engine.dispose()
 
 
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    response = JSONResponse(content={"detail": "Too many requests"}, status_code=429)
+    current_limit = getattr(request.state, "view_rate_limit", None)
+    if current_limit:
+        window_stats = limiter._limiter.get_window_stats(
+            current_limit[0], *current_limit[1]
+        )
+        retry_after = max(1, int(window_stats[0] - time.time()))
+        response.headers["Retry-After"] = str(retry_after)
+    return response
+
+
 app = FastAPI(title="CU Chat Service", lifespan=lifespan)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)  # type: ignore[arg-type]
 
 app.include_router(chat.router)
 
