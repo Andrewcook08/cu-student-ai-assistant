@@ -2,6 +2,7 @@ import { onUnmounted } from 'vue'
 import { useChatStore } from '@/stores/chatStore'
 import type { WsClientMessage, WsServerMessage } from '@/types/index'
 
+const WS_OPEN = 1 // WebSocket.OPEN — avoids dependency on global being set correctly
 const NO_RECONNECT_CODES = new Set([4001, 4002, 1008, 1009])
 const MAX_RECONNECT_DELAY = 30_000
 
@@ -16,6 +17,7 @@ export function useChat() {
   const store = useChatStore()
   let ws: WebSocket | null = null
   let reconnectAttempt = 0
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   function connect() {
     const sid = store.initSession()
@@ -69,12 +71,12 @@ export function useChat() {
       store.setReconnecting(true)
       const delay = Math.min(1_000 * 2 ** reconnectAttempt, MAX_RECONNECT_DELAY)
       reconnectAttempt++
-      setTimeout(() => connect(), delay)
+      reconnectTimer = setTimeout(() => connect(), delay)
     }
   }
 
   function send(message: string, context?: WsClientMessage['context']) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    if (!ws || ws.readyState !== WS_OPEN) return
     store.addMessage({ role: 'user', content: message })
     const payload: WsClientMessage = {
       type: 'chat_message',
@@ -86,6 +88,10 @@ export function useChat() {
   }
 
   function disconnect() {
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     ws?.close()
     ws = null
   }

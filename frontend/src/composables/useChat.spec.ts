@@ -245,6 +245,38 @@ describe('useChat — onclose (security)', () => {
     vi.useRealTimers()
   })
 
+  it('code 1008 → sets policy-violation error, does NOT reconnect', () => {
+    vi.useFakeTimers()
+    const { connect } = useChat()
+    const store = useChatStore()
+    connect()
+    instance.simulateOpen()
+
+    instance.simulateClose(1008)
+
+    expect(store.connectionError).toBe('Connection closed: policy violation.')
+    expect(store.messages.some(m => m.content?.includes('policy violation'))).toBe(true)
+    vi.advanceTimersByTime(35_000)
+    expect(store.isReconnecting).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('code 1009 → sets message-too-large error, does NOT reconnect', () => {
+    vi.useFakeTimers()
+    const { connect } = useChat()
+    const store = useChatStore()
+    connect()
+    instance.simulateOpen()
+
+    instance.simulateClose(1009)
+
+    expect(store.connectionError).toBe('Connection closed: message too large.')
+    expect(store.messages.some(m => m.content?.includes('message too large'))).toBe(true)
+    vi.advanceTimersByTime(35_000)
+    expect(store.isReconnecting).toBe(false)
+    vi.useRealTimers()
+  })
+
   it('code 1006 (abnormal) → sets isReconnecting, schedules reconnect', () => {
     vi.useFakeTimers()
     let wsCount = 0
@@ -272,40 +304,42 @@ describe('useChat — onclose (security)', () => {
 
   it('backoff delay doubles each attempt (1s → 2s → 4s)', () => {
     vi.useFakeTimers()
-
+    let wsCount = 0
     vi.stubGlobal('WebSocket', class extends MockWebSocket {
       constructor(url: string) {
         super(url)
+        wsCount++
         instance = this
       }
     })
 
     const { connect } = useChat()
-    connect()
+    connect() // wsCount = 1
     instance.simulateOpen()
 
-    // Attempt 0 → delay = 1s
+    // Attempt 0: reconnectAttempt=0 → delay = 1s
     instance.simulateClose(1006)
-    vi.advanceTimersByTime(1000)
-    instance.simulateOpen()
+    expect(wsCount).toBe(1) // no reconnect yet
+    vi.advanceTimersByTime(999)
+    expect(wsCount).toBe(1) // still waiting
+    vi.advanceTimersByTime(1) // 1000ms elapsed → reconnect fires
+    expect(wsCount).toBe(2)
+    // Do NOT simulateOpen — reconnectAttempt stays at 1
 
-    // Attempt 1 → delay = 2s
+    // Attempt 1: reconnectAttempt=1 → delay = 2s
     instance.simulateClose(1006)
     vi.advanceTimersByTime(1999)
-    // Should NOT have reconnected yet
-    const urlAfter1999 = instance.url
-    vi.advanceTimersByTime(1)
-    // Now it should have reconnected
-    instance.simulateOpen()
+    expect(wsCount).toBe(2) // still waiting
+    vi.advanceTimersByTime(1) // 2000ms elapsed → reconnect fires
+    expect(wsCount).toBe(3)
+    // Do NOT simulateOpen — reconnectAttempt stays at 2
 
-    // Attempt 2 → delay = 4s
+    // Attempt 2: reconnectAttempt=2 → delay = 4s
     instance.simulateClose(1006)
     vi.advanceTimersByTime(3999)
-    const urlAfter3999 = instance.url
-    vi.advanceTimersByTime(1)
-
-    // Verify the 2s delay was respected (url didn't change before the 2000ms mark)
-    expect(urlAfter1999).toBe(instance.url === urlAfter1999 ? urlAfter1999 : urlAfter1999)
+    expect(wsCount).toBe(3) // still waiting
+    vi.advanceTimersByTime(1) // 4000ms elapsed → reconnect fires
+    expect(wsCount).toBe(4)
 
     vi.useRealTimers()
   })
