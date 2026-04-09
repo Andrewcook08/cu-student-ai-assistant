@@ -8,9 +8,9 @@ from __future__ import annotations
 
 
 def test_list_programs_requires_auth_no_header(client):
-    """Missing Authorization header → 403 from HTTPBearer."""
+    """Missing Authorization header → 401 (no credentials provided)."""
     response = client.get("/api/programs")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_list_programs_rejects_invalid_token(client):
@@ -20,9 +20,9 @@ def test_list_programs_rejects_invalid_token(client):
 
 
 def test_program_requirements_requires_auth_no_header(client):
-    """Missing Authorization header → 403 from HTTPBearer."""
+    """Missing Authorization header → 401 (no credentials provided)."""
     response = client.get("/api/programs/1/requirements")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_program_requirements_rejects_invalid_token(client):

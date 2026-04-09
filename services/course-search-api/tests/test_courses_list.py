@@ -40,9 +40,9 @@ def _make_course(
 
 
 def test_list_courses_requires_auth_no_header(client):
-    """Missing Authorization header → 403 from HTTPBearer."""
+    """Missing Authorization header → 401 (no credentials provided)."""
     response = client.get("/api/courses")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_list_courses_rejects_invalid_token(client):

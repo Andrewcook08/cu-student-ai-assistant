@@ -8,9 +8,9 @@ from __future__ import annotations
 
 
 def test_course_detail_requires_auth_no_header(client):
-    """Missing Authorization header → 403 from HTTPBearer."""
+    """Missing Authorization header → 401 (no credentials provided)."""
     response = client.get("/api/courses/FAKE 9999")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_course_detail_rejects_invalid_token(client):
