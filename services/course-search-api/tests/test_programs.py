@@ -7,16 +7,30 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 
-def test_list_programs_requires_auth(client):
-    """GET /api/programs without a Bearer token must return 401 or 403."""
+def test_list_programs_requires_auth_no_header(client):
+    """Missing Authorization header → 403 from HTTPBearer."""
     response = client.get("/api/programs")
-    assert response.status_code in (401, 403)
+    assert response.status_code == 403
 
 
-def test_program_requirements_requires_auth(client):
-    """GET /api/programs/{id}/requirements without a Bearer token must return 401 or 403."""
+def test_list_programs_rejects_invalid_token(client):
+    """Invalid Bearer token → 401 from get_current_user."""
+    response = client.get("/api/programs", headers={"Authorization": "Bearer bad-token"})
+    assert response.status_code == 401
+
+
+def test_program_requirements_requires_auth_no_header(client):
+    """Missing Authorization header → 403 from HTTPBearer."""
     response = client.get("/api/programs/1/requirements")
-    assert response.status_code in (401, 403)
+    assert response.status_code == 403
+
+
+def test_program_requirements_rejects_invalid_token(client):
+    """Invalid Bearer token → 401 from get_current_user."""
+    response = client.get(
+        "/api/programs/1/requirements", headers={"Authorization": "Bearer bad-token"}
+    )
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------

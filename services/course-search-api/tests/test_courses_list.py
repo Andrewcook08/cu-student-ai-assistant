@@ -39,10 +39,16 @@ def _make_course(
 # ---------------------------------------------------------------------------
 
 
-def test_list_courses_requires_auth(client):
-    """GET /api/courses without a Bearer token must return 401 or 403."""
+def test_list_courses_requires_auth_no_header(client):
+    """Missing Authorization header → 403 from HTTPBearer."""
     response = client.get("/api/courses")
-    assert response.status_code in (401, 403)
+    assert response.status_code == 403
+
+
+def test_list_courses_rejects_invalid_token(client):
+    """Invalid Bearer token → 401 from get_current_user."""
+    response = client.get("/api/courses", headers={"Authorization": "Bearer bad-token"})
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------

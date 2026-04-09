@@ -166,7 +166,7 @@ def test_register_3rd_request_still_allowed(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/courses/search — 30/minute per IP
+# GET /api/courses/search — 30/minute per user (user_key_func, IP fallback)
 # ---------------------------------------------------------------------------
 
 

@@ -44,10 +44,19 @@ def mock_search_services():
 # ---------------------------------------------------------------------------
 
 
-def test_search_requires_auth(client):
-    """GET /api/courses/search without a Bearer token must return 401 or 403."""
+def test_search_requires_auth_no_header(client):
+    """Missing Authorization header → 403 from HTTPBearer."""
     response = client.get("/api/courses/search?q=machine+learning")
-    assert response.status_code in (401, 403)
+    assert response.status_code == 403
+
+
+def test_search_rejects_invalid_token(client):
+    """Invalid Bearer token → 401 from get_current_user."""
+    response = client.get(
+        "/api/courses/search?q=machine+learning",
+        headers={"Authorization": "Bearer bad-token"},
+    )
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------

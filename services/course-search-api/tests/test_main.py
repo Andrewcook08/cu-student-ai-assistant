@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,3 +26,24 @@ def test_lifespan_invokes_validate_production(monkeypatch: pytest.MonkeyPatch) -
         pass
 
     spy.assert_called_once()
+
+
+def test_health_endpoint_remains_public(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/health must NOT require auth — used by load balancer probes.
+
+    Lock-in: a future blanket auth middleware or accidental Depends(get_current_user)
+    on the health route would break load balancer probes with no test failure to catch it.
+    """
+    from course_search_api.main import app
+
+    monkeypatch.setattr("course_search_api.main.engine", MagicMock())
+    monkeypatch.setattr("course_search_api.main.Base", MagicMock())
+    mock_driver = AsyncMock()
+    mock_graph_db = MagicMock()
+    mock_graph_db.driver.return_value = mock_driver
+    monkeypatch.setattr("course_search_api.main.AsyncGraphDatabase", mock_graph_db)
+
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+
+    assert response.status_code == 200
