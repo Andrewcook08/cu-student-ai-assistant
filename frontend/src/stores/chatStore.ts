@@ -26,7 +26,7 @@ export const useChatStore = defineStore('chat', () => {
     isReconnecting.value = v
   }
 
-  function setError(msg: string | null) {
+  function setError(msg: string) {
     connectionError.value = msg
   }
 
@@ -34,11 +34,11 @@ export const useChatStore = defineStore('chat', () => {
     connectionError.value = null
   }
 
-  function initSession() {
+  function initSession(): string {
     if (!sessionId.value) {
       sessionId.value = crypto.randomUUID()
     }
-    return sessionId.value
+    return sessionId.value!
   }
 
   return {
