@@ -208,7 +208,7 @@ Post a single comment on the PR using `gh pr comment`. Structure it as:
 |---|-------|----------|----------|
 | 1 | ... | Critical/High/Medium/Low/Info | Defensive (4a-4f) / Best Practice (5a-5e) / AC Gap / Test Quality / Scope |
 
-Items <X, Y, Z> should be fixed before merge. The rest are recommended.
+All items must be fixed before merge.
 ```
 
 **Severity guide:**
