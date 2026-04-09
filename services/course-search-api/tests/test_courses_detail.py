@@ -15,9 +15,7 @@ def test_course_detail_requires_auth_no_header(client):
 
 def test_course_detail_rejects_invalid_token(client):
     """Invalid Bearer token → 401 from get_current_user."""
-    response = client.get(
-        "/api/courses/FAKE 9999", headers={"Authorization": "Bearer bad-token"}
-    )
+    response = client.get("/api/courses/FAKE 9999", headers={"Authorization": "Bearer bad-token"})
     assert response.status_code == 401
 
 
