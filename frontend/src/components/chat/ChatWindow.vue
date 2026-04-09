@@ -1,42 +1,38 @@
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onMounted } from 'vue'
 import { MessageCircle, X } from 'lucide-vue-next'
 import ChatInput from './ChatInput.vue'
 import ChatMessage from './ChatMessage.vue'
-import type { ChatMessage as ChatMessageType, Action } from '@/types/index'
-import { mockMessages } from '@/mocks/chat'
+import type { Action } from '@/types/index'
+import { useChatStore } from '@/stores/chatStore'
+import { useChat } from '@/composables/useChat'
 
 const isOpen = ref(false)
-const isTyping = ref(false)
-const messages = ref<ChatMessageType[]>([...mockMessages])
 const messagesEnd = ref<HTMLElement | null>(null)
+const store = useChatStore()
+const { connect, send } = useChat()
 
 function toggle() {
   isOpen.value = !isOpen.value
 }
 
-function sendMessage(text: string) {
-  messages.value.push({ role: 'user', content: text })
-  isTyping.value = true
-  // Mock response after delay — replaced by WebSocket in FE-008
-  setTimeout(() => {
-    isTyping.value = false
-    messages.value.push({
-      role: 'assistant',
-      content: `I heard you say: "${text}". WebSocket integration coming soon!`,
-    })
-  }, 1200)
-}
-
 function handleActionSelected(action: Action) {
-  // In FE-008 this will send to WebSocket with context
-  sendMessage(action.label)
+  send(action.label, {
+    action_response: { type: action.type, value: action.label },
+  })
 }
 
-watch(() => messages.value.length, async () => {
-  await nextTick()
-  messagesEnd.value?.scrollIntoView({ behavior: 'smooth' })
+onMounted(() => {
+  if (localStorage.getItem('token')) connect()
 })
+
+watch(
+  () => store.messages.length,
+  async () => {
+    await nextTick()
+    messagesEnd.value?.scrollIntoView({ behavior: 'smooth' })
+  },
+)
 </script>
 
 <template>
@@ -53,19 +49,26 @@ watch(() => messages.value.length, async () => {
         <X :size="16" />
       </button>
     </div>
+
+    <div v-if="store.isReconnecting" class="chat-reconnecting">Reconnecting...</div>
+
     <div class="chat-panel__messages">
       <ChatMessage
-        v-for="(msg, i) in messages"
+        v-for="(msg, i) in store.messages"
         :key="i"
         :message="msg"
         @action-selected="handleActionSelected"
       />
-      <div v-if="isTyping" class="chat-msg chat-msg--ai chat-msg--typing">
+      <div v-if="store.isTyping" class="chat-msg chat-msg--ai chat-msg--typing">
         <span></span><span></span><span></span>
       </div>
       <div ref="messagesEnd" />
     </div>
-    <ChatInput :disabled="isTyping" @send="sendMessage" />
+
+    <ChatInput
+      :disabled="store.isTyping || !!store.connectionError"
+      @send="send"
+    />
   </div>
 </template>
 
@@ -138,6 +141,17 @@ watch(() => messages.value.length, async () => {
   transition: opacity 0.15s;
 }
 .chat-panel__close:hover { opacity: 1; }
+
+/* Reconnecting banner */
+.chat-reconnecting {
+  background: #fff8e1;
+  color: #795548;
+  font-size: 12px;
+  text-align: center;
+  padding: 4px 12px;
+  border-bottom: 1px solid #ffe082;
+  flex-shrink: 0;
+}
 
 .chat-panel__messages {
   flex: 1;
