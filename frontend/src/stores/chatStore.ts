@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ChatMessage } from '@/types/index'
 
+const MAX_MESSAGES = 200
+
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([])
   const isTyping = ref(false)
@@ -12,6 +14,13 @@ export const useChatStore = defineStore('chat', () => {
 
   function addMessage(msg: ChatMessage) {
     messages.value.push(msg)
+    if (messages.value.length > MAX_MESSAGES) {
+      messages.value = messages.value.slice(-MAX_MESSAGES)
+    }
+  }
+
+  function clearMessages() {
+    messages.value = []
   }
 
   function setTyping(v: boolean) {
@@ -49,6 +58,7 @@ export const useChatStore = defineStore('chat', () => {
     connectionError,
     sessionId,
     addMessage,
+    clearMessages,
     setTyping,
     setConnected,
     setReconnecting,

@@ -22,7 +22,9 @@ function handleActionSelected(action: Action) {
   })
 }
 
-onMounted(() => connect())
+onMounted(() => {
+  if (localStorage.getItem('token')) connect()
+})
 
 watch(
   () => store.messages.length,

@@ -210,6 +210,18 @@ describe('useChat — onmessage', () => {
 
     expect(store.messages[0].content).toBe('Still working on your response...')
   })
+
+  it('ignores malformed JSON frames without crashing', () => {
+    const { connect } = useChat()
+    const store = useChatStore()
+    connect()
+    instance.simulateOpen()
+
+    instance.onmessage?.({ data: 'not valid json{{{{' } as MessageEvent)
+
+    expect(store.messages).toHaveLength(0)
+    expect(store.isTyping).toBe(false)
+  })
 })
 
 describe('useChat — onclose (security)', () => {
@@ -395,6 +407,18 @@ describe('useChat — send', () => {
     // Do NOT simulateOpen — readyState stays CONNECTING
 
     send('hello')
+
+    expect(store.messages).toHaveLength(0)
+    expect(instance.sent).toHaveLength(0)
+  })
+
+  it('does nothing if message is empty or whitespace', () => {
+    const { connect, send } = useChat()
+    const store = useChatStore()
+    connect()
+    instance.simulateOpen()
+
+    send('   ')
 
     expect(store.messages).toHaveLength(0)
     expect(instance.sent).toHaveLength(0)

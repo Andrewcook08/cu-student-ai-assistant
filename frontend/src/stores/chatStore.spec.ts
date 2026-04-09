@@ -67,4 +67,20 @@ describe('chatStore', () => {
     expect(typeof first).toBe('string')
     expect(first.length).toBeGreaterThan(0)
   })
+
+  it('caps messages at 200 — oldest dropped when exceeded', () => {
+    const store = useChatStore()
+    for (let i = 0; i < 205; i++) {
+      store.addMessage({ role: 'user', content: `msg ${i}` })
+    }
+    expect(store.messages).toHaveLength(200)
+    expect(store.messages[0].content).toBe('msg 5') // first 5 dropped
+  })
+
+  it('clearMessages empties the list', () => {
+    const store = useChatStore()
+    store.addMessage({ role: 'user', content: 'hello' })
+    store.clearMessages()
+    expect(store.messages).toHaveLength(0)
+  })
 })

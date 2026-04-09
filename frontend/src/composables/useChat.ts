@@ -21,6 +21,7 @@ export function useChat() {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   function connect() {
+    if (ws && ws.readyState <= WS_OPEN) return  // already connected or connecting
     const sid = store.initSession()
     const token = localStorage.getItem('token') ?? ''
     ws = new WebSocket(`${WS_BASE_URL}/ws/chat/${sid}?token=${token}`)
@@ -32,8 +33,16 @@ export function useChat() {
       reconnectAttempt = 0
     }
 
+    // Message routing — matches WsServerMessage contract in types/index.ts.
+    // Backend (CHAT-002+) must send type: 'error' for errors and type: 'progress'
+    // for progress updates. The stub (CHAT-001) is an echo server only.
     ws.onmessage = (event: MessageEvent) => {
-      const data: WsServerMessage = JSON.parse(event.data as string)
+      let data: WsServerMessage
+      try {
+        data = JSON.parse(event.data as string)
+      } catch {
+        return // malformed frame — skip, don't crash
+      }
 
       if (data.type === 'typing') {
         store.setTyping(true)
@@ -59,6 +68,10 @@ export function useChat() {
       }
     }
 
+    ws.onerror = () => {
+      // onclose fires after onerror — reconnection is handled there
+    }
+
     ws.onclose = (event: CloseEvent) => {
       store.setConnected(false)
       store.setTyping(false)
@@ -79,6 +92,7 @@ export function useChat() {
 
   function send(message: string, context?: WsClientMessage['context']) {
     if (!ws || ws.readyState !== WS_OPEN) return
+    if (!message.trim()) return  // match backend's validation — no blank bubbles
     store.addMessage({ role: 'user', content: message })
     const payload: WsClientMessage = {
       type: 'chat_message',
