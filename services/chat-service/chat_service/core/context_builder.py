@@ -103,15 +103,27 @@ _DELIMITER_TAG_RE: re.Pattern[str] = re.compile(
     re.IGNORECASE,
 )
 
+# HTML-entity-encoded tags: ``&lt;system&gt;``, ``&lt;/system&gt;``, etc.
+# Some LLMs decode HTML entities before interpreting context, so an attacker
+# could smuggle ``&lt;system&gt;override&lt;/system&gt;`` past the literal
+# regex above.  This pattern catches both ``&lt;tag&gt;`` and ``&lt;/tag&gt;``
+# forms for every known delimiter.
+_ENTITY_TAG_PATTERN: str = (
+    r"&lt;\s*/?\s*(?:" + "|".join(re.escape(t) for t in _DELIMITER_TAGS) + r")(?:\s[^&]*)?\s*/?&gt;"
+)
+_ENTITY_TAG_RE: re.Pattern[str] = re.compile(_ENTITY_TAG_PATTERN, re.IGNORECASE)
+
 
 def _sanitize_context_data(text: str) -> str:
     """Strip known delimiter tags from *text*.
 
-    Only actual XML tag patterns (``<tag>``, ``</tag>``, ``<tag/>``) are
-    removed.  Normal angle-bracket usage such as ``x < 5`` or generic type
-    annotations is left intact.
+    Removes both literal XML tag patterns (``<tag>``, ``</tag>``, ``<tag/>``)
+    and HTML-entity-encoded variants (``&lt;tag&gt;``, ``&lt;/tag&gt;``).
+    Normal angle-bracket usage such as ``x < 5`` or generic type annotations
+    is left intact.
     """
-    return _DELIMITER_TAG_RE.sub("", text)
+    text = _DELIMITER_TAG_RE.sub("", text)
+    return _ENTITY_TAG_RE.sub("", text)
 
 
 # ─── Token estimation ───────────────────────────────────────────────────
@@ -314,12 +326,15 @@ async def _retrieve_for_degree_planning(
 def _wrap_section(
     tag: str,
     content: str,
-    running_tokens: int,
-    max_tokens: int,
+    running_chars: int,
+    max_chars: int,
 ) -> tuple[str | None, int]:
-    """Sanitize *content*, wrap it in *tag*, and fit within *max_tokens*.
+    """Sanitize *content*, wrap it in *tag*, and fit within *max_chars*.
 
-    Returns ``(wrapped_string, new_running_tokens)`` or ``(None, running_tokens)``
+    All arithmetic is in characters to avoid integer-division rounding
+    errors that accumulate across sections.
+
+    Returns ``(wrapped_string, new_running_chars)`` or ``(None, running_chars)``
     when there is no room at all.  If the content must be truncated a
     ``\\n[...truncated]`` suffix is appended so the LLM knows the data is
     incomplete.
@@ -327,24 +342,22 @@ def _wrap_section(
     sanitized = _sanitize_context_data(content)
     open_tag = f"<{tag}>"
     close_tag = f"</{tag}>"
-    tag_tokens = _estimate_tokens(open_tag + close_tag)
-    content_tokens = _estimate_tokens(sanitized)
-    available = max_tokens - running_tokens - tag_tokens
+    tag_chars = len(open_tag) + len(close_tag)
+    available = max_chars - running_chars - tag_chars
 
     if available <= 0:
-        return None, running_tokens
+        return None, running_chars
 
-    if content_tokens <= available:
+    if len(sanitized) <= available:
         wrapped = f"{open_tag}{sanitized}{close_tag}"
-        return wrapped, running_tokens + _estimate_tokens(wrapped)
+        return wrapped, running_chars + len(wrapped)
 
     # Truncate content to fit.
     truncation_suffix = "\n[...truncated]"
-    suffix_tokens = _estimate_tokens(truncation_suffix)
-    char_budget = max(0, (available - suffix_tokens) * CHARS_PER_TOKEN)
+    char_budget = max(0, available - len(truncation_suffix))
     truncated = sanitized[:char_budget] + truncation_suffix
     wrapped = f"{open_tag}{truncated}{close_tag}"
-    return wrapped, running_tokens + _estimate_tokens(wrapped)
+    return wrapped, running_chars + len(wrapped)
 
 
 def _assemble_with_budget(
@@ -361,44 +374,35 @@ def _assemble_with_budget(
     2. ``<conversation_summary>`` — truncated if remaining budget is tight.
     3. ``<retrieved_context>`` — truncated or skipped if budget is exhausted.
 
-    Sections are joined with ``\\n\\n``.  The returned ``token_estimate``
-    is computed from the final assembled text so it exactly matches the
-    ``text`` field (including join separators).
+    Internal arithmetic uses character counts to avoid integer-division
+    rounding errors.  The final ``token_estimate`` is computed once from
+    the assembled text.
     """
+    max_chars = max_tokens * CHARS_PER_TOKEN
     sections: list[str] = []
-    running_tokens = 0
+    running_chars = 0
+    separator = "\n\n"
 
-    if profile_text:
-        wrapped, running_tokens = _wrap_section(
-            "user_profile",
-            profile_text,
-            running_tokens,
-            max_tokens,
+    for tag, content in [
+        ("user_profile", profile_text),
+        ("conversation_summary", summary_text),
+        ("retrieved_context", retrieved_text),
+    ]:
+        if not content:
+            continue
+        # Reserve chars for the "\n\n" separator that will precede this
+        # section in the final joined string.
+        sep_cost = len(separator) if sections else 0
+        wrapped, running_chars = _wrap_section(
+            tag,
+            content,
+            running_chars + sep_cost,
+            max_chars,
         )
         if wrapped:
             sections.append(wrapped)
 
-    if summary_text:
-        wrapped, running_tokens = _wrap_section(
-            "conversation_summary",
-            summary_text,
-            running_tokens,
-            max_tokens,
-        )
-        if wrapped:
-            sections.append(wrapped)
-
-    if retrieved_text:
-        wrapped, running_tokens = _wrap_section(
-            "retrieved_context",
-            retrieved_text,
-            running_tokens,
-            max_tokens,
-        )
-        if wrapped:
-            sections.append(wrapped)
-
-    assembled = "\n\n".join(sections)
+    assembled = separator.join(sections)
     return ContextResult(text=assembled, token_estimate=_estimate_tokens(assembled))
 
 
