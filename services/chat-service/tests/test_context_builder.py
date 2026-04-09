@@ -8,12 +8,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from chat_service.core.context_builder import (
     CHARS_PER_TOKEN,
     DEFAULT_MAX_CONTEXT_TOKENS,
-    ContextBuilderError,
-    ContextResult,
     _estimate_tokens,
     _format_courses,
     _format_degree_requirements,
@@ -229,8 +226,10 @@ def test_format_prereq_chain_with_edges() -> None:
     chain = {
         "course": {"code": "CSCI 3104", "title": "Algorithms"},
         "edges": [
-            {"from": "CSCI 3104", "to": "CSCI 2270", "type": "required", "min_grade": "C-", "raw_text": None},
-            {"from": "CSCI 3104", "to": "CSCI 2400", "type": "required", "min_grade": "C", "raw_text": None},
+            {"from": "CSCI 3104", "to": "CSCI 2270", "type": "required",
+             "min_grade": "C-", "raw_text": None},
+            {"from": "CSCI 3104", "to": "CSCI 2400", "type": "required",
+             "min_grade": "C", "raw_text": None},
         ],
     }
     result = _format_prereq_chain(chain)
