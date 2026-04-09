@@ -17,11 +17,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
-
 from course_search_api.limiter import limiter
 from course_search_api.main import app
-
+from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -109,7 +107,9 @@ def test_31st_search_returns_429(client: TestClient) -> None:
     ):
         for i in range(30):
             resp = client.get("/api/courses/search?q=test")
-            assert resp.status_code == 200, f"Expected 200 on request {i + 1}, got {resp.status_code}"
+            assert resp.status_code == 200, (
+                f"Expected 200 on request {i + 1}, got {resp.status_code}"
+            )
 
         thirty_first = client.get("/api/courses/search?q=test")
 
