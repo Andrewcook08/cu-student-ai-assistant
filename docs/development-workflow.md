@@ -28,7 +28,7 @@ main (protected — CI must pass, requires 1 approval)
   ├── feat/CUAI-52-course-ingestion        (Person C — DATA-001)
   ├── feat/CUAI-56-vue-setup               (Person B — FE-001)
   ├── feat/CUAI-39-course-listing          (Person B — API-001)
-  ├── feat/CUAI-30-langgraph-engine        (Person C — CHAT-008)
+  ├── feat/CUAI-40-langgraph-engine        (Person C — CHAT-008, merged)
   └── ...
 ```
 
@@ -427,15 +427,17 @@ You: Run it against the real data. How many courses parsed successfully
      out of the 2,830 with prerequisites?
 ```
 
-**For LangGraph (the hardest part):**
+**For LangGraph (implemented — CHAT-008 / CUAI-40, merged):**
+
+The conversation engine is complete. The LangGraph `StateGraph` in `services/chat-service/chat_service/core/llm_engine.py` implements: `classify_intent → build_context → call_llm → maybe_call_tools (loop, max 10) → respond`, with Redis message persistence, parallel tool execution, retry-without-tools fallback, and a 180s invocation timeout. See ADR-35 through ADR-39 in `docs/decisions.md` for the design choices made during implementation.
+
+**Extending the engine (post-CHAT-008):**
 ```
-You: Implement CHAT-008: LangGraph conversation engine.
-     Read the LangGraph docs for the ReAct agent pattern.
-     The state machine is: classify_intent → build_context →
-     call_llm → maybe_call_tools (loop) → validate_output → respond.
-     Tools are already defined in core/tools.py.
-     Start with a minimal version: just call_llm → maybe_call_tools → respond.
-     Skip intent classification and memory for now — add those later.
+You: Add a new tool to the conversation engine. Define it in
+     core/tools.py following the existing pattern (Pydantic model
+     for args, async function, register in TOOL_REGISTRY).
+     The tool executor, retry logic, and parallel dispatch are
+     already wired — just add the tool definition.
 ```
 
 **Phase-by-phase focus:**
@@ -443,14 +445,14 @@ You: Implement CHAT-008: LangGraph conversation engine.
 | Phase | Person C Focus | Key Prompt Patterns |
 |-------|---------------|-------------------|
 | 1 | Repo skeleton + Docker Compose (INFRA-001), then JSON parsing, DB writes, embeddings, LangGraph spike | "Parse cu_classes.json. The structure is {dept_code: [array_of_course_objects]}. Write to PostgreSQL and Neo4j." |
-| 2 | Neo4j queries, tools, LangGraph engine, Redis queue | "Write a Cypher query that traverses the prerequisite chain for a course. Use variable-length paths." |
+| 2 | Neo4j queries, tools, ~~LangGraph engine~~ (done — CHAT-008), Redis queue | "Write a Cypher query that traverses the prerequisite chain for a course. Use variable-length paths." |
 | 3 | System prompt, security hardening | "Write the production system prompt with behavioral boundaries and delimiter tags. Implement input sanitizer." |
 | 4 | Prompt tuning, demo prep | "Test these 10 conversation scenarios and tell me which ones fail. Adjust the system prompt." |
 
 **Tips for Person C:**
 - For Neo4j Cypher queries, always tell Claude Code to use parameterized queries: "Use $code not f-strings"
-- For LangGraph, build incrementally: get one tool call working before adding all 7
-- Use manual `StateGraph` pattern (not `create_react_agent`) — gives full control over nodes, state, and error handling (validated by CUAI-32 spike)
+- LangGraph engine is implemented (CHAT-008 / CUAI-40). To extend it, add tools in `core/tools.py` — the graph, executor, and retry logic are wired
+- Uses manual `StateGraph` pattern (not `create_react_agent`) — gives full control over nodes, state, and error handling (validated by CUAI-32 spike, implemented in CUAI-40)
 - Use gpt-oss:20b for tool calling — validated by CUAI-32 extended spike for reliable two-tool pattern. 3B models hallucinate tool args and over-trigger tools.
 - Add a max-iterations guard to the tool loop to prevent infinite cycles
 - The `search_courses` → `lookup_course` two-tool pattern is critical: fuzzy search resolves names to codes, then exact lookup gets full details

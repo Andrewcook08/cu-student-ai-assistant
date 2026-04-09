@@ -1,6 +1,6 @@
 # CU Student AI Assistant — Architecture Design
 
-> **Status**: Draft — iterating on design before implementation
+> **Status**: Active — iterating as implementation progresses
 > **Team**: 3 people, Big Data Architecture class (CU Boulder)
 > **Goal**: Production-grade AI assistant that helps students plan degree paths and semester schedules
 
@@ -106,10 +106,11 @@ The backend is split into **two services** plus the Ollama inference cluster. Th
 - **Scales independently**: 1 instance handles most load
 
 ### Chat Service
-- Stateful, complex AI orchestration (LangGraph, tool calling, memory)
+- Stateful AI orchestration via a compiled LangGraph `StateGraph` with 5 nodes: `classify_intent` → `build_context` → `call_llm` ←→ `tool_node` → `respond`
 - Holds long-lived WebSocket connections for streaming
 - Slow responses (seconds — waiting on Ollama inference)
-- Owns: intent classification, Graph RAG retrieval, context building, tool calling, input/output validation
+- Owns: intent classification, context building (Graph RAG + student profile), tool calling (7 tools via `ToolExecutor`), conversation history (Redis), input sanitization
+- Graph compiled once at startup on `app.state.conversation_graph`; each `ainvoke()` operates on an independent state copy (concurrent WebSocket sessions are safe)
 - **Scales independently**: add instances as chat demand grows, without affecting course search
 
 ### Ollama Workers
@@ -127,7 +128,7 @@ The backend is split into **two services** plus the Ollama inference cluster. Th
 ### Communication
 - Frontend → Course Search API: REST (HTTP)
 - Frontend → Chat Service: WebSocket (streaming) + REST (non-streaming fallback)
-- Chat Service → Ollama Workers: Redis queue (async, decoupled)
+- Chat Service → Ollama Workers: `ChatOllama` via HTTP (local dev); Redis queue planned for GCP auto-scaling
 - Both services → PostgreSQL/Neo4j/Redis: direct connections (shared data layer)
 
 ---
@@ -140,10 +141,10 @@ The backend is split into **two services** plus the Ollama inference cluster. Th
 | **UI Components** | Tailwind CSS + shadcn-vue | Rapid styling, easy CU branding (black/gold) |
 | **Backend (both services)** | Python 3.12 + FastAPI | Best for AI backends — async, typed, auto-generated docs |
 | **LLM** | Ollama (gpt-oss:20b) | Self-hosted, gpt-oss:20b validated by CUAI-32 extended spike for reliable tool calling with two-tool pattern. Model is swappable via `OLLAMA_MODEL` env var. |
-| **LLM Orchestration** | LangChain + LangGraph | Conversation flows, tool calling, memory management ([ADR-5](decisions.md#adr-5-langchain--langgraph-for-orchestration)) |
+| **LLM Orchestration** | LangChain + LangGraph | Manual `StateGraph` (NOT `create_react_agent`) per [ADR-5](decisions.md#adr-5-langchain--langgraph-for-orchestration) — `ConversationState` extends `MessagesState`, `ChatOllama` with `bind_tools()`, 5-node graph compiled once at startup |
 | **Graph DB + Vectors** | Neo4j (native vector indexes) | Graph RAG + vector search in one system |
 | **Relational DB** | PostgreSQL 16 | Structured queries, user accounts, persistent decision history |
-| **Session/Cache** | Redis | Conversation state, rate limiting, LLM request queue |
+| **Session/Cache** | Redis | Conversation history (last 20 messages, 2h TTL, atomic persist via pipeline), rate limiting (slowapi) |
 | **Embeddings** | Ollama (nomic-embed-text, 768 dims) | Self-hosted embeddings, no external API needed |
 | **Auth** | JWT (future: CU SSO/SAML) | Identify students for persistent decision history |
 | **Containers** | Docker + Docker Compose | All services containerized, local dev parity |
@@ -558,7 +559,7 @@ For the POC, students create an account and **self-report their profile**:
 
 ## Tool Calling
 
-**Status**: Design only — not yet implemented. Target: Phase 2 (Epic 4 CHAT-*).
+**Status**: Implemented (CHAT-005/006/008 — CUAI-37/38/40).
 
 The LLM accesses databases via **tools** (LangChain tool calling with Ollama) rather than raw RAG context injection. The model decides when to call each tool based on the conversation. See [ADR-6](decisions.md#adr-6-tool-calling-over-raw-rag) for why tool calling over pure RAG. The first two tools implement the **two-tool pattern** (validated by CUAI-32 spike): `search_courses` handles fuzzy/vector search by name or keyword, while `lookup_course` handles exact code-based retrieval. This split is necessary because even 8B models can't reliably map course names to exact codes.
 
@@ -613,15 +614,17 @@ def save_decision(user_id: str, course_code: str, decision_type: str,
 
 The architecture includes several safeguards for reliable tool calling:
 
-1. **Retry on malformed calls**: If the LLM outputs invalid JSON for a tool call, `tool_executor.py` catches the `ValidationError`, re-prompts the LLM once with the error message ("Invalid parameters: field X expected int, got str"), and lets it retry. If the retry also fails, return a graceful text response ("I couldn't look that up — could you rephrase?").
+1. **Retry-without-tools fallback**: In `call_llm_node`, the LLM is first invoked with `bind_tools()`. If the model produces a malformed tool call (common with smaller OSS models that emit "thinking" text before the JSON — gpt-oss:20b has a thinking mode that leaks into tool call JSON if `reasoning=True`), the node retries once with the bare LLM (no tools bound) so the user still gets a text response rather than an error.
 
-2. **Strict Pydantic validation**: Every tool call is validated against its schema before execution. Bad parameters never reach the database.
+2. **Strict Pydantic validation**: Every tool call is validated against its schema by `ToolExecutor` before execution. Bad parameters never reach the database. The executor also enforces JWT `user_id` override (the LLM cannot access another user's data), parameter whitelisting, and audit logging.
 
-3. **Tool descriptions are the prompt**: Keep `@tool` docstrings short, concrete, and example-rich. The LLM picks tools based on the docstring, so clarity matters more than cleverness. Test tool descriptions against real student questions early (Phase 1).
+3. **Tool call rate limiting**: The `should_continue` edge checks `call_count >= MAX_TOOL_CALLS_PER_TURN` (10). If the limit is reached, the graph routes to `respond` instead of continuing the tool loop. This prevents runaway loops from manipulated or confused models.
 
-4. **Model flexibility**: The current model is gpt-oss:20b, configured via `OLLAMA_MODEL`. The architecture is model-agnostic — to swap models, update `OLLAMA_MODEL` and adjust the GPU VM instance type if needed. No code changes required.
+4. **Parallel tool execution**: When the LLM emits multiple tool calls in a single `AIMessage`, the `tool_node` executes them concurrently via `asyncio.gather()` to reduce latency.
 
-5. **Phase 1 validation gate**: Before building the full chat engine, test raw Ollama tool calling with your 7 tool schemas against 20 representative student questions. Validate the chosen model can reliably pick the right tool and generate valid parameters. Adjust model choice or tool schemas before building anything on top.
+5. **Tool descriptions are the prompt**: `@tool` docstrings are short, concrete, and example-rich. The LLM picks tools based on the docstring, so clarity matters more than cleverness.
+
+6. **Model flexibility**: The current model is gpt-oss:20b, configured via `OLLAMA_MODEL`. `ChatOllama` is initialized with `temperature=0` and `reasoning=False` (disabling thinking mode prevents leaked reasoning text from corrupting tool call JSON). The architecture is model-agnostic — to swap models, update `OLLAMA_MODEL` and adjust the GPU VM instance type if needed. No code changes required.
 
 ### Example Flow
 1. Student: *"What CS electives can I take?"*
@@ -636,25 +639,26 @@ The architecture includes several safeguards for reliable tool calling:
 
 ## Conversation Memory
 
-**Status**: Design only — not yet implemented. Target: Phase 3 (Epic 8 MEM-*).
+**Status**: Redis session history implemented (CHAT-008 / CUAI-40). Summary compression and cross-session memory are planned (Epic 8 MEM-*).
 
 See [ADR-8](decisions.md#adr-8-two-tier-conversation-memory) and [ADR-9](decisions.md#adr-9-persistent-decision-history) for why this design.
 
 ### Inference Timeout Handling
 
-The Chat Service sets a **120-second timeout** on inference requests through the Redis queue. This accounts for worst-case scenarios (spot VM reclaimed mid-inference, MIG spinning up a new GPU worker ~60s boot time, plus inference time).
+The Chat Service sets a **180-second timeout** on each LangGraph invocation via `asyncio.wait_for(graph.ainvoke(...), timeout=180)` in the WebSocket handler (`routes/chat.py`). This covers the full pipeline: intent classification, context building, LLM inference, and any tool-calling loops.
 
-- At **30 seconds**: the WebSocket streams a progress update: *"Still working on your response..."*
-- At **120 seconds**: timeout fires — the WebSocket sends: *"The AI is taking longer than expected. Please try again in a moment."*
-- The request is **not** silently retried (avoids queue buildup from cascading retries)
+- On **timeout**: the WebSocket sends: *"The request took too long. Please try again."* — the handler continues to the next message (no retry)
+- On **graph error**: the WebSocket sends: *"Something went wrong. Please try again."* — the handler continues
+- On **LLM error** within the graph: the `call_llm_node` retry-without-tools fallback fires first; if both attempts fail, the graph sets `state.error` with a user-facing message and routes to `respond`
+- The request is **not** silently retried (avoids cascading failures)
 - The frontend clears the typing indicator and re-enables the input field
-- Implemented in `redis_service.py` via a pub/sub listener with `asyncio.wait_for(timeout=120.0)`, with the 30s progress update sent via a background task
 
 ### Within a Session (Redis)
-- **Short-term**: Last 20 messages stored in Redis, passed directly to LLM
-- **Compression**: When buffer exceeds threshold, Ollama generates a running summary capturing: selected major, completed courses, decisions made, preferences
-- **Summary prepended** as system context: *"Summary of earlier conversation: {summary}"*
+- **Short-term**: Last 20 messages stored in Redis, passed directly to LLM. History is loaded from Redis at the start of each message, converted to LangChain `HumanMessage`/`AIMessage` objects (tool messages from prior turns are excluded — they are ephemeral to the tool-calling loop).
+- **Atomic persist**: After each turn, `redis_service.append_messages()` persists both the user message and assistant reply in a single Redis pipeline (all RPUSHes + EXPIRE in one round-trip), so either both are saved or neither is — no partial history.
+- **Graceful degradation**: If Redis is unavailable, the handler proceeds with empty history (logs a warning) and still attempts to persist after the response (failure is also logged but non-fatal).
 - **Session TTL**: 2 hours in Redis
+- **Compression** (planned — MEM-001): When buffer exceeds threshold, Ollama generates a running summary capturing: selected major, completed courses, decisions made, preferences. Summary prepended as system context.
 
 ### Across Sessions (PostgreSQL)
 - The student's profile (program + completed courses) persists across all sessions
@@ -687,7 +691,7 @@ Note: the implemented `GET /api/courses` accepts a `q=` parameter that performs 
 
 | Method | Path | Purpose | Status |
 |--------|------|---------|--------|
-| `WS` | `/ws/chat/{session_id}` | Streaming chat via WebSocket | Implemented (CHAT-001) — JWT-validated echo stub; full LangGraph engine pending CHAT-008 |
+| `WS` | `/ws/chat/{session_id}` | Streaming chat via WebSocket | Implemented (CHAT-001 + CHAT-008) — JWT-validated, LangGraph conversation engine with tool calling, Redis history, 180s timeout |
 | `GET` | `/api/chat/health` | Chat service health check | Implemented |
 
 ### Chat Response Schema
@@ -885,23 +889,38 @@ cu-student-ai-assistant/
 │       │                           #   [tool.uv.sources] shared = { workspace = true }
 │       ├── chat_service/
 │       │   ├── __init__.py
-│       │   ├── main.py             # FastAPI app: CORS, lifespan, inline GET /api/chat/health
+│       │   ├── main.py             # FastAPI app: CORS, lifespan (initializes Neo4j driver,
+│       │   │                       #   httpx Ollama client, Redis, async Postgres engine,
+│       │   │                       #   ToolExecutor, compiled conversation_graph), GET /api/chat/health
 │       │   ├── dependencies.py     # FastAPI Depends: get_current_user, get_redis, get_neo4j
 │       │   ├── routes/
 │       │   │   ├── __init__.py
 │       │   │   └── chat.py         # APIRouter() (no prefix) — WS /ws/chat/{session_id}
-│       │   │                       #   IMPLEMENTED (CHAT-001): JWT-validated echo stub;
-│       │   │                       #   LangGraph engine pending CHAT-008. Note: /api/chat/health
-│       │   │                       #   is defined directly on `app` in main.py, not on this router.
-│       │   ├── core/               # All files below PLANNED (Phase 2 — Epic 4 CHAT-*)
-│       │   │   └── __init__.py
-│       │   │   #   llm_engine.py, graph_rag.py, tools.py, tool_executor.py,
-│       │   │   #   context_builder.py, memory.py, intent_classifier.py,
-│       │   │   #   input_sanitizer.py, output_validator.py
-│       │   └── services/           # All files below PLANNED (Phase 2 — Epic 4)
-│       │       └── __init__.py
-│       │       #   neo4j_service.py, redis_service.py,
-│       │       #   ollama_service.py, postgres_service.py
+│       │   │                       #   IMPLEMENTED (CHAT-001 + CHAT-008): JWT-validated WebSocket
+│       │   │                       #   with LangGraph conversation engine, Redis history,
+│       │   │                       #   180s timeout. Note: /api/chat/health is defined directly
+│       │   │                       #   on `app` in main.py, not on this router.
+│       │   ├── core/               # Chat engine modules (CHAT-003..008)
+│       │   │   ├── __init__.py
+│       │   │   ├── llm_engine.py   # IMPLEMENTED (CHAT-008): LangGraph StateGraph —
+│       │   │   │                   #   5 nodes (classify_intent → build_context → call_llm
+│       │   │   │                   #   ←→ tool_node → respond), ChatOllama with bind_tools(),
+│       │   │   │                   #   retry-without-tools fallback, CourseCard extraction
+│       │   │   ├── intent_classifier.py  # IMPLEMENTED (CHAT-007): keyword + LLM fallback
+│       │   │   ├── context_builder.py    # IMPLEMENTED (CHAT-003 + CHAT-010): RAG context assembly
+│       │   │   │                   #   with tag sanitization (CHAT-003) to strip injection attempts
+│       │   │   ├── tools.py        # IMPLEMENTED (CHAT-005): 7 LangChain @tool functions
+│       │   │   └── tool_executor.py # IMPLEMENTED (CHAT-006): auth-enforcing executor with
+│       │   │                       #   JWT user_id override, rate limiting, audit logging
+│       │   │   #   memory.py — PLANNED (MEM-001)
+│       │   │   #   output_validator.py — PLANNED (SEC-*)
+│       │   └── services/           # Service clients (CHAT-002/004)
+│       │       ├── __init__.py
+│       │       ├── neo4j_service.py    # IMPLEMENTED (CHAT-002)
+│       │       ├── redis_service.py    # IMPLEMENTED (CHAT-004 + CHAT-008): session history,
+│       │       │                       #   append_messages() atomic batch persist via pipeline
+│       │       ├── ollama_service.py   # IMPLEMENTED (CHAT-002): embeddings + health check
+│       │       └── postgres_service.py # IMPLEMENTED (CHAT-002): async engine + session factory
 │       └── tests/
 │           └── conftest.py         # Fixtures placeholder — test_chat.py, test_graph_rag.py,
 │                                   #   test_tools.py, test_security.py PLANNED (Phase 2)
@@ -1049,7 +1068,7 @@ cu-student-ai-assistant/
 
 ## Security: Prompt Injection & Abuse Prevention
 
-**Status**: Design only — not yet implemented. Target: Phase 3 (Epic 9 SEC-*).
+**Status**: Partially implemented. Tool-level auth (CHAT-006), tool call rate limiting (CHAT-008), system prompt hardening (CHAT-008), input sanitization (CHAT-003), and delimiter tags (CHAT-010 context builder) are shipped. Remaining items (output validation, PII scanning, injection pattern flagging, audit anomaly detection) are planned for Phase 3 (Epic 9 SEC-*).
 
 The assistant has tool access that can read and write to databases, making prompt injection a real threat — not just a cosmetic issue. This section covers attack surfaces and defenses. See [ADR-14](decisions.md#adr-14-security-tool-authorization) and [ADR-17](decisions.md#adr-17-defense-in-depth-security) for the reasoning behind this strategy.
 
@@ -1127,10 +1146,10 @@ When course descriptions or degree path data is retrieved and injected as contex
 
 | Priority | Defense | Phase |
 |----------|---------|-------|
-| **P0 (must-have)** | Tool-level auth enforcement (JWT override) | Phase 2 (Core Features) |
-| **P0 (must-have)** | System prompt hardening + delimiter tags | Phase 3 (Integration + Polish) |
-| **P1 (should-have)** | Input length limits + output schema validation | Phase 3 (Integration + Polish) |
-| **P1 (should-have)** | Tool call rate limiting | Phase 3 (Integration + Polish) |
+| **P0 (must-have)** | Tool-level auth enforcement (JWT override) | Implemented (CHAT-006) — `ToolExecutor` overrides `user_id` from JWT |
+| **P0 (must-have)** | System prompt hardening + delimiter tags | Implemented (CHAT-008/010) — system prompt in `llm_engine.py`, `<retrieved_context>` tags in context builder |
+| **P1 (should-have)** | Input length limits + output schema validation | Input sanitization implemented (CHAT-003); output validation planned (Phase 3) |
+| **P1 (should-have)** | Tool call rate limiting | Implemented (CHAT-008) — `MAX_TOOL_CALLS_PER_TURN=10` enforced by `should_continue` edge |
 | **P2 (nice-to-have)** | Injection pattern detection + flagging | Phase 3 (Integration + Polish) |
 | **P2 (nice-to-have)** | PII scanning, audit logging, anomaly detection | Phase 2-3 (audit logging in Phase 2, rest in Phase 3) |
 
@@ -1138,9 +1157,9 @@ When course descriptions or degree path data is retrieved and injected as contex
 
 ## API & Infrastructure Security
 
-**Status**: Design only — not yet implemented. Target: Phase 3 (SEC-005..009 / CUAI-79..83).
+**Status**: Partially implemented. SEC-007 rate limiting (CUAI-81) shipped. Remaining items (SEC-005/006/008/009 / CUAI-79/80/82/83) are planned for Phase 3.
 
-This section covers the security controls that sit between the LLM defenses above and the network defenses below — the FastAPI surface itself: route-level auth enforcement, startup secret validation, rate limiting, hardened compose configuration, and WebSocket frame controls. See [ADR-33](decisions.md#adr-33-api--infrastructure-security-hardening) for the decision rationale behind this control set. None of this is shipped yet; the subsections below describe the planned design only.
+This section covers the security controls that sit between the LLM defenses above and the network defenses below — the FastAPI surface itself: route-level auth enforcement, startup secret validation, rate limiting, hardened compose configuration, and WebSocket frame controls. See [ADR-33](decisions.md#adr-33-api--infrastructure-security-hardening) for the decision rationale behind this control set.
 
 ### Auth Enforcement on Every Route
 
@@ -1200,7 +1219,7 @@ This complements [ADR-23](decisions.md#adr-23-network-security-private-subnet--i
 
 ### WebSocket Hardening
 
-Layered on the existing `/ws/chat/{session_id}` stub, four enforcement points will fire after `accept()` and JWT validation:
+Layered on the existing `/ws/chat/{session_id}` endpoint, four enforcement points will fire after `accept()` and JWT validation:
 
 | Check | Behavior |
 |-------|----------|
@@ -1209,7 +1228,7 @@ Layered on the existing `/ws/chat/{session_id}` stub, four enforcement points wi
 | ≤ 20 messages per rolling 10 s window per connection (in-process token bucket) | Otherwise emit `{"type":"error","code":"rate_limit"}` and close 1008 |
 | `user_id` captured from JWT `sub` | Included in every server-side log line; consumed later by the CUAI-38 tool executor for the [ADR-14](decisions.md#adr-14-security--backend-enforced-tool-authorization) override |
 
-The token is currently delivered in the query string (`?token=...`). This is a known P1 gap — see "Deferred" below. The stub-level rate limit is in-process; no Redis dependency is introduced for the WebSocket layer in Phase 3.
+The token is currently delivered in the query string (`?token=...`). This is a known P1 gap — see "Deferred" below. The WebSocket-level rate limit is in-process; no Redis dependency is introduced for the WebSocket layer in Phase 3.
 
 ### Deferred to P1
 
@@ -1460,7 +1479,7 @@ GitHub Actions (deploy.yml)
 > **Budget: ~$150** ($50 GCP coupon × 3 people). Estimated spend: ~$15-25.
 > **Strategy**: Build and test everything locally first. Only deploy to GCP in the final week.
 
-> **Status as of end of Sprint 1 (2026-04-07)**: Phase 1 complete (INFRA-001/002/003 + DATA-001..006). API-001/002/004/005 and FE-001..004 complete from Phase 2 — course search works end-to-end. CI pipeline (CUAI-71) live. **Next up**: chat engine (Epic 4 CHAT-*), auth endpoints + UI (Epic 7 AUTH-*), API-003 semantic search, the `PUT /api/students/me/completed-courses` remainder of API-005, plus the MEM/SEC/DEPLOY epics. Everything in §§ Tool Calling, Conversation Memory, Security, Network Security, and GCP Deployment is design-only.
+> **Status as of Sprint 2 (2026-04-09)**: Phase 1 complete (INFRA-001/002/003 + DATA-001..006). API-001/002/004/005 and FE-001..004 complete from Phase 2 — course search works end-to-end. CI pipeline (CUAI-71) live. **Chat engine (Epic 4 CHAT-*) is implemented**: CHAT-001..008 shipped — LangGraph conversation engine with tool calling, intent classification, context building, Redis conversation history, input sanitization, and WebSocket integration. SEC-007 rate limiting middleware also shipped. **Next up**: auth endpoints + UI (Epic 7 AUTH-*), API-003 semantic search, `PUT /api/students/me/completed-courses` (API-005b), conversation memory (MEM-*), remaining security hardening (SEC-*), and GCP deployment (DEPLOY-*).
 
 ### Critical Path
 
