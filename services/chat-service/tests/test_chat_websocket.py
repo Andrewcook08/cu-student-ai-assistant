@@ -10,6 +10,10 @@ from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 from shared.auth import create_access_token
 
+# A well-formed UUID v4 used across all tests.  The endpoint validates
+# session_id against the UUID v4 pattern (SEC-009 / CUAI-83).
+VALID_SESSION = "00000000-0000-4000-8000-000000000000"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -52,14 +56,14 @@ def test_websocket_valid_token_returns_chat_response(client: TestClient) -> None
             "chat_service.routes.chat.redis_service.append_messages",
             new_callable=AsyncMock,
         ),
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
         ws.send_json({"message": "hello"})
         assert ws.receive_json() == {"type": "typing"}
         assert ws.receive_json() == {
             "type": "chat_response",
             "reply": "Hello!",
-            "session_id": "test-session",
+            "session_id": VALID_SESSION,
         }
 
 
@@ -90,7 +94,7 @@ def test_websocket_returns_structured_data(client: TestClient) -> None:
             "chat_service.routes.chat.redis_service.append_messages",
             new_callable=AsyncMock,
         ),
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
         ws.send_json({"message": "show me courses"})
         ws.receive_json()  # typing
@@ -108,7 +112,7 @@ def test_websocket_returns_structured_data(client: TestClient) -> None:
 def test_websocket_rejects_invalid_token(client: TestClient) -> None:
     with (
         pytest.raises(WebSocketDisconnect) as exc_info,
-        client.websocket_connect("/ws/chat/test-session?token=not-a-real-jwt") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token=not-a-real-jwt") as ws,
     ):
         ws.receive_text()
     assert exc_info.value.code == 4001
@@ -120,7 +124,7 @@ def test_websocket_rejects_missing_token(client: TestClient) -> None:
     # WebSocketDisconnect.
     with (
         pytest.raises(WebSocketDisconnect),
-        client.websocket_connect("/ws/chat/test-session") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}") as ws,
     ):
         ws.receive_text()
 
@@ -149,7 +153,7 @@ def test_websocket_empty_message_no_response(client: TestClient) -> None:
             "chat_service.routes.chat.redis_service.append_messages",
             new_callable=AsyncMock,
         ),
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
         # Send an empty message then a real one to confirm the loop is still
         # running and the empty one produced no frame.
@@ -190,14 +194,14 @@ def test_websocket_graph_failure_returns_error_response(client: TestClient) -> N
             "chat_service.routes.chat.redis_service.append_messages",
             new_callable=AsyncMock,
         ),
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
         ws.send_json({"message": "trigger failure"})
         ws.receive_json()  # typing
         response = ws.receive_json()
         assert response["type"] == "chat_response"
         assert "went wrong" in response["reply"].lower()
-        assert response["session_id"] == "test-session"
+        assert response["session_id"] == VALID_SESSION
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +229,7 @@ def test_websocket_redis_failure_graph_still_runs(client: TestClient) -> None:
             "chat_service.routes.chat.redis_service.append_messages",
             new_callable=AsyncMock,
         ),
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
         ws.send_json({"message": "hello despite redis being down"})
         ws.receive_json()  # typing
@@ -263,14 +267,14 @@ def test_websocket_redis_append_failure_response_still_sent(client: TestClient) 
             new_callable=AsyncMock,
             side_effect=RedisError("persist failed"),
         ),
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
         ws.send_json({"message": "hello"})
         ws.receive_json()  # typing
         response = ws.receive_json()
         assert response["type"] == "chat_response"
         assert response["reply"] == "Persisted reply"
-        assert response["session_id"] == "test-session"
+        assert response["session_id"] == VALID_SESSION
 
     # Graph must have been called despite the persist failure.
     mock_graph.ainvoke.assert_called_once()
@@ -300,7 +304,7 @@ def test_websocket_malformed_json_is_silently_skipped(client: TestClient) -> Non
             "chat_service.routes.chat.redis_service.append_messages",
             new_callable=AsyncMock,
         ),
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
         # Malformed JSON — should produce no response frame.
         ws.send_text("not json at all")
@@ -341,43 +345,53 @@ def test_websocket_graph_timeout_returns_timeout_response(client: TestClient) ->
             "chat_service.routes.chat.redis_service.append_messages",
             new_callable=AsyncMock,
         ),
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
         ws.send_json({"message": "slow query"})
         ws.receive_json()  # typing
         response = ws.receive_json()
         assert response["type"] == "chat_response"
         assert "too long" in response["reply"].lower()
-        assert response["session_id"] == "test-session"
+        assert response["session_id"] == VALID_SESSION
 
 
 # ---------------------------------------------------------------------------
-# SEC-009 (CUAI-83) — WS flood / oversized message limits (not yet implemented)
+# SEC-009 (CUAI-83) — session_id validation, size limit, rate limit
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="Waiting on CUAI-83 (SEC-009) WS hardening")
-def test_websocket_oversized_message_closes_with_1009(client: TestClient) -> None:
-    """Oversized message (>4096 bytes) should close with code 1009."""
+def test_websocket_bad_session_id_closes_with_4002(client: TestClient) -> None:
+    """A session_id that is not UUID v4 should close with code 4002."""
     token = create_access_token(1)
     with (
         pytest.raises(WebSocketDisconnect) as exc_info,
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
+        client.websocket_connect(f"/ws/chat/not-a-uuid?token={token}") as ws,
     ):
+        ws.receive_text()
+    assert exc_info.value.code == 4002
+
+
+def test_websocket_oversized_message_closes_with_1009(client: TestClient) -> None:
+    """Oversized message (>4096 bytes) should send an error frame and close with 1009."""
+    token = create_access_token(1)
+    with client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws:
         ws.send_json({"message": "x" * 5000})
-        ws.receive_json()
+        assert ws.receive_json() == {"type": "error", "code": "message_too_large"}
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            ws.receive_json()
     assert exc_info.value.code == 1009
 
 
-@pytest.mark.skip(reason="Waiting on CUAI-83 (SEC-009) WS hardening")
 def test_websocket_flood_closes_with_1008(client: TestClient) -> None:
-    """21st message within 10s should trigger rate limit close with code 1008."""
+    """21st frame within 10s should trigger rate limit close with code 1008."""
     token = create_access_token(1)
-    with (
-        pytest.raises(WebSocketDisconnect) as exc_info,
-        client.websocket_connect(f"/ws/chat/test-session?token={token}") as ws,
-    ):
-        for i in range(21):
-            ws.send_json({"message": f"msg {i}"})
-        ws.receive_json()
+    # Send 21 frames with no message body — they are counted by the rate
+    # limiter (which fires before the empty-message check) but do not
+    # reach the LangGraph engine, so no graph mock is needed.
+    with client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws:
+        for _ in range(21):
+            ws.send_json({})
+        assert ws.receive_json() == {"type": "error", "code": "rate_limit"}
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            ws.receive_json()
     assert exc_info.value.code == 1008
