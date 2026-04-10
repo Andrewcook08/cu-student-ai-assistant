@@ -369,19 +369,43 @@ This gives you hot reload on all application code while databases run in Docker.
 | 6379 | Redis | TCP |
 | 11434 | Ollama | HTTP |
 
-### Production override (planned — SEC-008)
+### Production override (SEC-008)
 
-**Status**: Design only — not yet implemented. See [SEC-008 / CUAI-82](#) and [ADR-33 in decisions.md](decisions.md#adr-33-api--infrastructure-security-hardening).
+The local dev compose file intentionally exposes every datastore on the host so developers can connect with `psql`, Neo4j Browser, `redis-cli`, etc. For production and prod-simulation, `docker-compose.prod.yml` layers on top of the base file to remove these host bindings. Services still reach each other by service name on the internal compose bridge network — only the host-side ports go away.
 
-The local dev compose file (documented above) intentionally exposes every datastore on the host so developers can connect with `psql`, Neo4j Browser, `redis-cli`, etc. For production and prod-simulation, a planned `docker-compose.prod.yml` override will be layered on top of the base file to remove these host bindings. Services will still reach each other by service name on the internal compose bridge network — only the host-side ports go away.
-
-The override will introduce three changes:
+The override introduces three changes:
 
 - **Cleared `ports:` mappings** on `postgres`, `neo4j`, `redis`, and `ollama` — no host binding, so datastores are unreachable from outside the compose network.
-- **Required secret syntax** (`${NEO4J_PASSWORD:?required}`, `${POSTGRES_PASSWORD:?required}`, `${JWT_SECRET_KEY:?required}`) — the stack refuses to start when any secret is unset.
-- **`ENVIRONMENT=production`** set on the app services, which trips the SEC-006 fail-fast secret validator at boot.
+- **Required secret syntax** (`${NEO4J_PASSWORD:?required}`, `${POSTGRES_PASSWORD:?required}`, `${REDIS_PASSWORD:?required}`, `${JWT_SECRET_KEY:?required}`) — the stack refuses to start when any secret is unset.
+- **`ENVIRONMENT=production`** on the app services — trips the SEC-006 fail-fast secret validator at boot.
 
-Future invocation: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up`. Verification: `nc -zv localhost 5432` will fail from the host, while `docker compose exec course-search-api pg_isready -h postgres` will succeed.
+**Running with the prod override:**
+
+```bash
+# Export secrets (or use a secrets manager / .env injection)
+export POSTGRES_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+export NEO4J_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+export REDIS_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+export JWT_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+
+# Validate the merged config
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config
+
+# Start the stack
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+**Verify port isolation** (after `up`):
+
+```bash
+# Should fail — no host binding
+nc -zv localhost 5432
+
+# Should succeed — internal service-name reach
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec course-search-api pg_isready -h postgres
+```
+
+See [ADR-33 in decisions.md](decisions.md#adr-33-api--infrastructure-security-hardening) for the rationale.
 
 ---
 
