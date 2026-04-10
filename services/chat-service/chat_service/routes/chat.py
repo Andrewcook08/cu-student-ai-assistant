@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -28,6 +30,22 @@ from chat_service.services.redis_service import RedisError
 #: Prevents the WebSocket handler from stalling indefinitely if the LLM hangs
 #: or a tool call blocks.
 GRAPH_TIMEOUT_SECONDS = 180
+
+#: UUID v4 pattern — session_id must match before the message loop begins.
+_UUID4_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+#: Maximum raw frame size in bytes.  Frames exceeding this are rejected
+#: with close code 1009 (message too large).
+MAX_MESSAGE_BYTES = 4096
+
+#: Per-connection rate limit: at most this many frames per window.
+RATE_LIMIT_MESSAGES = 20
+
+#: Rolling window length in seconds for the per-connection rate limit.
+RATE_LIMIT_WINDOW_SECONDS = 10
 
 logger = logging.getLogger(__name__)
 
@@ -68,19 +86,49 @@ async def chat_websocket(
     (with optional structured data) is sent back.
     """
     await websocket.accept()
+
+    # TODO(P1): replace query-string token with WebSocket subprotocol header
+    #   to prevent tokens from appearing in server access logs.
     try:
         user_id = int(decode_access_token(token))
     except (JWTError, ValueError):
         await websocket.close(code=4001, reason="Invalid token")
         return
 
+    if not _UUID4_RE.match(session_id):
+        await websocket.close(code=4002, reason="Invalid session_id")
+        return
+
+    logger.info("chat: connection accepted user_id=%s session=%s", user_id, session_id)
+
     app = websocket.app
     graph = app.state.conversation_graph
     redis_client = app.state.redis
 
+    rate_count = 0
+    rate_window_start = time.monotonic()
+
     try:
         while True:
             raw = await websocket.receive_text()
+
+            # ── Size guard ──────────────────────────────────────────
+            if len(raw.encode("utf-8")) > MAX_MESSAGE_BYTES:
+                await websocket.send_json({"type": "error", "code": "message_too_large"})
+                await websocket.close(code=1009)
+                return
+
+            # ── Per-connection rate limit (in-process token bucket) ─
+            now = time.monotonic()
+            if now - rate_window_start >= RATE_LIMIT_WINDOW_SECONDS:
+                rate_count = 0
+                rate_window_start = now
+            rate_count += 1
+            if rate_count > RATE_LIMIT_MESSAGES:
+                await websocket.send_json({"type": "error", "code": "rate_limit"})
+                await websocket.close(code=1008)
+                return
+
             try:
                 data = json.loads(raw)
                 message = data.get("message", "") if isinstance(data, dict) else ""
