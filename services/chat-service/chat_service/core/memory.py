@@ -39,7 +39,7 @@ from redis.exceptions import RedisError as RedisLibraryError
 from redis.exceptions import TimeoutError as RedisLibraryTimeoutError
 
 from chat_service.services import redis_service
-from chat_service.services.redis_service import SESSION_TTL_SECONDS, RedisError, RedisServiceError
+from chat_service.services.redis_service import SESSION_TTL_SECONDS, RedisServiceError
 
 logger = logging.getLogger(__name__)
 

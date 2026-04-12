@@ -10,14 +10,13 @@ Redis client is mocked — tests assert:
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from chat_service.core.memory import (
-    MAX_RECENT_MESSAGES,
     _POST_SUMMARY_KEEP,
+    MAX_RECENT_MESSAGES,
     _messages_key,
     _summary_key,
     get_conversation_state,
@@ -193,14 +192,16 @@ async def test_save_messages_propagates_redis_error_from_append() -> None:
     """append_messages failure propagates so caller can apply graceful degradation."""
     client = _make_client()
 
-    with patch(
-        "chat_service.core.memory.redis_service.append_messages",
-        new=AsyncMock(side_effect=RedisServiceError("Redis down")),
+    with (
+        patch(
+            "chat_service.core.memory.redis_service.append_messages",
+            new=AsyncMock(side_effect=RedisServiceError("Redis down")),
+        ),
+        pytest.raises(RedisServiceError),
     ):
-        with pytest.raises(RedisServiceError):
-            await save_messages(
-                client, user_id=USER_ID, session_id=SESSION_ID, messages=[_msg("user", "hi")]
-            )
+        await save_messages(
+            client, user_id=USER_ID, session_id=SESSION_ID, messages=[_msg("user", "hi")]
+        )
 
 
 @pytest.mark.asyncio
