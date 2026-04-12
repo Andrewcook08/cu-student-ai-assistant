@@ -72,6 +72,7 @@ class ConversationState(MessagesState):
     call_count: int
     structured_data: list[dict[str, Any]]
     error: str | None
+    conversation_summary: str | None
 
 
 # ─── System prompt ──────────────────────────────────────────────────────
@@ -233,7 +234,7 @@ def build_graph(
             intent,
             state["user_id"],
             query_embedding=query_embedding,
-            conversation_summary=None,  # future: MEM-001
+            conversation_summary=state.get("conversation_summary"),
             neo4j_driver=neo4j_driver,
             postgres_sessionmaker=postgres_sessionmaker,
         )

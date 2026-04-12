@@ -48,13 +48,14 @@ def test_websocket_valid_token_returns_chat_response(client: TestClient) -> None
     token = create_access_token(1)
     with (
         patch(
-            "chat_service.routes.chat.redis_service.get_messages",
+            "chat_service.routes.chat.memory.get_conversation_state",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value={"messages": [], "summary": None},
         ),
         patch(
-            "chat_service.routes.chat.redis_service.append_messages",
+            "chat_service.routes.chat.memory.save_messages",
             new_callable=AsyncMock,
+            return_value=False,
         ),
         client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
@@ -86,13 +87,14 @@ def test_websocket_returns_structured_data(client: TestClient) -> None:
     token = create_access_token(1)
     with (
         patch(
-            "chat_service.routes.chat.redis_service.get_messages",
+            "chat_service.routes.chat.memory.get_conversation_state",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value={"messages": [], "summary": None},
         ),
         patch(
-            "chat_service.routes.chat.redis_service.append_messages",
+            "chat_service.routes.chat.memory.save_messages",
             new_callable=AsyncMock,
+            return_value=False,
         ),
         client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
@@ -145,13 +147,14 @@ def test_websocket_empty_message_no_response(client: TestClient) -> None:
     token = create_access_token(1)
     with (
         patch(
-            "chat_service.routes.chat.redis_service.get_messages",
+            "chat_service.routes.chat.memory.get_conversation_state",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value={"messages": [], "summary": None},
         ),
         patch(
-            "chat_service.routes.chat.redis_service.append_messages",
+            "chat_service.routes.chat.memory.save_messages",
             new_callable=AsyncMock,
+            return_value=False,
         ),
         client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
@@ -186,13 +189,14 @@ def test_websocket_graph_failure_returns_error_response(client: TestClient) -> N
     token = create_access_token(1)
     with (
         patch(
-            "chat_service.routes.chat.redis_service.get_messages",
+            "chat_service.routes.chat.memory.get_conversation_state",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value={"messages": [], "summary": None},
         ),
         patch(
-            "chat_service.routes.chat.redis_service.append_messages",
+            "chat_service.routes.chat.memory.save_messages",
             new_callable=AsyncMock,
+            return_value=False,
         ),
         client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
@@ -221,13 +225,14 @@ def test_websocket_redis_failure_graph_still_runs(client: TestClient) -> None:
     token = create_access_token(1)
     with (
         patch(
-            "chat_service.routes.chat.redis_service.get_messages",
+            "chat_service.routes.chat.memory.get_conversation_state",
             new_callable=AsyncMock,
             side_effect=RedisError("redis down"),
         ),
         patch(
-            "chat_service.routes.chat.redis_service.append_messages",
+            "chat_service.routes.chat.memory.save_messages",
             new_callable=AsyncMock,
+            return_value=False,
         ),
         client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
@@ -258,12 +263,12 @@ def test_websocket_redis_append_failure_response_still_sent(client: TestClient) 
     token = create_access_token(1)
     with (
         patch(
-            "chat_service.routes.chat.redis_service.get_messages",
+            "chat_service.routes.chat.memory.get_conversation_state",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value={"messages": [], "summary": None},
         ),
         patch(
-            "chat_service.routes.chat.redis_service.append_messages",
+            "chat_service.routes.chat.memory.save_messages",
             new_callable=AsyncMock,
             side_effect=RedisError("persist failed"),
         ),
@@ -296,13 +301,14 @@ def test_websocket_malformed_json_is_silently_skipped(client: TestClient) -> Non
     token = create_access_token(1)
     with (
         patch(
-            "chat_service.routes.chat.redis_service.get_messages",
+            "chat_service.routes.chat.memory.get_conversation_state",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value={"messages": [], "summary": None},
         ),
         patch(
-            "chat_service.routes.chat.redis_service.append_messages",
+            "chat_service.routes.chat.memory.save_messages",
             new_callable=AsyncMock,
+            return_value=False,
         ),
         client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
@@ -337,13 +343,14 @@ def test_websocket_graph_timeout_returns_timeout_response(client: TestClient) ->
     token = create_access_token(1)
     with (
         patch(
-            "chat_service.routes.chat.redis_service.get_messages",
+            "chat_service.routes.chat.memory.get_conversation_state",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value={"messages": [], "summary": None},
         ),
         patch(
-            "chat_service.routes.chat.redis_service.append_messages",
+            "chat_service.routes.chat.memory.save_messages",
             new_callable=AsyncMock,
+            return_value=False,
         ),
         client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
     ):
