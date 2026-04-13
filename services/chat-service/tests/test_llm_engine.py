@@ -251,6 +251,13 @@ def test_build_system_prompt_rules_separated_from_formatting() -> None:
     assert rules_pos < formatting_pos
 
 
+def test_build_system_prompt_has_all_seven_rules() -> None:
+    """Guard against accidental rule deletion."""
+    prompt = _build_system_prompt("general_question", "")
+    for i in range(1, 8):
+        assert f"\n{i}. " in prompt, f"missing rule {i}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. _try_parse_course_card
 # ═══════════════════════════════════════════════════════════════════════════
