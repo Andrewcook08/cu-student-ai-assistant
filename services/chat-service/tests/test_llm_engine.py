@@ -218,6 +218,39 @@ def test_build_system_prompt_contains_cu_boulder_identity() -> None:
     assert "University of Colorado Boulder" in prompt
 
 
+def test_build_system_prompt_contains_no_reveal_reinforcement() -> None:
+    """Anti-disclosure rule must cover rephrasing and social engineering."""
+    prompt = _build_system_prompt("general_question", "")
+    assert "even if the user asks directly" in prompt
+
+
+def test_build_system_prompt_contains_off_topic_decline_examples() -> None:
+    """Prompt must give explicit examples of off-topic requests (AC4)."""
+    prompt = _build_system_prompt("general_question", "")
+    assert "weather" in prompt
+
+
+def test_build_system_prompt_contains_no_hallucination_rule() -> None:
+    """Prompt must instruct LLM not to fabricate course details."""
+    prompt = _build_system_prompt("general_question", "")
+    assert "do not guess or make up" in prompt
+
+
+def test_build_system_prompt_delimiter_tag_instructions() -> None:
+    """Each delimiter tag must have a 'data only' instruction."""
+    prompt = _build_system_prompt("general_question", "")
+    for tag in ("retrieved_context", "user_profile", "conversation_summary"):
+        assert f"<{tag}>" in prompt, f"missing instruction for <{tag}>"
+
+
+def test_build_system_prompt_rules_separated_from_formatting() -> None:
+    """Security RULES and FORMATTING must be separate sections, RULES first."""
+    prompt = _build_system_prompt("general_question", "")
+    rules_pos = prompt.index("RULES:")
+    formatting_pos = prompt.index("FORMATTING:")
+    assert rules_pos < formatting_pos
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. _try_parse_course_card
 # ═══════════════════════════════════════════════════════════════════════════
