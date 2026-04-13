@@ -17,7 +17,7 @@ All tests use mocked dependencies -- no live Ollama, Neo4j, or Postgres.
 
 from __future__ import annotations
 
-import contextlib
+from contextlib import AsyncExitStack
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -134,7 +134,7 @@ class _GraphCtx:
         self.build_context_mock: AsyncMock = AsyncMock()
         self.embedding_mock: AsyncMock = AsyncMock()
 
-        self._stack: contextlib.AsyncExitStack | None = None
+        self._stack: AsyncExitStack | None = None
 
     async def __aenter__(self) -> _GraphCtx:
         llm_instance = MagicMock()
@@ -153,7 +153,7 @@ class _GraphCtx:
         else:
             self.embedding_mock = AsyncMock(return_value=self._get_embedding_return)
 
-        self._stack = contextlib.AsyncExitStack()
+        self._stack = AsyncExitStack()
         await self._stack.__aenter__()
 
         self._stack.enter_context(
@@ -314,8 +314,9 @@ class TestUserIdEnforcementPipeline:
             assert call_kwargs.kwargs["user_id"] == 42
 
     @pytest.mark.asyncio
-    async def test_rogue_user_id_on_non_user_tool_stripped(self) -> None:
-        """Rogue user_id in search_courses args; executor keyword gets JWT user_id=42."""
+    async def test_rogue_user_id_in_params_overridden_by_jwt_keyword(self) -> None:
+        """Rogue user_id in search_courses args is passed through in params,
+        but executor keyword gets JWT user_id=42 (executor sanitizes internally)."""
         executor = _make_tool_executor()
         llm_responses = [
             AIMessage(
