@@ -113,6 +113,13 @@ def test_register_duplicate_email_returns_400(client, db_session):
     assert resp.status_code == 400
 
 
+def test_register_email_case_normalization_deduplicates(client, db_session):
+    """Mixed-case variants of the same email must be treated as duplicates."""
+    _register(client, email="Case@Colorado.EDU")  # first — succeeds
+    resp = _register(client, email="case@colorado.edu")  # same address, different case
+    assert resp.status_code == 400
+
+
 def test_register_duplicate_email_response_is_generic(client, db_session):
     """400 detail must not reveal whether the email already exists (no user-enumeration)."""
     _register(client, email="enum@colorado.edu")
