@@ -173,6 +173,29 @@ def test_five_digit_zip_not_flagged() -> None:
     assert result.pii_detected is False
 
 
+def test_dollar_amount_not_flagged() -> None:
+    result = validate_output("Tuition is $1234567 per year.", [])
+    assert "$1234567" in result.reply
+    assert result.pii_detected is False
+
+
+def test_pii_in_course_card_attributes_redacted() -> None:
+    cards = [
+        {
+            "code": "CSCI 3104",
+            "title": "Algorithms",
+            "attributes": ["Writing Intensive", "Contact admin@example.com"],
+        }
+    ]
+    result = validate_output("See attributes.", cards)
+    assert len(result.structured_data) == 1
+    attrs = result.structured_data[0]["attributes"]
+    assert "admin@example.com" not in attrs[1]
+    assert "[REDACTED]" in attrs[1]
+    assert attrs[0] == "Writing Intensive"
+    assert result.pii_detected is True
+
+
 def test_pii_in_course_card_description_redacted() -> None:
     cards = [
         {
@@ -204,6 +227,23 @@ def test_sql_injection_detected() -> None:
 def test_normal_academic_content_not_flagged() -> None:
     result = validate_output("You can drop this course before the deadline.", [])
     assert result.scope_violation_detected is False
+
+
+def test_lowercase_sql_detected() -> None:
+    result = validate_output("Try delete from users where id=1.", [])
+    assert result.scope_violation_detected is True
+
+
+def test_scope_violation_in_structured_data_detected() -> None:
+    cards = [
+        {
+            "code": "CSCI 3104",
+            "title": "Algorithms",
+            "description": "Run sudo apt-get install to set up the lab.",
+        }
+    ]
+    result = validate_output("Here are your courses.", cards)
+    assert result.scope_violation_detected is True
 
 
 def test_scope_flag_does_not_strip_reply() -> None:

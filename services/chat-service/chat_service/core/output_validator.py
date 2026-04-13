@@ -32,7 +32,10 @@ _PII_REDACTION: str = "[REDACTED]"
 _EMAIL_PATTERN: re.Pattern[str] = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
 #: CU student ID patterns — 7-9 digit standalone numbers.
-_STUDENT_ID_PATTERN: re.Pattern[str] = re.compile(r"\b\d{7,9}\b")
+#: Uses a negative lookbehind for ``$`` to avoid matching dollar amounts.
+#: Note: 7-digit numbers in non-PII contexts (building codes, enrollment
+#: counts) may still false-positive — acceptable trade-off for safety.
+_STUDENT_ID_PATTERN: re.Pattern[str] = re.compile(r"(?<!\$)\b\d{7,9}\b")
 
 #: US phone numbers in common formats.
 _PHONE_PATTERN: re.Pattern[str] = re.compile(
@@ -142,6 +145,19 @@ def _validate_structured_data(
                     card[field] = cleaned
                     pii_count += n
 
+            # PII scan on attributes list
+            attrs = card.get("attributes")
+            if isinstance(attrs, list):
+                cleaned_attrs = []
+                for attr in attrs:
+                    if isinstance(attr, str):
+                        cleaned_attr, n = _scan_and_redact_pii(attr)
+                        cleaned_attrs.append(cleaned_attr)
+                        pii_count += n
+                    else:
+                        cleaned_attrs.append(attr)
+                card["attributes"] = cleaned_attrs
+
             valid.append(card)
 
         else:  # Action
@@ -189,8 +205,18 @@ def validate_output(
     clean_reply, reply_pii = _scan_and_redact_pii(reply)
     total_pii += reply_pii
 
-    # 3. Scope check on reply text
+    # 3. Scope check on reply text and structured data
     scope_violation = _check_scope(clean_reply)
+
+    if not scope_violation:
+        for card in clean_cards:
+            for field in ("description", "topic_titles"):
+                value = card.get(field)
+                if isinstance(value, str) and _check_scope(value):
+                    scope_violation = True
+                    break
+            if scope_violation:
+                break
 
     return ValidationResult(
         reply=clean_reply,
