@@ -39,7 +39,12 @@ from redis.exceptions import RedisError as RedisLibraryError
 from redis.exceptions import TimeoutError as RedisLibraryTimeoutError
 
 from chat_service.services import redis_service
-from chat_service.services.redis_service import SESSION_TTL_SECONDS, RedisServiceError
+from chat_service.services.redis_service import (
+    SESSION_TTL_SECONDS,
+    RedisServiceError,
+    RedisTimeoutError,
+    messages_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +57,6 @@ _POST_SUMMARY_KEEP: int = 10
 
 
 # ─── Key helpers ─────────────────────────────────────────────────────────
-# Duplicating the pattern from redis_service rather than exporting a private
-# helper.  Both modules must agree on the key format; a mismatch would be
-# caught immediately by the integration tests.
-
-
-def _messages_key(user_id: int, session_id: str) -> str:
-    return f"messages:{user_id}:{session_id}"
 
 
 def _summary_key(user_id: int, session_id: str) -> str:
@@ -134,7 +132,7 @@ async def save_messages(
     )
 
     try:
-        count = await client.llen(_messages_key(user_id, session_id))
+        count = await client.llen(messages_key(user_id, session_id))
         return int(count) > MAX_RECENT_MESSAGES
     except Exception as exc:
         # Length check failure is non-fatal — we already persisted
@@ -169,11 +167,9 @@ async def save_summary(
     try:
         async with client.pipeline(transaction=True) as pipe:
             pipe.set(_summary_key(user_id, session_id), summary, ex=SESSION_TTL_SECONDS)
-            pipe.ltrim(_messages_key(user_id, session_id), -_POST_SUMMARY_KEEP, -1)
+            pipe.ltrim(messages_key(user_id, session_id), -_POST_SUMMARY_KEEP, -1)
             await pipe.execute()
     except RedisLibraryTimeoutError as exc:
-        from chat_service.services.redis_service import RedisTimeoutError
-
         raise RedisTimeoutError("Redis summary save timed out.") from exc
     except (RedisConnectionError, RedisLibraryError) as exc:
         raise RedisServiceError("Redis summary save failed.") from exc

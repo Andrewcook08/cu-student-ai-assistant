@@ -33,7 +33,7 @@ the underlying detail.
 
 Session and conversation keys are scoped by ``user_id`` first so that
 guessing another user's ``session_id`` cannot leak data — see
-``_session_key`` / ``_messages_key``.
+``_session_key`` / ``messages_key``.
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def _session_key(user_id: int, session_id: str) -> str:
     return f"session:{user_id}:{session_id}"
 
 
-def _messages_key(user_id: int, session_id: str) -> str:
+def messages_key(user_id: int, session_id: str) -> str:
     """Build the per-user conversation message list key (same scoping as sessions)."""
     return f"messages:{user_id}:{session_id}"
 
@@ -205,7 +205,7 @@ async def append_message(
     immediately-following EXPIRE re-arms it, and the cost of a Lua
     eval round-trip isn't worth the marginal correctness gain.
     """
-    key = _messages_key(user_id, session_id)
+    key = messages_key(user_id, session_id)
     try:
         # redis-py types these as ``Awaitable[T] | T`` because the same
         # method object is reused by the sync client. At runtime the
@@ -232,7 +232,7 @@ async def append_messages(
     """
     if not messages:
         return
-    key = _messages_key(user_id, session_id)
+    key = messages_key(user_id, session_id)
     try:
         async with client.pipeline(transaction=True) as pipe:
             for msg in messages:
@@ -264,7 +264,7 @@ async def get_messages(
     try:
         raw_entries = await cast(
             Awaitable[list[bytes]],
-            client.lrange(_messages_key(user_id, session_id), -limit, -1),
+            client.lrange(messages_key(user_id, session_id), -limit, -1),
         )
     except RedisLibraryTimeoutError as exc:
         raise RedisTimeoutError(_TIMEOUT_MESSAGE) from exc

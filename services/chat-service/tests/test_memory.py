@@ -17,13 +17,16 @@ import pytest
 from chat_service.core.memory import (
     _POST_SUMMARY_KEEP,
     MAX_RECENT_MESSAGES,
-    _messages_key,
     _summary_key,
     get_conversation_state,
     save_messages,
     save_summary,
 )
-from chat_service.services.redis_service import RedisServiceError, RedisTimeoutError
+from chat_service.services.redis_service import (
+    RedisServiceError,
+    RedisTimeoutError,
+    messages_key,
+)
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisLibraryTimeoutError
 
@@ -59,9 +62,9 @@ def _msg(role: str, content: str) -> dict[str, Any]:
 
 
 def test_messages_key_scoped_by_user_id() -> None:
-    assert _messages_key(1, "sess") == "messages:1:sess"
+    assert messages_key(1, "sess") == "messages:1:sess"
     # Different users must produce different keys for the same session_id
-    assert _messages_key(1, "sess") != _messages_key(2, "sess")
+    assert messages_key(1, "sess") != messages_key(2, "sess")
 
 
 def test_summary_key_scoped_by_user_id() -> None:
@@ -218,7 +221,7 @@ async def test_save_messages_checks_correct_key() -> None:
             client, user_id=USER_ID, session_id=SESSION_ID, messages=[_msg("user", "hi")]
         )
 
-    client.llen.assert_awaited_once_with(_messages_key(USER_ID, SESSION_ID))
+    client.llen.assert_awaited_once_with(messages_key(USER_ID, SESSION_ID))
 
 
 # ─── save_summary ─────────────────────────────────────────────────────────
@@ -238,7 +241,7 @@ async def test_save_summary_runs_set_and_ltrim() -> None:
 
     pipe.ltrim.assert_called_once()
     ltrim_args = pipe.ltrim.call_args
-    assert ltrim_args.args[0] == _messages_key(USER_ID, SESSION_ID)
+    assert ltrim_args.args[0] == messages_key(USER_ID, SESSION_ID)
     # ltrim keeps last _POST_SUMMARY_KEEP entries
     assert ltrim_args.args[1] == -_POST_SUMMARY_KEEP
     assert ltrim_args.args[2] == -1
