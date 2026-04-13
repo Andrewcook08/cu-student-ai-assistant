@@ -190,6 +190,8 @@ async def chat_websocket(
                 "error": None,
                 "conversation_summary": conv_state["summary"],
                 "injection_warning": injection_warning,
+                "pii_detected": False,
+                "scope_violation_detected": False,
             }
 
             try:
@@ -237,6 +239,13 @@ async def chat_websocket(
                     (ai_messages[-1].content or "") if ai_messages else ""
                 ) or "I couldn't generate a response. Please try again."
                 structured_data = result.get("structured_data") or None
+
+            if result.get("pii_detected"):
+                logger.info(
+                    "chat: PII redacted from response — user_id=%s session=%s",
+                    user_id,
+                    session_id,
+                )
 
             # ── Persist to Redis ────────────────────────────────────
             try:
