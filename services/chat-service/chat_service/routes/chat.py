@@ -25,6 +25,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from shared.auth import decode_access_token
 
 from chat_service.core import memory
+from chat_service.core.input_sanitizer import sanitize_message
 from chat_service.services.redis_service import RedisError
 
 #: Hard timeout for a single graph invocation (intent + context + LLM + tools).
@@ -139,6 +140,23 @@ async def chat_websocket(
             if not message.strip():
                 continue
 
+            # ── Input sanitization (SEC-002) ───────────────────────
+            sanitization = sanitize_message(message)
+            message = sanitization.content
+            injection_warning = sanitization.injection_warning
+
+            # Re-check after sanitization — a message made entirely of
+            # control characters would be empty after stripping.
+            if not message.strip():
+                continue
+
+            if sanitization.injection_flagged:
+                logger.info(
+                    "chat: injection pattern flagged for user_id=%s session=%s",
+                    user_id,
+                    session_id,
+                )
+
             # Typing indicator — sent before processing begins.
             await websocket.send_json({"type": "typing"})
 
@@ -171,6 +189,7 @@ async def chat_websocket(
                 "structured_data": [],
                 "error": None,
                 "conversation_summary": conv_state["summary"],
+                "injection_warning": injection_warning,
             }
 
             try:
