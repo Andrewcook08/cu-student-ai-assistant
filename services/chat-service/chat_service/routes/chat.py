@@ -145,6 +145,11 @@ async def chat_websocket(
             message = sanitization.content
             injection_warning = sanitization.injection_warning
 
+            # Re-check after sanitization — a message made entirely of
+            # control characters would be empty after stripping.
+            if not message.strip():
+                continue
+
             if sanitization.injection_flagged:
                 logger.info(
                     "chat: injection pattern flagged for user_id=%s session=%s",

@@ -38,7 +38,7 @@ _INJECTION_PATTERNS: re.Pattern[str] = re.compile(
     r"(?i)"
     r"(?:"
     r"ignore\s+previous"
-    r"|system\s*:"
+    r"|(?:^|\n)\s*system\s*:"
     r"|you\s+are\s+now"
     r"|new\s+instructions"
     r"|disregard\s+(?:all\s+)?(?:previous|above|prior|the\s+(?:rules?|instructions?))"

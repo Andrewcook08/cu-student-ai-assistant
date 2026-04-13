@@ -150,6 +150,11 @@ def test_disregard_casual_not_flagged() -> None:
     assert result.injection_flagged is False
 
 
+def test_operating_system_not_flagged() -> None:
+    result = sanitize_message("What operating system: Mac or Windows do I need?")
+    assert result.injection_flagged is False
+
+
 # ─── Combined scenarios ──────────────────────────────────────────────────
 
 
