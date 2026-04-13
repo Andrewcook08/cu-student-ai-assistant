@@ -106,6 +106,7 @@ async def chat_websocket(
     app = websocket.app
     graph = app.state.conversation_graph
     redis_client = app.state.redis
+    ollama_client = app.state.ollama_client
 
     rate_count = 0
     rate_window_start = time.monotonic()
@@ -249,7 +250,7 @@ async def chat_websocket(
 
             # ── Persist to Redis ────────────────────────────────────
             try:
-                await memory.save_messages(
+                needs_summary = await memory.save_messages(
                     redis_client,
                     user_id=user_id,
                     session_id=session_id,
@@ -264,6 +265,28 @@ async def chat_websocket(
                     user_id,
                     session_id,
                 )
+                needs_summary = False
+
+            # ── Summarize if buffer exceeded threshold (MEM-002) ────
+            if needs_summary:
+                try:
+                    new_summary = await memory.generate_summary(
+                        conv_state["messages"],
+                        existing_summary=conv_state["summary"],
+                        ollama_client=ollama_client,
+                    )
+                    await memory.save_summary(
+                        redis_client,
+                        user_id=user_id,
+                        session_id=session_id,
+                        summary=new_summary,
+                    )
+                except Exception:
+                    logger.warning(
+                        "chat: summary generation failed for user_id=%s session=%s",
+                        user_id,
+                        session_id,
+                    )
 
             # ── Send response ───────────────────────────────────────
             response: dict[str, Any] = {
