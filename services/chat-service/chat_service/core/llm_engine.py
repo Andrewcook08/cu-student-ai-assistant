@@ -73,6 +73,7 @@ class ConversationState(MessagesState):
     structured_data: list[dict[str, Any]]
     error: str | None
     conversation_summary: str | None
+    injection_warning: str | None
 
 
 # ─── System prompt ──────────────────────────────────────────────────────
@@ -246,6 +247,8 @@ def build_graph(
             return {}
 
         system_prompt = _build_system_prompt(state["intent"], state["context_text"])
+        if state.get("injection_warning"):
+            system_prompt = state["injection_warning"] + "\n\n" + system_prompt
         system_msg = SystemMessage(content=system_prompt)
 
         # Filter state messages to only HumanMessage, AIMessage, and
