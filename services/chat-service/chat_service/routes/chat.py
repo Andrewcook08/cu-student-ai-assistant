@@ -5,8 +5,9 @@ incoming message is routed through the compiled ``StateGraph`` on
 ``app.state.conversation_graph``, which orchestrates intent classification,
 context building, LLM inference, and tool calling.
 
-Conversation history is persisted in Redis (last 20 messages, 2-hour TTL)
-so multi-turn sessions work across reconnections.
+Conversation state (last 20 messages + optional running summary) is loaded
+from Redis via ``core.memory`` so multi-turn sessions work across reconnections.
+The summary is passed into the LangGraph state for context building (MEM-001).
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from jose import JWTError
 from langchain_core.messages import AIMessage, HumanMessage
 from shared.auth import decode_access_token
 
-from chat_service.services import redis_service
+from chat_service.core import memory
 from chat_service.services.redis_service import RedisError
 
 #: Hard timeout for a single graph invocation (intent + context + LLM + tools).
@@ -141,10 +142,10 @@ async def chat_websocket(
             # Typing indicator — sent before processing begins.
             await websocket.send_json({"type": "typing"})
 
-            # ── Load conversation history from Redis ────────────────
-            history: list[dict[str, Any]] = []
+            # ── Load conversation state from Redis ──────────────────
+            conv_state: dict[str, Any] = {"messages": [], "summary": None}
             try:
-                history = await redis_service.get_messages(
+                conv_state = await memory.get_conversation_state(
                     redis_client, user_id=user_id, session_id=session_id
                 )
             except RedisError:
@@ -156,7 +157,7 @@ async def chat_websocket(
                 )
 
             # Convert to LangChain messages and append the new user message.
-            lc_messages = _redis_history_to_langchain(history)
+            lc_messages = _redis_history_to_langchain(conv_state["messages"])
             lc_messages.append(HumanMessage(content=message))
 
             # ── Run the LangGraph engine ────────────────────────────
@@ -169,6 +170,7 @@ async def chat_websocket(
                 "call_count": 0,
                 "structured_data": [],
                 "error": None,
+                "conversation_summary": conv_state["summary"],
             }
 
             try:
@@ -219,7 +221,7 @@ async def chat_websocket(
 
             # ── Persist to Redis ────────────────────────────────────
             try:
-                await redis_service.append_messages(
+                await memory.save_messages(
                     redis_client,
                     user_id=user_id,
                     session_id=session_id,
