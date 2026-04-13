@@ -74,6 +74,16 @@ class RegisterRequest(BaseModel):
     name: str
     program_id: int | None = None
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Name must not be empty")
+        if len(stripped) > 200:
+            raise ValueError("Name must be 200 characters or fewer")
+        return stripped
+
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
@@ -106,7 +116,7 @@ async def register(
     email = body.email.lower()
 
     if db.query(User).filter(User.email == email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Registration failed")
 
     if body.program_id is not None:
         found = db.query(Program).filter(Program.id == body.program_id).first()
@@ -125,7 +135,7 @@ async def register(
         db.commit()
     except IntegrityError as err:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Email already registered") from err
+        raise HTTPException(status_code=400, detail="Registration failed") from err
     db.refresh(user)
 
     token = create_access_token(user.id, user.email)

@@ -125,13 +125,14 @@ def test_register_email_case_normalization_deduplicates(client, db_session):
 
 
 def test_register_duplicate_email_response_is_generic(client, db_session):
-    """400 detail must not reveal whether the email already exists (no user-enumeration)."""
+    """400 detail must NOT reveal whether the email exists (no user-enumeration)."""
     _register(client, email="enum@colorado.edu")
     resp = _register(client, email="enum@colorado.edu")
-    # Must not contain "exist" or "taken" — acceptable: "already registered"
+    assert resp.status_code == 400
     detail = resp.json().get("detail", "").lower()
-    assert "already" in detail or "registered" in detail
+    assert "already" not in detail
     assert "exist" not in detail
+    assert "registered" not in detail
 
 
 # ---------------------------------------------------------------------------
@@ -201,3 +202,34 @@ def test_register_missing_password_returns_422(client, db_session):
     """Omitting password entirely must return 422."""
     resp = client.post("/api/auth/register", json={"email": "nopw@colorado.edu", "name": "Test"})
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Name validation (422)
+# ---------------------------------------------------------------------------
+
+
+def test_register_empty_name_returns_422(client, db_session):
+    """An empty name string must return 422."""
+    resp = _register(client, email="emptyname@colorado.edu", name="")
+    assert resp.status_code == 422
+
+
+def test_register_whitespace_name_returns_422(client, db_session):
+    """A whitespace-only name must return 422."""
+    resp = _register(client, email="wsname@colorado.edu", name="   ")
+    assert resp.status_code == 422
+
+
+def test_register_oversized_name_returns_422(client, db_session):
+    """A name longer than 200 characters must return 422."""
+    resp = _register(client, email="bigname@colorado.edu", name="A" * 201)
+    assert resp.status_code == 422
+
+
+def test_register_name_is_stripped(client, db_session):
+    """Leading/trailing whitespace in name must be stripped before storage."""
+    resp = _register(client, email="trimname@colorado.edu", name="  Ada Lovelace  ")
+    assert resp.status_code == 200
+    user = db_session.get(User, resp.json()["user_id"])
+    assert user.name == "Ada Lovelace"
