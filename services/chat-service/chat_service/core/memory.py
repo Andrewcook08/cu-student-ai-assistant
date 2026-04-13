@@ -1,13 +1,14 @@
-"""Two-tier conversation memory for the chat service (MEM-001 / CUAI-57).
+"""Two-tier conversation memory for the chat service (MEM-001 / CUAI-57, MEM-002 / CUAI-58).
 
 Tier 1 — Redis message buffer (this module):
   Up to ``MAX_RECENT_MESSAGES`` messages stored per session.  Loaded at the
   start of every turn so the LLM has full conversational context for recent
   exchanges.  Persisted atomically after each turn via a single pipeline.
 
-Tier 2 — Running summary (MEM-002, planned):
-  When the buffer exceeds ``MAX_RECENT_MESSAGES``, the caller should generate
-  an LLM summary and call :func:`save_summary` to compress history.
+Tier 2 — Running summary (MEM-002):
+  When the buffer exceeds ``MAX_RECENT_MESSAGES``, the caller generates an
+  LLM summary via :func:`generate_summary` and persists it via
+  :func:`save_summary` to compress history.
   :func:`save_messages` returns ``True`` as the trigger signal.
 
 Key layout (mirrors ``redis_service`` scoping — ``user_id`` first so that
@@ -33,12 +34,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import httpx
 import redis.asyncio as redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError as RedisLibraryError
 from redis.exceptions import TimeoutError as RedisLibraryTimeoutError
 
-from chat_service.services import redis_service
+from chat_service.services import ollama_service, redis_service
 from chat_service.services.redis_service import (
     SESSION_TTL_SECONDS,
     RedisServiceError,
@@ -173,3 +175,76 @@ async def save_summary(
         raise RedisTimeoutError("Redis summary save timed out.") from exc
     except (RedisConnectionError, RedisLibraryError) as exc:
         raise RedisServiceError("Redis summary save failed.") from exc
+
+
+_SUMMARIZE_SYSTEM = (
+    "You are a memory assistant for an academic advising AI. "
+    "Extract and preserve the key facts a future advisor needs to know about this student. "
+    "Focus on: declared major/program, completed courses, courses being planned or considered, "
+    "scheduling preferences, and any advising decisions already made. "
+    "Be concise — output only the summary text, no preamble."
+)
+
+
+async def generate_summary(
+    messages: list[dict[str, Any]],
+    existing_summary: str | None,
+    *,
+    ollama_client: httpx.AsyncClient,
+) -> str:
+    """Generate a compressed summary of the conversation for long-term context.
+
+    Sends the current message history (and any prior summary) to the LLM and
+    asks it to extract key academic advising facts: major, completed courses,
+    decisions made, preferences, and courses being considered.
+
+    Called by the chat handler when :func:`save_messages` returns ``True``
+    (buffer exceeded ``MAX_RECENT_MESSAGES``).  The result should be
+    immediately persisted via :func:`save_summary`.
+
+    Parameters
+    ----------
+    messages:
+        Recent conversation messages from Redis
+        (``{"role": "user"|"assistant", "content": "..."}``)
+    existing_summary:
+        Prior summary string to fold in, or ``None`` for the first
+        compression of the session.
+    ollama_client:
+        Shared httpx client pointed at the Ollama endpoint.
+
+    Returns
+    -------
+    str
+        The new summary text.
+
+    Raises
+    ------
+    OllamaError
+        Propagated from :func:`ollama_service.chat_completion` on LLM
+        failure.  Callers should log a warning and skip compression rather
+        than blocking the user's response.
+    """
+    context_parts: list[str] = []
+    if existing_summary:
+        context_parts.append(f"PRIOR SUMMARY:\n{existing_summary}")
+
+    if messages:
+        lines = []
+        for msg in messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            lines.append(f"{role.upper()}: {content}")
+        context_parts.append("CONVERSATION:\n" + "\n".join(lines))
+
+    user_content = "\n\n".join(context_parts) if context_parts else "(no content)"
+
+    result = await ollama_service.chat_completion(
+        ollama_client,
+        messages=[
+            {"role": "system", "content": _SUMMARIZE_SYSTEM},
+            {"role": "user", "content": user_content},
+        ],
+        options={"temperature": 0},
+    )
+    return str(result.get("content", "")).strip()

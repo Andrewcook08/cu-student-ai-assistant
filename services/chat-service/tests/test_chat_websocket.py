@@ -469,3 +469,132 @@ def test_websocket_flood_closes_with_1008(client: TestClient) -> None:
         with pytest.raises(WebSocketDisconnect) as exc_info:
             ws.receive_json()
     assert exc_info.value.code == 1008
+
+
+# ---------------------------------------------------------------------------
+# MEM-002: summarization trigger
+# ---------------------------------------------------------------------------
+
+
+def test_websocket_triggers_summary_when_save_messages_returns_true(
+    client: TestClient,
+) -> None:
+    """When save_messages returns True, generate_summary + save_summary are called."""
+    from chat_service.main import app
+
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(return_value=_make_graph_result(reply="Hi!"))
+    app.state.conversation_graph = mock_graph
+
+    token = create_access_token(1)
+    with (
+        patch(
+            "chat_service.routes.chat.memory.get_conversation_state",
+            new_callable=AsyncMock,
+            return_value={"messages": [{"role": "user", "content": "old msg"}], "summary": None},
+        ),
+        patch(
+            "chat_service.routes.chat.memory.save_messages",
+            new_callable=AsyncMock,
+            return_value=True,  # threshold exceeded → trigger summarization
+        ),
+        patch(
+            "chat_service.routes.chat.memory.generate_summary",
+            new_callable=AsyncMock,
+            return_value="Student is CS major.",
+        ) as mock_gen,
+        patch(
+            "chat_service.routes.chat.memory.save_summary",
+            new_callable=AsyncMock,
+        ) as mock_save,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
+    ):
+        ws.send_json({"message": "hello"})
+        ws.receive_json()  # typing
+        ws.receive_json()  # chat_response
+
+    mock_gen.assert_awaited_once()
+    mock_save.assert_awaited_once()
+    # save_summary should receive the generated text
+    assert mock_save.call_args.kwargs["summary"] == "Student is CS major."
+
+
+def test_websocket_skips_summary_when_save_messages_returns_false(
+    client: TestClient,
+) -> None:
+    """When save_messages returns False, generate_summary is not called."""
+    from chat_service.main import app
+
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(return_value=_make_graph_result(reply="Hi!"))
+    app.state.conversation_graph = mock_graph
+
+    token = create_access_token(1)
+    with (
+        patch(
+            "chat_service.routes.chat.memory.get_conversation_state",
+            new_callable=AsyncMock,
+            return_value={"messages": [], "summary": None},
+        ),
+        patch(
+            "chat_service.routes.chat.memory.save_messages",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "chat_service.routes.chat.memory.generate_summary",
+            new_callable=AsyncMock,
+        ) as mock_gen,
+        patch(
+            "chat_service.routes.chat.memory.save_summary",
+            new_callable=AsyncMock,
+        ) as mock_save,
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
+    ):
+        ws.send_json({"message": "hello"})
+        ws.receive_json()  # typing
+        ws.receive_json()  # chat_response
+
+    mock_gen.assert_not_awaited()
+    mock_save.assert_not_awaited()
+
+
+def test_websocket_summary_failure_does_not_block_response(
+    client: TestClient,
+) -> None:
+    """generate_summary failure is silently swallowed; the WS response still arrives."""
+    from chat_service.main import app
+
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(return_value=_make_graph_result(reply="Hi!"))
+    app.state.conversation_graph = mock_graph
+
+    token = create_access_token(1)
+    with (
+        patch(
+            "chat_service.routes.chat.memory.get_conversation_state",
+            new_callable=AsyncMock,
+            return_value={"messages": [], "summary": None},
+        ),
+        patch(
+            "chat_service.routes.chat.memory.save_messages",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "chat_service.routes.chat.memory.generate_summary",
+            new_callable=AsyncMock,
+            side_effect=Exception("Ollama down"),
+        ),
+        patch(
+            "chat_service.routes.chat.memory.save_summary",
+            new_callable=AsyncMock,
+        ),
+        client.websocket_connect(f"/ws/chat/{VALID_SESSION}?token={token}") as ws,
+    ):
+        ws.send_json({"message": "hello"})
+        assert ws.receive_json() == {"type": "typing"}
+        response = ws.receive_json()
+
+    assert response["type"] == "chat_response"
+    assert response["reply"] == "Hi!"
