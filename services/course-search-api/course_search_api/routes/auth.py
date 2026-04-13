@@ -107,7 +107,8 @@ async def register(
         raise HTTPException(status_code=400, detail="Email already registered")
 
     if body.program_id is not None:
-        if db.query(Program).filter(Program.id == body.program_id).first() is None:
+        found = db.query(Program).filter(Program.id == body.program_id).first()
+        if found is None:
             raise HTTPException(status_code=422, detail="Unknown program_id")
 
     user = User(
@@ -120,9 +121,9 @@ async def register(
     db.add(user)
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Email already registered") from err
     db.refresh(user)
 
     token = create_access_token(user.id, user.email)
