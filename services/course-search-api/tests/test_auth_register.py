@@ -11,13 +11,19 @@ from shared.auth import verify_password
 from shared.config import settings
 from shared.models import Program, User
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _register(client, *, email="new@colorado.edu", password="SecurePass1234!", name="Ada Lovelace", program_id=None):
+def _register(
+    client,
+    *,
+    email="new@colorado.edu",
+    password="SecurePass1234!",
+    name="Ada Lovelace",
+    program_id=None,
+):
     """POST /api/auth/register with sensible defaults. Override any field as needed."""
     body: dict = {"email": email, "password": password, "name": name}
     if program_id is not None:
@@ -54,9 +60,7 @@ def test_register_jwt_contains_user_id_and_email(client, db_session):
     assert resp.status_code == 200
     token = resp.json()["token"]
 
-    payload = jwt.decode(
-        token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
-    )
+    payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     assert payload["sub"] == str(resp.json()["user_id"])
     assert payload["email"] == "jwt@colorado.edu"
 
