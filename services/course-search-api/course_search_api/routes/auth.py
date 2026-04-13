@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from shared.auth import create_access_token, hash_password
 from shared.database import get_db
 from shared.models import Program, User
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from course_search_api.limiter import limiter
@@ -99,7 +100,10 @@ async def register(
     body: RegisterRequest,
     db: Session = Depends(get_db),
 ) -> dict:
-    if db.query(User).filter(User.email == body.email).first():
+    # Normalize email to lowercase so case variants can't bypass uniqueness check.
+    email = body.email.lower()
+
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
     if body.program_id is not None:
@@ -107,14 +111,18 @@ async def register(
             raise HTTPException(status_code=422, detail="Unknown program_id")
 
     user = User(
-        email=body.email,
+        email=email,
         password_hash=hash_password(body.password),
         name=body.name,
         program_id=body.program_id,
         is_active=True,
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Email already registered")
     db.refresh(user)
 
     token = create_access_token(user.id, user.email)
