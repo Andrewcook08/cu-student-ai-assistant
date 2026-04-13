@@ -19,6 +19,8 @@ import re
 import time
 from typing import Any
 
+import httpx
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from langchain_core.messages import AIMessage, HumanMessage
@@ -52,6 +54,35 @@ RATE_LIMIT_WINDOW_SECONDS = 10
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _summarize_and_save(
+    redis_client: aioredis.Redis,
+    ollama_client: httpx.AsyncClient,
+    *,
+    user_id: int,
+    session_id: str,
+    messages: list[dict[str, Any]],
+    existing_summary: str | None,
+) -> None:
+    try:
+        new_summary = await memory.generate_summary(
+            messages,
+            existing_summary=existing_summary,
+            ollama_client=ollama_client,
+        )
+        await memory.save_summary(
+            redis_client,
+            user_id=user_id,
+            session_id=session_id,
+            summary=new_summary,
+        )
+    except Exception:
+        logger.warning(
+            "chat: summary generation failed for user_id=%s session=%s",
+            user_id,
+            session_id,
+        )
 
 
 def _redis_history_to_langchain(
@@ -267,27 +298,6 @@ async def chat_websocket(
                 )
                 needs_summary = False
 
-            # ── Summarize if buffer exceeded threshold (MEM-002) ────
-            if needs_summary:
-                try:
-                    new_summary = await memory.generate_summary(
-                        conv_state["messages"],
-                        existing_summary=conv_state["summary"],
-                        ollama_client=ollama_client,
-                    )
-                    await memory.save_summary(
-                        redis_client,
-                        user_id=user_id,
-                        session_id=session_id,
-                        summary=new_summary,
-                    )
-                except Exception:
-                    logger.warning(
-                        "chat: summary generation failed for user_id=%s session=%s",
-                        user_id,
-                        session_id,
-                    )
-
             # ── Send response ───────────────────────────────────────
             response: dict[str, Any] = {
                 "type": "chat_response",
@@ -298,6 +308,20 @@ async def chat_websocket(
                 response["structured_data"] = structured_data
 
             await websocket.send_json(response)
+
+            # ── Summarize if buffer exceeded threshold (MEM-002) ────
+            # Fired as a background task so the response ships first.
+            if needs_summary:
+                asyncio.create_task(
+                    _summarize_and_save(
+                        redis_client,
+                        ollama_client,
+                        user_id=user_id,
+                        session_id=session_id,
+                        messages=conv_state["messages"],
+                        existing_summary=conv_state["summary"],
+                    )
+                )
 
     except WebSocketDisconnect:
         return

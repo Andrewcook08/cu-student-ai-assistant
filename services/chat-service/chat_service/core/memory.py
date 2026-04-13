@@ -1,13 +1,14 @@
-"""Two-tier conversation memory for the chat service (MEM-001 / CUAI-57).
+"""Two-tier conversation memory for the chat service (MEM-001 / CUAI-57, MEM-002 / CUAI-58).
 
 Tier 1 — Redis message buffer (this module):
   Up to ``MAX_RECENT_MESSAGES`` messages stored per session.  Loaded at the
   start of every turn so the LLM has full conversational context for recent
   exchanges.  Persisted atomically after each turn via a single pipeline.
 
-Tier 2 — Running summary (MEM-002, planned):
-  When the buffer exceeds ``MAX_RECENT_MESSAGES``, the caller should generate
-  an LLM summary and call :func:`save_summary` to compress history.
+Tier 2 — Running summary (MEM-002):
+  When the buffer exceeds ``MAX_RECENT_MESSAGES``, the caller generates an
+  LLM summary via :func:`generate_summary` and persists it via
+  :func:`save_summary` to compress history.
   :func:`save_messages` returns ``True`` as the trigger signal.
 
 Key layout (mirrors ``redis_service`` scoping — ``user_id`` first so that
