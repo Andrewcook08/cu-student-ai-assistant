@@ -7,6 +7,7 @@ rows inserted by tests are rolled back at teardown, no manual cleanup needed).
 from __future__ import annotations
 
 from jose import jwt
+from shared.auth import verify_password
 from shared.config import settings
 from shared.models import Program, User
 
@@ -61,7 +62,7 @@ def test_register_jwt_contains_user_id_and_email(client, db_session):
 
 
 def test_register_password_is_bcrypt_hashed(client, db_session):
-    """Password stored in DB must NOT be the plaintext password."""
+    """Password stored in DB must NOT be the plaintext password but must verify correctly."""
     resp = _register(client, email="hash@colorado.edu", password="HashCheck12345!")
     assert resp.status_code == 200
     user_id = resp.json()["user_id"]
@@ -69,7 +70,7 @@ def test_register_password_is_bcrypt_hashed(client, db_session):
     user = db_session.get(User, user_id)
     assert user is not None
     assert user.password_hash != "HashCheck12345!"
-    assert user.password_hash.startswith("$2b$")  # bcrypt prefix
+    assert verify_password("HashCheck12345!", user.password_hash) is True
 
 
 def test_register_sets_is_active_true_server_side(client, db_session):
