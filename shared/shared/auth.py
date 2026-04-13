@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -18,7 +19,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(subject: str | int, email: str | None = None) -> str:
     expire = datetime.now(UTC) + timedelta(minutes=settings.jwt_expire_minutes)
-    payload: dict = {"sub": str(subject), "exp": expire}
+    payload: dict[str, Any] = {"sub": str(subject), "exp": expire}
     if email is not None:
         payload["email"] = email
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
