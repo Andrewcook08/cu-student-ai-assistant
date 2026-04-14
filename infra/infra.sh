@@ -16,6 +16,47 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Post-destroy drift check: anything left in GCP whose name matches the
+# project prefix is unmanaged and would block a future re-apply or keep
+# costing money. Bare gcloud, no terraform state involved.
+check_drift() {
+  local found=0
+  echo "── Drift check (GCP resources matching cu-assistant-*) ──"
+
+  for cmd_args in \
+    "networks list --filter=name~cu-assistant" \
+    "networks subnets list --filter=name~cu-assistant" \
+    "network-firewall-policies list --filter=name~cu-assistant" \
+    "firewall-rules list --filter=network~cu-assistant"; do
+    local out
+    out=$(gcloud compute $cmd_args --format="value(name)" 2>/dev/null || true)
+    if [[ -n "$out" ]]; then
+      echo "  ⚠️  $cmd_args:"
+      echo "$out" | sed 's/^/      /'
+      found=1
+    fi
+  done
+
+  local connectors
+  connectors=$(gcloud compute networks vpc-access connectors list \
+    --region=us-central1 --filter="name~cu-assistant" \
+    --format="value(name)" 2>/dev/null || true)
+  if [[ -n "$connectors" ]]; then
+    echo "  ⚠️  vpc-access connectors:"
+    echo "$connectors" | sed 's/^/      /'
+    found=1
+  fi
+
+  if [[ $found -eq 0 ]]; then
+    echo "  ✅ Clean — no orphaned resources."
+  else
+    echo
+    echo "Orphans above are NOT managed by Terraform. Delete via gcloud or"
+    echo "investigate why they exist before re-running ./infra.sh up."
+    return 1
+  fi
+}
+
 cmd="${1:-}"
 
 case "$cmd" in
@@ -32,6 +73,8 @@ case "$cmd" in
   down)
     terraform init -input=false
     terraform destroy -auto-approve
+    echo
+    check_drift
     ;;
   status)
     terraform init -input=false
