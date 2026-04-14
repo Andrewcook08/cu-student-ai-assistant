@@ -10,14 +10,22 @@ import type {
   RegisterFormData,
   AuthRegisterResponse,
   Program,
-  Requirement,
   CompletedCoursePayload,
+  ProgramRequirementsResponse,
 } from '@/types/index'
 
 export function useAuth() {
   const store = useAuthStore()
   const loading = ref(false)
   const error = ref<string | null>(null)
+
+  function requireToken(): string {
+    if (!store.token) {
+      throw new Error('You must be signed in to continue')
+    }
+
+    return store.token
+  }
 
   async function register(data: RegisterFormData): Promise<AuthRegisterResponse> {
     loading.value = true
@@ -34,11 +42,11 @@ export function useAuth() {
     }
   }
 
-  async function fetchPrograms(token: string): Promise<Program[]> {
+  async function fetchPrograms(): Promise<Program[]> {
     loading.value = true
     error.value = null
     try {
-      return await apiFetchPrograms(token)
+      return await apiFetchPrograms(requireToken())
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to load programs'
       throw e
@@ -47,14 +55,11 @@ export function useAuth() {
     }
   }
 
-  async function fetchRequirements(
-    programId: number,
-    token: string,
-  ): Promise<{ program: Program; requirements: Requirement[] }> {
+  async function fetchRequirements(programId: number): Promise<ProgramRequirementsResponse> {
     loading.value = true
     error.value = null
     try {
-      return await fetchProgramRequirements(programId, token)
+      return await fetchProgramRequirements(programId, requireToken())
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to load requirements'
       throw e
@@ -63,14 +68,11 @@ export function useAuth() {
     }
   }
 
-  async function updateCompletedCourses(
-    courses: CompletedCoursePayload[],
-    token: string,
-  ): Promise<void> {
+  async function updateCompletedCourses(courses: CompletedCoursePayload[]): Promise<void> {
     loading.value = true
     error.value = null
     try {
-      await apiUpdateCourses(courses, token)
+      await apiUpdateCourses(courses, requireToken())
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to update courses'
       throw e

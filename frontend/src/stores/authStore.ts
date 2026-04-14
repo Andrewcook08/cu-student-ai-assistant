@@ -31,12 +31,17 @@ export const useAuthStore = defineStore('auth', () => {
     const storedToken = localStorage.getItem('token')
     const storedUserId = localStorage.getItem('userId')
     const storedName = localStorage.getItem('userName')
-    if (storedToken && storedUserId) {
+    const parsedUserId = storedUserId ? Number(storedUserId) : Number.NaN
+
+    if (storedToken && Number.isInteger(parsedUserId) && parsedUserId > 0) {
       token.value = storedToken
-      userId.value = Number(storedUserId)
+      userId.value = parsedUserId
       userName.value = storedName ?? ''
       isAuthenticated.value = true
+      return
     }
+
+    logout()
   }
 
   return { isAuthenticated, userName, token, userId, setAuth, logout, initFromStorage }

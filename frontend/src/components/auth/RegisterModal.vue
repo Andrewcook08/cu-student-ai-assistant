@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAuth } from '@/composables/useAuth'
 import type { CompletedCoursePayload, Program, Requirement } from '@/types/index'
 
@@ -7,107 +7,156 @@ const emit = defineEmits<{ close: [] }>()
 
 const { loading, error, register, fetchPrograms, fetchRequirements, updateCompletedCourses } =
   useAuth()
+const dialogTitleId = 'register-modal-title'
 
-// Step 1 fields
 const email = ref('')
 const password = ref('')
 const name = ref('')
-
-// Step tracking
 const step = ref<1 | 2>(1)
-let registeredToken = ''
 
-// Step 2 state
 const programs = ref<Program[]>([])
 const selectedProgramId = ref<number | null>(null)
 const requirements = ref<Requirement[]>([])
-// checkedCourses: map of course_code → grade string
 const checkedCourses = ref<Record<string, string>>({})
+const nameInput = ref<HTMLInputElement | null>(null)
+const programSelect = ref<HTMLSelectElement | null>(null)
 
-// Password strength (client-side only — server validation is authoritative)
 interface PasswordStrength {
   label: string
   colorClass: string
 }
 
-function computePasswordStrength(pw: string): PasswordStrength {
-  if (!pw) return { label: '', colorClass: '' }
-  const hasUpper = /[A-Z]/.test(pw)
-  const hasLower = /[a-z]/.test(pw)
-  const hasDigit = /[0-9]/.test(pw)
-  const hasSpecial = /[^A-Za-z0-9]/.test(pw)
-  const types = [hasUpper, hasLower, hasDigit, hasSpecial].filter(Boolean).length
-  if (pw.length < 8) return { label: 'Too short', colorClass: 'strength--weak' }
-  if (pw.length < 12) return { label: 'Weak', colorClass: 'strength--weak' }
-  if (types <= 2) return { label: 'Fair', colorClass: 'strength--fair' }
-  if (types === 3) return { label: 'Strong', colorClass: 'strength--strong' }
+function computePasswordStrength(value: string): PasswordStrength {
+  if (!value) return { label: '', colorClass: '' }
+
+  const hasUpper = /[A-Z]/.test(value)
+  const hasLower = /[a-z]/.test(value)
+  const hasDigit = /[0-9]/.test(value)
+  const hasSpecial = /[^A-Za-z0-9]/.test(value)
+  const characterTypes = [hasUpper, hasLower, hasDigit, hasSpecial].filter(Boolean).length
+
+  if (value.length < 8) return { label: 'Too short', colorClass: 'strength--weak' }
+  if (value.length < 12) return { label: 'Weak', colorClass: 'strength--weak' }
+  if (characterTypes <= 2) return { label: 'Fair', colorClass: 'strength--fair' }
+  if (characterTypes === 3) return { label: 'Strong', colorClass: 'strength--strong' }
+
   return { label: 'Very strong', colorClass: 'strength--strong' }
 }
 
 const strength = computed(() => computePasswordStrength(password.value))
+const selectableRequirements = computed(() =>
+  requirements.value.filter((requirement): requirement is Requirement & { course_code: string } =>
+    typeof requirement.course_code === 'string' && requirement.course_code.length > 0,
+  ),
+)
 
-// Load requirements when program selection changes
-watch(selectedProgramId, async (id) => {
-  if (id === null) {
+function focusActiveStepField() {
+  void nextTick(() => {
+    if (step.value === 1) {
+      nameInput.value?.focus()
+      return
+    }
+
+    programSelect.value?.focus()
+  })
+}
+
+function closeModal() {
+  emit('close')
+}
+
+function isChecked(courseCode: string): boolean {
+  return courseCode in checkedCourses.value
+}
+
+function toggleCourse(courseCode: string) {
+  if (isChecked(courseCode)) {
+    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+    delete checkedCourses.value[courseCode]
+    return
+  }
+
+  checkedCourses.value[courseCode] = ''
+}
+
+function handleEscapeKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    closeModal()
+  }
+}
+
+watch(selectedProgramId, async (programId) => {
+  if (programId === null) {
     requirements.value = []
     return
   }
+
   try {
-    const result = await fetchRequirements(id, registeredToken)
-    requirements.value = result.requirements.filter((r) => r.course_code)
+    const result = await fetchRequirements(programId)
+    requirements.value = result.requirements
   } catch {
-    // error.value is already set by useAuth; the error-msg paragraph will render
     requirements.value = []
   }
 })
 
-function toggleCourse(code: string) {
-  if (code in checkedCourses.value) {
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-    delete checkedCourses.value[code]
-  } else {
-    checkedCourses.value[code] = ''
-  }
-}
+watch(step, focusActiveStepField)
+
+onMounted(() => {
+  document.addEventListener('keydown', handleEscapeKey)
+  focusActiveStepField()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleEscapeKey)
+})
 
 async function submitStep1() {
   try {
-    const result = await register({
+    await register({
       email: email.value,
       password: password.value,
       name: name.value,
     })
-    registeredToken = result.token
-    programs.value = await fetchPrograms(result.token)
+    programs.value = await fetchPrograms()
     step.value = 2
   } catch {
-    // error.value is already set by useAuth for whichever call failed
+    // useAuth exposes the error message for the active step
   }
 }
 
 async function submitStep2() {
   const courses: CompletedCoursePayload[] = Object.entries(checkedCourses.value).map(
-    ([code, grade]) => ({ course_code: code, ...(grade ? { grade } : {}) }),
+    ([courseCode, grade]) => ({ course_code: courseCode, ...(grade ? { grade } : {}) }),
   )
-  if (courses.length > 0) {
-    await updateCompletedCourses(courses, registeredToken)
+
+  try {
+    if (courses.length > 0) {
+      await updateCompletedCourses(courses)
+    }
+    closeModal()
+  } catch {
+    // useAuth exposes the error message for the active step
   }
-  emit('close')
 }
 </script>
 
 <template>
-  <div class="modal-backdrop" role="dialog" aria-modal="true" @click.self="emit('close')">
+  <div
+    class="modal-backdrop"
+    role="dialog"
+    :aria-labelledby="dialogTitleId"
+    aria-modal="true"
+    @click.self="closeModal"
+  >
     <div class="modal-box">
-
-      <!-- Step 1: Credentials -->
       <template v-if="step === 1">
-        <h2 class="modal-title">Create Account</h2>
+        <h2 :id="dialogTitleId" class="modal-title">Create Account</h2>
         <form @submit.prevent="submitStep1" novalidate>
           <div class="form-group">
             <label for="reg-name">Full Name</label>
             <input
               id="reg-name"
+              ref="nameInput"
               v-model="name"
               name="name"
               type="text"
@@ -151,14 +200,15 @@ async function submitStep2() {
             <p class="field-hint">Minimum 12 characters. Server validates final strength.</p>
           </div>
 
-          <p v-if="error" data-testid="error-msg" class="error-text">{{ error }}</p>
+          <p v-if="error" data-testid="error-msg" class="error-text" aria-live="polite">{{ error }}</p>
 
           <div class="modal-actions">
             <button
               type="button"
               data-testid="cancel-btn"
               class="btn btn--secondary"
-              @click="emit('close')"
+              aria-label="Cancel registration"
+              @click="closeModal"
             >
               Cancel
             </button>
@@ -169,42 +219,50 @@ async function submitStep2() {
         </form>
       </template>
 
-      <!-- Step 2: Program + completed courses -->
       <template v-else>
-        <h2 class="modal-title">Complete Your Profile</h2>
+        <h2 :id="dialogTitleId" class="modal-title">Complete Your Profile</h2>
 
         <div class="form-group">
           <label for="reg-program">Program (optional)</label>
           <select
             id="reg-program"
+            ref="programSelect"
             v-model="selectedProgramId"
             name="program"
             class="form-control"
+            aria-describedby="reg-program-help"
           >
-            <option :value="null">— Select your program —</option>
-            <option v-for="p in programs" :key="p.id" :value="p.id">{{ p.name }}</option>
+            <option :value="null">Select your program</option>
+            <option v-for="program in programs" :key="program.id" :value="program.id">
+              {{ program.name }}
+            </option>
           </select>
+          <p id="reg-program-help" class="field-hint">Selecting a program loads its required courses.</p>
         </div>
 
-        <div v-if="requirements.length > 0" class="courses-section">
+        <div v-if="selectableRequirements.length > 0" class="courses-section">
           <p class="section-label">Check courses you have already completed</p>
           <ul class="course-list">
-            <li v-for="req in requirements" :key="req.id" class="course-item">
+            <li v-for="requirement in selectableRequirements" :key="requirement.id" class="course-item">
               <label class="course-label">
                 <input
                   type="checkbox"
-                  :value="req.course_code"
-                  :checked="req.course_code! in checkedCourses"
-                  @change="toggleCourse(req.course_code!)"
+                  :value="requirement.course_code"
+                  :checked="isChecked(requirement.course_code)"
+                  :aria-label="`Mark ${requirement.course_code} as completed`"
+                  @change="toggleCourse(requirement.course_code)"
                 />
-                <span class="course-code">{{ req.course_code }}</span>
-                <span v-if="req.description" class="course-desc"> — {{ req.description }}</span>
+                <span class="course-code">{{ requirement.course_code }}</span>
+                <span v-if="requirement.description" class="course-desc">
+                  - {{ requirement.description }}
+                </span>
               </label>
               <input
-                v-if="req.course_code! in checkedCourses"
-                v-model="checkedCourses[req.course_code!]"
+                v-if="isChecked(requirement.course_code)"
+                v-model="checkedCourses[requirement.course_code]"
                 type="text"
                 class="grade-input form-control"
+                :aria-label="`Grade for ${requirement.course_code}`"
                 placeholder="Grade (e.g. A)"
                 maxlength="3"
               />
@@ -212,7 +270,7 @@ async function submitStep2() {
           </ul>
         </div>
 
-        <p v-if="error" data-testid="error-msg" class="error-text">{{ error }}</p>
+        <p v-if="error" data-testid="error-msg" class="error-text" aria-live="polite">{{ error }}</p>
 
         <div class="modal-actions">
           <button
@@ -220,13 +278,13 @@ async function submitStep2() {
             data-testid="finish-btn"
             class="btn btn--full"
             :disabled="loading"
+            aria-label="Save completed courses"
             @click="submitStep2"
           >
             {{ loading ? 'Saving\u2026' : 'Finish' }}
           </button>
         </div>
       </template>
-
     </div>
   </div>
 </template>

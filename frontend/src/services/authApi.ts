@@ -2,8 +2,8 @@ import type {
   AuthRegisterResponse,
   RegisterFormData,
   Program,
-  Requirement,
   CompletedCoursePayload,
+  ProgramRequirementsResponse,
 } from '@/types/index'
 
 const API_BASE = '/api'
@@ -15,6 +15,21 @@ function authHeaders(token: string): Record<string, string> {
   }
 }
 
+async function getErrorMessage(response: Response, fallback: string): Promise<string> {
+  const errorBody: unknown = await response.json().catch(() => null)
+
+  if (
+    errorBody !== null &&
+    typeof errorBody === 'object' &&
+    'detail' in errorBody &&
+    typeof errorBody.detail === 'string'
+  ) {
+    return errorBody.detail
+  }
+
+  return `${fallback}: ${response.status}`
+}
+
 export async function register(data: RegisterFormData): Promise<AuthRegisterResponse> {
   const res = await fetch(`${API_BASE}/auth/register`, {
     method: 'POST',
@@ -22,27 +37,25 @@ export async function register(data: RegisterFormData): Promise<AuthRegisterResp
     body: JSON.stringify(data),
   })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    const msg = typeof err.detail === 'string' ? err.detail : `Registration failed: ${res.status}`
-    throw new Error(msg)
+    throw new Error(await getErrorMessage(res, 'Registration failed'))
   }
   return res.json()
 }
 
 export async function fetchPrograms(token: string): Promise<Program[]> {
   const res = await fetch(`${API_BASE}/programs`, { headers: authHeaders(token) })
-  if (!res.ok) throw new Error(`Failed to fetch programs: ${res.status}`)
+  if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to fetch programs'))
   return res.json()
 }
 
 export async function fetchProgramRequirements(
   programId: number,
   token: string,
-): Promise<{ program: Program; requirements: Requirement[] }> {
+): Promise<ProgramRequirementsResponse> {
   const res = await fetch(`${API_BASE}/programs/${programId}/requirements`, {
     headers: authHeaders(token),
   })
-  if (!res.ok) throw new Error(`Failed to fetch requirements: ${res.status}`)
+  if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to fetch requirements'))
   return res.json()
 }
 
@@ -55,5 +68,5 @@ export async function updateCompletedCourses(
     headers: authHeaders(token),
     body: JSON.stringify(courses),
   })
-  if (!res.ok) throw new Error(`Failed to update completed courses: ${res.status}`)
+  if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to update completed courses'))
 }

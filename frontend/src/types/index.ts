@@ -136,3 +136,8 @@ export interface CompletedCoursePayload {
   course_code: string
   grade?: string
 }
+
+export interface ProgramRequirementsResponse {
+  program: Program
+  requirements: Requirement[]
+}
