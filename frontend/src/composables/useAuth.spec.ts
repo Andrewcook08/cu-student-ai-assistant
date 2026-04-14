@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useAuth } from '@/composables/useAuth'
+import { useAuthStore } from '@/stores/authStore'
 import * as authApi from '@/services/authApi'
 
 beforeEach(() => {
@@ -39,16 +40,20 @@ describe('useAuth', () => {
       vi.spyOn(authApi, 'fetchPrograms').mockResolvedValue([
         { id: 1, name: 'CS BS', type: 'major', total_credits: 120 },
       ])
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
       const { fetchPrograms, loading } = useAuth()
-      const programs = await fetchPrograms('tok')
+      const programs = await fetchPrograms()
       expect(programs).toHaveLength(1)
       expect(loading.value).toBe(false)
     })
 
     it('sets error.value and rethrows on failure', async () => {
       vi.spyOn(authApi, 'fetchPrograms').mockRejectedValue(new Error('Failed to load programs'))
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
       const { fetchPrograms, error } = useAuth()
-      await expect(fetchPrograms('bad-token')).rejects.toThrow('Failed to load programs')
+      await expect(fetchPrograms()).rejects.toThrow('Failed to load programs')
       expect(error.value).toBe('Failed to load programs')
     })
   })
@@ -62,16 +67,20 @@ describe('useAuth', () => {
         ],
       }
       vi.spyOn(authApi, 'fetchProgramRequirements').mockResolvedValue(mockResult)
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
       const { fetchRequirements } = useAuth()
-      const result = await fetchRequirements(1, 'tok')
+      const result = await fetchRequirements(1)
       expect(result.requirements).toHaveLength(1)
       expect(result.requirements[0].course_code).toBe('CSCI1300')
     })
 
     it('sets error.value and rethrows on failure', async () => {
       vi.spyOn(authApi, 'fetchProgramRequirements').mockRejectedValue(new Error('Failed to load requirements'))
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
       const { fetchRequirements, error } = useAuth()
-      await expect(fetchRequirements(99, 'tok')).rejects.toThrow('Failed to load requirements')
+      await expect(fetchRequirements(99)).rejects.toThrow('Failed to load requirements')
       expect(error.value).toBe('Failed to load requirements')
     })
   })
@@ -79,8 +88,10 @@ describe('useAuth', () => {
   describe('updateCompletedCourses', () => {
     it('delegates to authApi.updateCompletedCourses', async () => {
       vi.spyOn(authApi, 'updateCompletedCourses').mockResolvedValue(undefined)
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
       const { updateCompletedCourses } = useAuth()
-      await updateCompletedCourses([{ course_code: 'CSCI1300', grade: 'A' }], 'tok')
+      await updateCompletedCourses([{ course_code: 'CSCI1300', grade: 'A' }])
       expect(authApi.updateCompletedCourses).toHaveBeenCalledWith(
         [{ course_code: 'CSCI1300', grade: 'A' }],
         'tok',
@@ -89,9 +100,11 @@ describe('useAuth', () => {
 
     it('sets error.value and rethrows on failure', async () => {
       vi.spyOn(authApi, 'updateCompletedCourses').mockRejectedValue(new Error('Failed to update courses'))
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
       const { updateCompletedCourses, error } = useAuth()
       await expect(
-        updateCompletedCourses([{ course_code: 'CSCI1300' }], 'tok'),
+        updateCompletedCourses([{ course_code: 'CSCI1300' }]),
       ).rejects.toThrow('Failed to update courses')
       expect(error.value).toBe('Failed to update courses')
     })

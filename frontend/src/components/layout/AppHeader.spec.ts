@@ -27,7 +27,7 @@ describe('AppHeader', () => {
 
   it('clicking Login link shows RegisterModal', async () => {
     const wrapper = mountHeader()
-    await wrapper.find('a.anon-only').trigger('click')
+    await wrapper.find('button.anon-only').trigger('click')
     expect(wrapper.findComponent({ name: 'RegisterModal' }).exists()).toBe(true)
   })
 })
