@@ -12,6 +12,8 @@ router = APIRouter(prefix="/api/students", tags=["students"])
 
 # Hard cap on the number of completed-course entries accepted in one PUT.
 _MAX_COMPLETED_COURSES = 200
+# Hard cap on the number of decisions returned in GET /me.
+_MAX_DECISIONS = 500
 
 
 class CompletedCourseItem(BaseModel):
@@ -19,7 +21,24 @@ class CompletedCourseItem(BaseModel):
     grade: str | None = None
 
 
-@router.get("/me")
+class DecisionItem(BaseModel):
+    id: int
+    course_code: str
+    decision_type: str | None
+    notes: str | None
+    created_at: str | None
+
+
+class StudentProfile(BaseModel):
+    id: int
+    email: str
+    name: str
+    program_id: int | None
+    is_active: bool
+    decisions: list[DecisionItem]
+
+
+@router.get("/me", response_model=StudentProfile)
 def get_current_student(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -35,6 +54,7 @@ def get_current_student(
         db.query(StudentDecision)
         .filter(StudentDecision.user_id == user.id)
         .order_by(StudentDecision.created_at.desc(), StudentDecision.id.desc())
+        .limit(_MAX_DECISIONS)
         .all()
     )
     return {
