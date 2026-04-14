@@ -1270,7 +1270,7 @@ The token is currently delivered in the query string (`?token=...`). This is a k
 
 ## Network Security
 
-**Status**: Design only — not yet implemented. Target: Phase 4 (Epic 11 DEPLOY-*).
+**Status**: In progress — DEPLOY-001 (VPC + private subnet + network firewall policy + VPC connector) merged and verified deployed. Remaining stories in Phase 4 (Epic 11 DEPLOY-*).
 
 All backend infrastructure runs in a private VPC subnet with no public IPs. The only internet-facing components are Cloud Run services, which GCP manages and terminates TLS for. See [ADR-23](decisions.md#adr-23-network-security-private-subnet--iap-over-bastion) for the rationale.
 
