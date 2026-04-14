@@ -5,6 +5,7 @@ from __future__ import annotations
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import ASGIApp
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -14,7 +15,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     poisoning local HSTS caches during development.
     """
 
-    def __init__(self, app, *, environment: str = "development") -> None:  # noqa: ANN001
+    def __init__(self, app: ASGIApp, *, environment: str = "development") -> None:
         super().__init__(app)
         self.environment = environment
 

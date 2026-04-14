@@ -42,3 +42,11 @@ def test_hsts_in_production() -> None:
     client = TestClient(_make_app("production"))
     resp = client.get("/ping")
     assert resp.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
+
+
+def test_headers_on_404() -> None:
+    client = TestClient(_make_app())
+    resp = client.get("/nonexistent")
+    assert resp.status_code == 404
+    for header, value in _ALWAYS_HEADERS.items():
+        assert resp.headers[header] == value
