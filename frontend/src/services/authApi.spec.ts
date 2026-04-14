@@ -50,6 +50,11 @@ describe('authApi', () => {
       expect(result).toHaveLength(1)
       expect(result[0].id).toBe(1)
     })
+
+    it('throws on non-ok response', async () => {
+      mockFetch({ detail: 'Unauthorized' }, 401)
+      await expect(fetchPrograms('bad-tok')).rejects.toThrow('Failed to fetch programs: 401')
+    })
   })
 
   describe('fetchProgramRequirements', () => {
@@ -61,6 +66,11 @@ describe('authApi', () => {
       expect((call[1] as RequestInit).headers as Record<string, string>).toMatchObject({
         Authorization: 'Bearer tok',
       })
+    })
+
+    it('throws on non-ok response', async () => {
+      mockFetch({ detail: 'Not found' }, 404)
+      await expect(fetchProgramRequirements(999, 'tok')).rejects.toThrow('Failed to fetch requirements: 404')
     })
   })
 
@@ -77,6 +87,11 @@ describe('authApi', () => {
       })
       const body = JSON.parse((call[1] as RequestInit).body as string)
       expect(body).toEqual([{ course_code: 'CSCI1300', grade: 'A' }])
+    })
+
+    it('throws on non-ok response', async () => {
+      mockFetch({ detail: 'Bad request' }, 400)
+      await expect(updateCompletedCourses([], 'tok')).rejects.toThrow('Failed to update completed courses: 400')
     })
   })
 })

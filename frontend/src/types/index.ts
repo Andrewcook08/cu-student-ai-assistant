@@ -125,12 +125,6 @@ export interface AuthRegisterResponse {
   user_id: number
 }
 
-export interface LoginResponse {
-  access_token: string
-  token_type: string
-  expires_in: number
-}
-
 export interface RegisterFormData {
   email: string
   password: string
