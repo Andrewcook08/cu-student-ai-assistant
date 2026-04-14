@@ -44,6 +44,13 @@ describe('useAuth', () => {
       expect(programs).toHaveLength(1)
       expect(loading.value).toBe(false)
     })
+
+    it('sets error.value and rethrows on failure', async () => {
+      vi.spyOn(authApi, 'fetchPrograms').mockRejectedValue(new Error('Failed to load programs'))
+      const { fetchPrograms, error } = useAuth()
+      await expect(fetchPrograms('bad-token')).rejects.toThrow('Failed to load programs')
+      expect(error.value).toBe('Failed to load programs')
+    })
   })
 
   describe('fetchRequirements', () => {
@@ -60,6 +67,13 @@ describe('useAuth', () => {
       expect(result.requirements).toHaveLength(1)
       expect(result.requirements[0].course_code).toBe('CSCI1300')
     })
+
+    it('sets error.value and rethrows on failure', async () => {
+      vi.spyOn(authApi, 'fetchProgramRequirements').mockRejectedValue(new Error('Failed to load requirements'))
+      const { fetchRequirements, error } = useAuth()
+      await expect(fetchRequirements(99, 'tok')).rejects.toThrow('Failed to load requirements')
+      expect(error.value).toBe('Failed to load requirements')
+    })
   })
 
   describe('updateCompletedCourses', () => {
@@ -71,6 +85,15 @@ describe('useAuth', () => {
         [{ course_code: 'CSCI1300', grade: 'A' }],
         'tok',
       )
+    })
+
+    it('sets error.value and rethrows on failure', async () => {
+      vi.spyOn(authApi, 'updateCompletedCourses').mockRejectedValue(new Error('Failed to update courses'))
+      const { updateCompletedCourses, error } = useAuth()
+      await expect(
+        updateCompletedCourses([{ course_code: 'CSCI1300' }], 'tok'),
+      ).rejects.toThrow('Failed to update courses')
+      expect(error.value).toBe('Failed to update courses')
     })
   })
 })
