@@ -1,13 +1,14 @@
-"""Tests for /api/students — API-005 (CUAI-78).
+"""Tests for /api/students — API-005 (CUAI-78) + MEM-003 (CUAI-59).
 
-Covers GET /me auth boundary (regression for is_active fix, PR #51) and the
-PUT /me/completed-courses batch-replace endpoint (CUAI-78).
+Covers GET /me auth boundary (regression for is_active fix, PR #51), the
+PUT /me/completed-courses batch-replace endpoint (CUAI-78), and the
+decisions field in GET /me (MEM-003).
 """
 
 from __future__ import annotations
 
 from shared.auth import create_access_token, hash_password
-from shared.models import Course, User
+from shared.models import Course, StudentDecision, User
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -217,3 +218,103 @@ def test_put_completed_courses_oversized_payload_returns_422(client, db_session)
         headers=_auth(token),
     )
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# GET /me — decisions field (MEM-003 / CUAI-59)
+# ---------------------------------------------------------------------------
+
+
+def test_students_me_includes_decisions_field(client, db_session):
+    """GET /me must include a 'decisions' list in the response (may be empty)."""
+    user = _make_user(db_session, email="decisions_field@example.com")
+    token = create_access_token(str(user.id))
+
+    response = client.get("/api/students/me", headers=_auth(token))
+    assert response.status_code == 200
+    assert "decisions" in response.json()
+    assert isinstance(response.json()["decisions"], list)
+
+
+def test_students_me_decisions_empty_by_default(client, db_session):
+    """A new user with no decisions gets an empty decisions list."""
+    user = _make_user(db_session, email="nodecisions@example.com")
+    token = create_access_token(str(user.id))
+
+    response = client.get("/api/students/me", headers=_auth(token))
+    assert response.status_code == 200
+    assert response.json()["decisions"] == []
+
+
+def test_students_me_returns_decision_history(client, db_session):
+    """Decisions inserted directly into DB appear in GET /me response."""
+    user = _make_user(db_session, email="withdecisions@example.com")
+    token = create_access_token(str(user.id))
+
+    db_session.add(
+        StudentDecision(
+            user_id=user.id,
+            course_code="CSCI 3104",
+            decision_type="planned",
+            notes="Taking next semester",
+        )
+    )
+    db_session.add(
+        StudentDecision(
+            user_id=user.id,
+            course_code="MATH 2400",
+            decision_type="interested",
+            notes=None,
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/students/me", headers=_auth(token))
+    assert response.status_code == 200
+    decisions = response.json()["decisions"]
+    assert len(decisions) == 2
+
+    codes = {d["course_code"] for d in decisions}
+    assert codes == {"CSCI 3104", "MATH 2400"}
+
+    planned = next(d for d in decisions if d["course_code"] == "CSCI 3104")
+    assert planned["decision_type"] == "planned"
+    assert planned["notes"] == "Taking next semester"
+    assert planned["created_at"] is not None
+
+
+def test_students_me_decisions_ordered_newest_first(client, db_session):
+    """Decisions are returned newest-first (DESC created_at)."""
+    user = _make_user(db_session, email="decisionorder@example.com")
+    token = create_access_token(str(user.id))
+
+    db_session.add(
+        StudentDecision(user_id=user.id, course_code="CSCI 1300", decision_type="planned")
+    )
+    db_session.commit()
+    db_session.add(
+        StudentDecision(user_id=user.id, course_code="CSCI 3104", decision_type="interested")
+    )
+    db_session.commit()
+
+    response = client.get("/api/students/me", headers=_auth(token))
+    assert response.status_code == 200
+    decisions = response.json()["decisions"]
+    assert decisions[0]["course_code"] == "CSCI 3104"
+    assert decisions[1]["course_code"] == "CSCI 1300"
+
+
+def test_students_me_decisions_isolated_per_user(client, db_session):
+    """User A's decisions do not appear in User B's GET /me response."""
+    user_a = _make_user(db_session, email="usera@example.com")
+    user_b = _make_user(db_session, email="userb@example.com")
+
+    db_session.add(
+        StudentDecision(user_id=user_a.id, course_code="CSCI 3104", decision_type="planned")
+    )
+    db_session.commit()
+
+    token_b = create_access_token(str(user_b.id))
+    response = client.get("/api/students/me", headers=_auth(token_b))
+    assert response.status_code == 200
+    assert response.json()["decisions"] == []
