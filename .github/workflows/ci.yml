@@ -66,6 +66,30 @@ jobs:
       - name: pytest
         run: uv run pytest
 
+  terraform:
+    name: Terraform — fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.8
+
+      - name: Format check
+        working-directory: infra
+        run: terraform fmt -check -diff
+
+      - name: Validate
+        working-directory: infra
+        # -backend=false skips GCS state access — no GCP auth needed.
+        # Catches syntax, type, and reference errors. Real `plan`/`apply`
+        # is run locally via ./infra.sh; this is just a guardrail.
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
   frontend:
     name: Frontend — type-check, test, build
     runs-on: ubuntu-latest
