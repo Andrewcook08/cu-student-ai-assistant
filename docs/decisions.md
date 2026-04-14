@@ -651,7 +651,7 @@ Use a GCP **Managed Instance Group (MIG)** with an autoscaler driven by a custom
 - The user experiences a delay (extra ~60-90s) but no error or data loss
 - This is acceptable for a chat interface where users already expect multi-second response times
 
-**Min replicas = 0** saves all GPU cost when nobody is chatting. The tradeoff is a ~60-90s cold start for the first chat message after idle (VM boot + model load). For a class project with limited budget, this is the right tradeoff. During the demo, we pre-warm by sending a test message before presenting.
+**Min replicas = 0** saves all GPU cost when nobody is chatting. The tradeoff is a ~30-60s cold start for the first chat message after idle (VM boot + model load from local disk). Models are baked into a custom GCE image (built via Packer) to avoid multi-minute download delays at scale-up time — see [Ollama Worker Image Build Pipeline](architecture.md#ollama-worker-image-build-pipeline). For a class project with limited budget, this is the right tradeoff. During the demo, we pre-warm by sending a test message before presenting.
 
 **The queue-depth-exporter** runs as a cron job (every 30s) on the data VM rather than as a Cloud Function or sidecar because:
 - The data VM already runs Redis, so it has direct access
