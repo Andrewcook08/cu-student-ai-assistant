@@ -35,3 +35,6 @@ frontend/dist/
 
 # Tasks (Claude Code plans, todos, lessons)
 tasks/
+
+# Claude Code runtime artifacts
+.claude/*.lock
