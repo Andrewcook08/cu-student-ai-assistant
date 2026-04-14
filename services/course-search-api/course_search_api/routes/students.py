@@ -2,7 +2,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from shared.models import CompletedCourse, Course, User
+from shared.models import CompletedCourse, Course, StudentDecision, User
 from sqlalchemy.orm import Session
 
 from course_search_api.dependencies import get_current_user, get_db
@@ -20,20 +20,39 @@ class CompletedCourseItem(BaseModel):
 
 
 @router.get("/me")
-def get_current_student(user: User = Depends(get_current_user)) -> dict[str, Any]:
-    """Return the authenticated user's profile.
+def get_current_student(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Return the authenticated user's profile including decision history.
 
     `get_current_user` (see dependencies.py) enforces:
     - valid JWT → 401 if missing/invalid
     - user exists in DB → 401 if not found
     - user.is_active is True → 401 if deactivated (PR #51 fix)
     """
+    decisions = (
+        db.query(StudentDecision)
+        .filter(StudentDecision.user_id == user.id)
+        .order_by(StudentDecision.created_at.desc(), StudentDecision.id.desc())
+        .all()
+    )
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
         "program_id": user.program_id,
         "is_active": user.is_active,
+        "decisions": [
+            {
+                "id": d.id,
+                "course_code": d.course_code,
+                "decision_type": d.decision_type,
+                "notes": d.notes,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in decisions
+        ],
     }
 
 
