@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, field_validator
-from shared.auth import create_access_token, hash_password
+from shared.auth import create_access_token, hash_password, verify_password
+from shared.config import settings
 from shared.database import get_db
 from shared.models import Program, User
 from sqlalchemy.exc import IntegrityError
@@ -94,15 +95,59 @@ class RegisterRequest(BaseModel):
         return v
 
 
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_not_empty(cls, v: str) -> str:
+        if not v:
+            raise ValueError("Password must not be empty")
+        return v
+
+
+# Pre-computed dummy hash used when the user does not exist so that we always
+# spend ~100 ms in bcrypt regardless of whether the email is registered.
+# Without this, the no-user path is orders of magnitude faster and leaks
+# whether an email is enrolled (timing side-channel / user enumeration).
+_DUMMY_HASH: str = hash_password("dummy-timing-sentinel-value")
+
+
 @router.post("/login")
 @limiter.limit("5/minute")
-async def login(request: Request) -> dict:
-    """Placeholder — full implementation in AUTH-002.
+async def login(
+    request: Request,
+    body: LoginRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    # Normalise email so case variants resolve to the same account.
+    email = body.email.lower()
 
-    Rate limit (5/minute per IP) is enforced here so login brute-force is
-    mitigated as soon as this stub is in place, before the real handler lands.
-    """
-    raise HTTPException(status_code=501, detail="Not implemented")
+    user = db.query(User).filter(User.email == email).first()
+
+    # Always call verify_password — even when the user does not exist — so
+    # that every request spends the same bcrypt time and an attacker cannot
+    # distinguish "no such email" from "wrong password" via response latency.
+    hash_to_check = user.password_hash if user is not None else _DUMMY_HASH
+    password_ok = verify_password(body.password, hash_to_check)
+
+    if user is None or not user.is_active or not password_ok:
+        # Fresh HTTPException per call — avoids sharing a mutable singleton
+        # across concurrent async requests (stale __traceback__ risk).
+        # WWW-Authenticate header follows RFC 7235 Bearer token convention.
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = create_access_token(user.id)  # sub = user_id only — no email or PII
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": settings.jwt_expire_minutes * 60,
+    }
 
 
 @router.post("/register")
@@ -138,5 +183,5 @@ async def register(
         raise HTTPException(status_code=400, detail="Registration failed") from err
     db.refresh(user)
 
-    token = create_access_token(user.id, user.email)
+    token = create_access_token(user.id)  # sub = user_id only — no email or PII
     return {"token": token, "user_id": user.id}

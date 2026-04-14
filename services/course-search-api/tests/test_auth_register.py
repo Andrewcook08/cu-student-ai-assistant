@@ -54,15 +54,20 @@ def test_register_returns_200_with_token_and_user_id(client, db_session):
     assert isinstance(body["user_id"], int)
 
 
-def test_register_jwt_contains_user_id_and_email(client, db_session):
-    """The JWT returned by /register must contain user_id (sub) and email claims."""
+def test_register_jwt_sub_is_user_id_only(client, db_session):
+    """The JWT returned by /register must have sub=user_id and no email or PII.
+
+    Consistent with the login endpoint — both return a JWT with only user_id
+    in sub so downstream services see the same token shape regardless of
+    which endpoint issued it.
+    """
     resp = _register(client, email="jwt@colorado.edu")
     assert resp.status_code == 200
     token = resp.json()["token"]
 
     payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     assert payload["sub"] == str(resp.json()["user_id"])
-    assert payload["email"] == "jwt@colorado.edu"
+    assert "email" not in payload
 
 
 def test_register_password_is_bcrypt_hashed(client, db_session):
