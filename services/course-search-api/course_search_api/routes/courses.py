@@ -5,7 +5,7 @@ import neo4j.exceptions
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from neo4j import AsyncDriver
 from shared.models import Course, Section, User
-from sqlalchemy import Integer, cast, distinct, func
+from sqlalchemy import Integer, case, cast, distinct, func
 from sqlalchemy.orm import Session, joinedload
 
 from course_search_api.dependencies import (
@@ -78,16 +78,22 @@ def list_courses(
     # Fetch with eager loading after count
     course_ids_query = query.with_entities(Course.id).offset(offset).limit(limit)
     course_ids = [row[0] for row in course_ids_query.all()]
-    courses = (
-        (
+    if course_ids:
+        # Preserve pagination order: IN() doesn't guarantee row order,
+        # so we use a CASE expression to sort by the original ID list.
+        ordering = case(
+            {cid: idx for idx, cid in enumerate(course_ids)},
+            value=Course.id,
+        )
+        courses = (
             db.query(Course)
             .options(joinedload(Course.sections))
             .filter(Course.id.in_(course_ids))
+            .order_by(ordering)
             .all()
         )
-        if course_ids
-        else []
-    )
+    else:
+        courses = []
 
     return {
         "items": [_course_to_dict(c) for c in courses],
