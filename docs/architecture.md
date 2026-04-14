@@ -848,8 +848,8 @@ cu-student-ai-assistant/
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  INFRASTRUCTURE  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
 │
-# infra/ — PLANNED for Phase 4 (DEPLOY-*). See § GCP Deployment & Infrastructure.
-#          No directory exists yet; Terraform IaC will be added when GCP work begins.
+# infra/ — Phase 4 (DEPLOY-*). See § GCP Deployment & Infrastructure.
+#          DEPLOY-001 (VPC + networking) merged. Remaining stories in progress.
 │
 ├── .github/
 │   └── workflows/
@@ -1369,7 +1369,7 @@ All four rules are `google_compute_network_firewall_policy_rule` resources insid
 
 ## GCP Deployment & Infrastructure
 
-**Status**: Design only — not yet implemented. Target: Phase 4 (Epic 11 DEPLOY-*). No `infra/` directory exists in the repo yet.
+**Status**: In progress — DEPLOY-001 (VPC + networking) merged. Remaining stories in Phase 4 (Epic 11 DEPLOY-*).
 
 See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.md#adr-18-terraform-for-iac), and [ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm) for the reasoning behind these decisions.
 
@@ -1428,7 +1428,7 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 
 ### Infrastructure-as-Code (Terraform)
 
-All GCP resources are defined in Terraform, stored in `infra/` at the repo root. State is stored in a GCS bucket for team collaboration.
+All GCP resources are defined in Terraform, stored in `infra/` at the repo root. State is stored in a GCS bucket for team collaboration. GCP API enablement is managed declaratively via `google_project_service` resources in `apis.tf` — `terraform apply` on a fresh project enables all required APIs automatically, so team members don't need to enable them manually through the console or `gcloud`.
 
 ```
 infra/
@@ -1438,6 +1438,10 @@ infra/
 ├── terraform.tfvars         # Actual values (gitignored — never committed)
 ├── terraform.tfvars.example # Template with placeholder values for team members
 │
+├── apis.tf                  # GCP API enablement (google_project_service) — ensures
+│                            #   compute, vpcaccess, run, artifactregistry, monitoring,
+│                            #   and iam APIs are enabled before any resources are created.
+│                            #   All other .tf files depend on these implicitly.
 ├── network.tf               # VPC, private subnet (no public IPs on VMs),
 │                            #   Network Firewall Policy (cu-assistant-fw-policy) + association,
 │                            #   policy rules by priority: allow-vpc-connector (1000),
