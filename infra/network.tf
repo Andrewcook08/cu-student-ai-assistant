@@ -5,6 +5,8 @@
 resource "google_compute_network" "vpc" {
   name                    = "cu-assistant-vpc"
   auto_create_subnetworks = false
+
+  depends_on = [google_project_service.apis["compute.googleapis.com"]]
 }
 
 # Private subnet — all VMs land here, no public IPs
@@ -25,6 +27,8 @@ resource "google_vpc_access_connector" "connector" {
   region        = var.region
   ip_cidr_range = var.vpc_connector_range
   network       = google_compute_network.vpc.name
+
+  depends_on = [google_project_service.apis["vpcaccess.googleapis.com"]]
 }
 
 # ─────────────────────────────────────────────
