@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from neo4j import AsyncGraphDatabase
 from shared.config import settings
+from shared.middleware import SecurityHeadersMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from chat_service.core.llm_engine import build_graph
@@ -106,6 +107,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware, environment=settings.environment)
 
 
 @app.get("/api/chat/health")
