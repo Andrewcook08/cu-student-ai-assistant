@@ -31,6 +31,13 @@ _VALID_REGISTER_BODY = {
     "name": "Rate Limit Test",
 }
 
+# Minimal valid login payload — passes LoginRequest validation so the request
+# reaches the limiter (Pydantic rejects empty bodies with 422 before the limiter fires).
+_VALID_LOGIN_BODY = {
+    "email": "ratelimit@colorado.edu",
+    "password": "SecurePass1234!",
+}
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -101,6 +108,33 @@ def auth_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 @pytest.fixture()
+def login_rate_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """TestClient for login rate-limit tests.
+
+    Mocks DB so login requests reach the limiter and return 401 (no matching
+    user) rather than failing on DB connection.  The limiter counter increments
+    on each request regardless of the response status.
+    """
+    monkeypatch.setattr("course_search_api.main.engine", MagicMock())
+    monkeypatch.setattr("course_search_api.main.Base", MagicMock())
+    mock_driver = AsyncMock()
+    mock_graph_db = MagicMock()
+    mock_graph_db.driver.return_value = mock_driver
+    monkeypatch.setattr("course_search_api.main.AsyncGraphDatabase", mock_graph_db)
+
+    mock_db = MagicMock()
+    # No user found → login returns 401 (but limiter still counts the request).
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    with TestClient(app) as c:
+        yield c
+
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture()
 def register_rate_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """TestClient for register rate-limit tests.
 
@@ -152,14 +186,13 @@ def _bearer(user_id: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_6th_login_returns_429(client: TestClient) -> None:
+def test_6th_login_returns_429(login_rate_client: TestClient) -> None:
     """The 6th POST /api/auth/login within a minute must return 429."""
     for i in range(5):
-        resp = client.post("/api/auth/login", json={})
-        # Stub returns 501; limiter hasn't fired yet
-        assert resp.status_code == 501, f"Expected 501 on request {i + 1}, got {resp.status_code}"
+        resp = login_rate_client.post("/api/auth/login", json=_VALID_LOGIN_BODY)
+        assert resp.status_code == 401, f"Expected 401 on request {i + 1}, got {resp.status_code}"
 
-    sixth = client.post("/api/auth/login", json={})
+    sixth = login_rate_client.post("/api/auth/login", json=_VALID_LOGIN_BODY)
     assert sixth.status_code == 429
     assert sixth.json() == {"detail": "Too many requests"}
     assert "retry-after" in sixth.headers
@@ -167,13 +200,13 @@ def test_6th_login_returns_429(client: TestClient) -> None:
     assert 1 <= retry <= 60  # 1-minute window
 
 
-def test_login_5th_request_still_allowed(client: TestClient) -> None:
+def test_login_5th_request_still_allowed(login_rate_client: TestClient) -> None:
     """The 5th POST /api/auth/login must NOT be rate-limited (boundary check)."""
     for _ in range(4):
-        client.post("/api/auth/login", json={})
+        login_rate_client.post("/api/auth/login", json=_VALID_LOGIN_BODY)
 
-    fifth = client.post("/api/auth/login", json={})
-    assert fifth.status_code == 501  # stub, not 429
+    fifth = login_rate_client.post("/api/auth/login", json=_VALID_LOGIN_BODY)
+    assert fifth.status_code == 401  # not 429
 
 
 # ---------------------------------------------------------------------------
@@ -351,26 +384,31 @@ def test_completed_courses_per_user_isolation(auth_client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_login_limit_does_not_bleed_into_search(client: TestClient) -> None:
+def test_login_limit_does_not_bleed_into_search(login_rate_client: TestClient) -> None:
     """Exhausting the login limit must not consume the search quota."""
     # Exhaust login (5/minute)
     for _ in range(5):
-        client.post("/api/auth/login", json={})
-    assert client.post("/api/auth/login", json={}).status_code == 429
+        login_rate_client.post("/api/auth/login", json=_VALID_LOGIN_BODY)
+    assert login_rate_client.post("/api/auth/login", json=_VALID_LOGIN_BODY).status_code == 429
 
-    # Search quota is completely independent
-    with (
-        patch(
-            "course_search_api.routes.courses.get_embedding",
-            new_callable=AsyncMock,
-            return_value=_FAKE_EMBEDDING,
-        ),
-        patch(
-            "course_search_api.routes.courses.vector_search",
-            new_callable=AsyncMock,
-            return_value=_FAKE_RESULTS,
-        ),
-    ):
-        search_resp = client.get("/api/courses/search?q=test")
+    # Search quota is completely independent — override get_current_user so
+    # the search endpoint doesn't 401 before the limiter fires.
+    app.dependency_overrides[get_current_user] = lambda: MagicMock()
+    try:
+        with (
+            patch(
+                "course_search_api.routes.courses.get_embedding",
+                new_callable=AsyncMock,
+                return_value=_FAKE_EMBEDDING,
+            ),
+            patch(
+                "course_search_api.routes.courses.vector_search",
+                new_callable=AsyncMock,
+                return_value=_FAKE_RESULTS,
+            ),
+        ):
+            search_resp = login_rate_client.get("/api/courses/search?q=test")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
     assert search_resp.status_code == 200
