@@ -13,7 +13,6 @@ from shared.auth import hash_password
 from shared.config import settings
 from shared.models import User
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -178,7 +177,9 @@ def test_login_empty_password_returns_422(client):
 
 def test_login_invalid_email_format_returns_422(client):
     """Non-email string must return 422 (pydantic EmailStr validation)."""
-    resp = client.post("/api/auth/login", json={"email": "not-an-email", "password": "SecurePass1234!"})
+    resp = client.post(
+        "/api/auth/login", json={"email": "not-an-email", "password": "SecurePass1234!"}
+    )
     assert resp.status_code == 422
 
 
