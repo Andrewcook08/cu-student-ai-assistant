@@ -894,6 +894,20 @@
 
 All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in already-merged code (auth enforcement, secret validation, rate limiting, compose hardening, WebSocket enforcement). They share the `security` and `phase-3` labels and are owned end-to-end by **Person A (Scott)** — the work spans the shared package, API middleware, compose configuration, and WebSocket routing, all of which fall under Scott's infra/shared remit. SEC-008 is the only inter-ticket dependency: it requires SEC-006 to land first so the `ENVIRONMENT=production` flag has a validator to trip. ADR-33 in `decisions.md` is the architectural source of truth for the rationale and threat model behind these tickets.
 
+#### SEC-010: Security headers middleware (CUAI-86)
+- **Points**: 2
+- **Phase**: 3 / Sprint 3
+- **Blocked by**: Nothing
+- **Assignee**: Person C (Andrew)
+- **Labels**: `security`, `phase-3`
+- **Status**: 📋 Planned
+- **Description**: Add a security headers middleware to both FastAPI services (`course-search-api/main.py` and `chat-service/main.py`). Headers: `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security` (production only, gated on `ENVIRONMENT` env var). The architecture doc already lists these headers as planned (line 1262) — this ticket implements them. DOMPurify on the frontend already handles XSS sanitization; these headers add defense-in-depth at the browser level.
+- **Acceptance criteria**:
+  - [ ] Both services return all five security headers on every response
+  - [ ] HSTS header only present when `ENVIRONMENT=production`
+  - [ ] Existing tests still pass
+  - [ ] New test verifies headers are present on a sample response
+
 ---
 
 ## Epic 10: GCP Deployment
@@ -1255,9 +1269,10 @@ CHAT-008 ──→ DEMO-001 ──→ DEMO-002
 | SEC-003 | 2 | Person B | 16-17 |
 | SEC-004 | 5 | Person C | 17-18 |
 | DEMO-001 | 5 | Person C | 18-19 |
-| **Total** | **41** | | |
+| SEC-010 | 2 | Person C | 19 |
+| **Total** | **43** | | |
 
-**Per-person**: A=11, B=17, C=13. Person A (Scott) owns conversation memory. Person C (Andrew) focuses on security hardening + prompt tuning (DEMO-001 moved from Sprint 4 since its blocker CHAT-008 is now done).
+**Per-person**: A=11, B=17, C=15. Person A (Scott) owns conversation memory. Person C (Andrew) focuses on security hardening + prompt tuning (DEMO-001 moved from Sprint 4 since its blocker CHAT-008 is now done). SEC-010 added for security headers middleware.
 
 ### Sprint 4: Deploy + Demo (Days 20-24, Apr 13-17)
 **Goal**: Live on GCP, demo rehearsed.
@@ -1294,5 +1309,5 @@ CHAT-008 ──→ DEMO-001 ──→ DEMO-002
 | **Cross-person blocks** | 12 (most front-loaded in Days 1-2 scaffolding, zero mid-sprint blocking) |
 | **Critical path stories** | INFRA-001, INFRA-002, INFRA-003, DATA-001, DATA-002, DATA-006, CHAT-001, CHAT-008 |
 | **Highest risk story** | CHAT-008 (LangGraph engine — 8 points, complex integration; de-risked by CHAT-000 spike) — ✅ Done |
-| **Security stories** | 10 (SEC-001 through SEC-009 + CHAT-006) |
+| **Security stories** | 11 (SEC-001 through SEC-010 + CHAT-006) |
 | **Sprint 2 retrofit (ADR-33)** | SEC-005..009 — 14 pts total, filing auth enforcement, secret validation, rate limiting, compose hardening, and WS hardening gaps |
