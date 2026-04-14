@@ -52,8 +52,13 @@ watch(selectedProgramId, async (id) => {
     requirements.value = []
     return
   }
-  const result = await fetchRequirements(id, registeredToken)
-  requirements.value = result.requirements.filter((r) => r.course_code)
+  try {
+    const result = await fetchRequirements(id, registeredToken)
+    requirements.value = result.requirements.filter((r) => r.course_code)
+  } catch {
+    // error.value is already set by useAuth; the error-msg paragraph will render
+    requirements.value = []
+  }
 })
 
 function toggleCourse(code: string) {
@@ -66,20 +71,18 @@ function toggleCourse(code: string) {
 }
 
 async function submitStep1() {
-  let result
   try {
-    result = await register({
+    const result = await register({
       email: email.value,
       password: password.value,
       name: name.value,
     })
+    registeredToken = result.token
+    programs.value = await fetchPrograms(result.token)
+    step.value = 2
   } catch {
-    // error is already set in useAuth; stop here so rejection stays handled
-    return
+    // error.value is already set by useAuth for whichever call failed
   }
-  registeredToken = result.token
-  programs.value = await fetchPrograms(result.token)
-  step.value = 2
 }
 
 async function submitStep2() {
