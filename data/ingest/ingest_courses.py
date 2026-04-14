@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def parse_classes(path: Path) -> tuple[list[dict], list[dict]]:
@@ -73,7 +76,8 @@ def parse_attributes(raw: str) -> list[tuple[str, str]]:
 
     Each non-empty line is expected to contain ``": "`` as a delimiter between
     the college name and the attribute category.  Lines without the delimiter
-    are silently skipped.  Empty input returns an empty list.
+    are logged as warnings so data loss is visible.  Empty input returns an
+    empty list.
     """
     result: list[tuple[str, str]] = []
     for line in raw.split("\n"):
@@ -82,6 +86,8 @@ def parse_attributes(raw: str) -> list[tuple[str, str]]:
         if ": " in line:
             college, category = line.split(": ", maxsplit=1)
             result.append((college.strip(), category.strip()))
+        else:
+            logger.warning("Skipping unparseable attribute line: %s", line)
     return result
 
 
@@ -128,12 +134,22 @@ def write_postgres(courses: list[dict], sections: list[dict]) -> None:
                 for c in courses
             ]
             _pg_upsert_batched(
-                session, Course, course_rows,
+                session,
+                Course,
+                course_rows,
                 index_elements=["code"],
                 update_cols=[
-                    "dept", "title", "credits", "description",
-                    "prerequisites_raw", "topic_titles", "instruction_mode",
-                    "campus", "grading_mode", "session", "dates",
+                    "dept",
+                    "title",
+                    "credits",
+                    "description",
+                    "prerequisites_raw",
+                    "topic_titles",
+                    "instruction_mode",
+                    "campus",
+                    "grading_mode",
+                    "session",
+                    "dates",
                 ],
             )
             session.flush()
@@ -159,11 +175,18 @@ def write_postgres(courses: list[dict], sections: list[dict]) -> None:
                 for s in sections
             ]
             _pg_upsert_batched(
-                session, Section, section_rows,
+                session,
+                Section,
+                section_rows,
                 index_elements=["course_id", "crn"],
                 update_cols=[
-                    "section_number", "type", "meets", "instructor",
-                    "status", "campus", "dates",
+                    "section_number",
+                    "type",
+                    "meets",
+                    "instructor",
+                    "status",
+                    "campus",
+                    "dates",
                 ],
             )
 
@@ -171,14 +194,18 @@ def write_postgres(courses: list[dict], sections: list[dict]) -> None:
         attr_rows = []
         for c in courses:
             for college, category in parse_attributes(c.get("attributes", "")):
-                attr_rows.append({
-                    "course_code": c["code"],
-                    "college": college,
-                    "category": category,
-                })
+                attr_rows.append(
+                    {
+                        "course_code": c["code"],
+                        "college": college,
+                        "category": category,
+                    }
+                )
         if attr_rows:
             _pg_upsert_batched(
-                session, CourseAttribute, attr_rows,
+                session,
+                CourseAttribute,
+                attr_rows,
                 index_elements=["course_code", "college", "category"],
                 update_cols=["college", "category"],
             )
@@ -279,11 +306,13 @@ def write_neo4j(courses: list[dict], sections: list[dict]) -> None:
             attr_rows = []
             for c in courses:
                 for college, category in parse_attributes(c.get("attributes", "")):
-                    attr_rows.append({
-                        "course_code": c["code"],
-                        "college": college,
-                        "category": category,
-                    })
+                    attr_rows.append(
+                        {
+                            "course_code": c["code"],
+                            "college": college,
+                            "category": category,
+                        }
+                    )
             if attr_rows:
                 session.execute_write(
                     _neo4j_batch,
