@@ -40,19 +40,45 @@ describe('authStore', () => {
     expect(localStorage.getItem('userName')).toBeNull()
   })
 
-  it('initFromStorage restores auth state from localStorage', () => {
-    localStorage.setItem('token', 'stored-tok')
+  // header.payload.sig — payload = {"exp":9999999999} (year 2286, never expires in tests)
+  const validJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig'
+  // payload = {"exp":1} (epoch + 1 second — always expired)
+  const expiredJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjF9.sig'
+
+  it('initFromStorage restores auth state from localStorage for a valid token', () => {
+    localStorage.setItem('token', validJwt)
     localStorage.setItem('userId', '99')
     localStorage.setItem('userName', 'Bob')
     const store = useAuthStore()
     store.initFromStorage()
     expect(store.isAuthenticated).toBe(true)
-    expect(store.token).toBe('stored-tok')
+    expect(store.token).toBe(validJwt)
     expect(store.userId).toBe(99)
     expect(store.userName).toBe('Bob')
   })
 
   it('initFromStorage does nothing when localStorage is empty', () => {
+    const store = useAuthStore()
+    store.initFromStorage()
+    expect(store.isAuthenticated).toBe(false)
+    expect(store.token).toBeNull()
+  })
+
+  it('initFromStorage calls logout for an expired token', () => {
+    localStorage.setItem('token', expiredJwt)
+    localStorage.setItem('userId', '99')
+    localStorage.setItem('userName', 'Bob')
+    const store = useAuthStore()
+    store.initFromStorage()
+    expect(store.isAuthenticated).toBe(false)
+    expect(store.token).toBeNull()
+    expect(localStorage.getItem('token')).toBeNull()
+  })
+
+  it('initFromStorage calls logout for a malformed token', () => {
+    localStorage.setItem('token', 'not-a-jwt')
+    localStorage.setItem('userId', '1')
+    localStorage.setItem('userName', 'Eve')
     const store = useAuthStore()
     store.initFromStorage()
     expect(store.isAuthenticated).toBe(false)

@@ -86,6 +86,7 @@ function handleEscapeKey(event: KeyboardEvent) {
 }
 
 watch(selectedProgramId, async (programId) => {
+  checkedCourses.value = {}
   if (programId === null) {
     requirements.value = []
     return
@@ -117,10 +118,17 @@ async function submitStep1() {
       password: password.value,
       name: name.value,
     })
-    programs.value = await fetchPrograms()
-    step.value = 2
   } catch {
     // useAuth exposes the error message for the active step
+    return
+  }
+
+  step.value = 2
+
+  try {
+    programs.value = await fetchPrograms()
+  } catch {
+    // programs list unavailable; user can still finish without selecting one
   }
 }
 

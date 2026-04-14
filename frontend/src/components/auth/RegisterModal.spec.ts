@@ -57,6 +57,18 @@ describe('RegisterModal', () => {
     expect(wrapper.find('script').exists()).toBe(false)
   })
 
+  it('advances to step 2 even when fetchPrograms fails after successful registration', async () => {
+    vi.spyOn(authApi, 'register').mockResolvedValue({ token: 'tok', user_id: 1 })
+    vi.spyOn(authApi, 'fetchPrograms').mockRejectedValue(new Error('Network error'))
+    const wrapper = mountModal()
+    await wrapper.find('input[type="email"]').setValue('a@b.com')
+    await wrapper.find('input[type="password"]').setValue('secure-pass-12')
+    await wrapper.find('input[name="name"]').setValue('Alice')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('select[name="program"]').exists()).toBe(true)
+  })
+
   it('moves to step 2 after successful registration and shows program dropdown', async () => {
     vi.spyOn(authApi, 'register').mockResolvedValue({ token: 'tok', user_id: 1 })
     vi.spyOn(authApi, 'fetchPrograms').mockResolvedValue([

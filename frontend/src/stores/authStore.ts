@@ -27,13 +27,30 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('userName')
   }
 
+  function isTokenExpired(rawToken: string): boolean {
+    try {
+      const parts = rawToken.split('.')
+      if (parts.length !== 3) return true
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>
+      if (typeof payload.exp !== 'number') return false
+      return payload.exp * 1000 < Date.now()
+    } catch {
+      return true
+    }
+  }
+
   function initFromStorage() {
     const storedToken = localStorage.getItem('token')
     const storedUserId = localStorage.getItem('userId')
     const storedName = localStorage.getItem('userName')
     const parsedUserId = storedUserId ? Number(storedUserId) : Number.NaN
 
-    if (storedToken && Number.isInteger(parsedUserId) && parsedUserId > 0) {
+    if (
+      storedToken &&
+      Number.isInteger(parsedUserId) &&
+      parsedUserId > 0 &&
+      !isTokenExpired(storedToken)
+    ) {
       token.value = storedToken
       userId.value = parsedUserId
       userName.value = storedName ?? ''
