@@ -974,6 +974,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
   - [ ] Chat service has min_instances=1
   - [ ] CORS_ORIGINS set to frontend Cloud Run URL
   - [ ] Health endpoints return 200
+  - [ ] `frontend_url` exported from `infra/outputs.tf` (using `google_cloud_run_v2_service.frontend.uri`) so `./infra.sh status` prints the deployed `*.run.app` URL. Chat and API URLs are intentionally *not* exported — those services use `ingress = "internal-and-cloud-load-balancing"` and aren't meant to be hit directly.
   - [ ] *(security ADR-33)* Cloud Run services have `ingress = "all"` only for the Course Search API (public login/register); Chat Service is `ingress = "internal-and-cloud-load-balancing"` if a BFF fronts it — otherwise document why public is acceptable.
   - [ ] *(security ADR-33)* Service env vars sourced from Secret Manager, not inline plaintext.
   - [ ] *(security ADR-33)* `ENVIRONMENT=production` env var set on both services (triggers the SEC-006 validator).
