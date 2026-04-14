@@ -27,6 +27,7 @@ docker-compose.override.yml
 infra/*.tfstate*
 infra/.terraform/
 infra/terraform.tfvars
+infra/tfplan
 
 # Node
 frontend/node_modules/

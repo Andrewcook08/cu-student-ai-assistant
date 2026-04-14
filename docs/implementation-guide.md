@@ -1372,12 +1372,15 @@ cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with real values
 
 # 1. Network (everything depends on this)
+# Preferred local workflow: ./infra.sh up  (wraps the steps below)
 terraform apply -target=google_compute_network.vpc \
                 -target=google_compute_subnetwork.private \
-                -target=google_compute_firewall.allow_internal \
-                -target=google_compute_firewall.allow_vpc_connector \
-                -target=google_compute_firewall.allow_iap_ssh \
-                -target=google_compute_firewall.default_deny \
+                -target=google_compute_network_firewall_policy.main \
+                -target=google_compute_network_firewall_policy_association.main \
+                -target=google_compute_network_firewall_policy_rule.allow_vpc_connector \
+                -target=google_compute_network_firewall_policy_rule.allow_internal \
+                -target=google_compute_network_firewall_policy_rule.allow_iap_ssh \
+                -target=google_compute_network_firewall_policy_rule.default_deny \
                 -target=google_vpc_access_connector.connector
 
 # 2. Artifact Registry (needed for Docker images)
