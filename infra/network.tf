@@ -32,57 +32,91 @@ resource "google_vpc_access_connector" "connector" {
 }
 
 # ─────────────────────────────────────────────
-# Firewall Rules  (default-deny model)
+# Network Firewall Policy  (default-deny model)
+# Uses the Network Firewall Policy API instead of legacy VPC firewall rules.
+# Rules are identified by priority within the policy, not by global name —
+# so destroy/recreate cycles don't collide with GCP's name-tombstone behavior.
 # ─────────────────────────────────────────────
 
-# Cloud Run → data-services VM + ollama workers (database + inference ports only)
-resource "google_compute_firewall" "allow_vpc_connector" {
-  name    = "allow-vpc-connector"
-  network = google_compute_network.vpc.name
+resource "google_compute_network_firewall_policy" "main" {
+  name        = "cu-assistant-fw-policy"
+  description = "Default-deny ingress; explicit allows for internal, IAP SSH, and VPC connector"
 
-  allow {
-    protocol = "tcp"
-    ports    = ["5432", "7687", "6379", "11434"]
-  }
-
-  source_ranges = [var.vpc_connector_range]
+  depends_on = [google_project_service.apis["compute.googleapis.com"]]
 }
 
-# VM-to-VM traffic within the private subnet (data VM ↔ ollama workers, queue-depth-exporter → Redis)
-resource "google_compute_firewall" "allow_internal" {
-  name    = "allow-internal"
-  network = google_compute_network.vpc.name
+resource "google_compute_network_firewall_policy_association" "main" {
+  name              = "cu-assistant-fw-policy-assoc"
+  firewall_policy   = google_compute_network_firewall_policy.main.name
+  attachment_target = google_compute_network.vpc.id
+}
 
-  allow {
-    protocol = "all"
+# Cloud Run → data-services VM + ollama workers (database + inference ports only)
+resource "google_compute_network_firewall_policy_rule" "allow_vpc_connector" {
+  firewall_policy = google_compute_network_firewall_policy.main.name
+  rule_name       = "allow-vpc-connector"
+  description     = "Cloud Run (via VPC connector) → backend services"
+  priority        = 1000
+  direction       = "INGRESS"
+  action          = "allow"
+
+  match {
+    src_ip_ranges = [var.vpc_connector_range]
+    layer4_configs {
+      ip_protocol = "tcp"
+      ports       = ["5432", "7687", "6379", "11434"]
+    }
   }
+}
 
-  source_ranges = ["10.0.0.0/24"]
+# VM-to-VM traffic within the private subnet (data VM ↔ ollama workers, exporters)
+resource "google_compute_network_firewall_policy_rule" "allow_internal" {
+  firewall_policy = google_compute_network_firewall_policy.main.name
+  rule_name       = "allow-internal"
+  description     = "VM-to-VM traffic within the private subnet"
+  priority        = 1100
+  direction       = "INGRESS"
+  action          = "allow"
+
+  match {
+    src_ip_ranges = ["10.0.0.0/24"]
+    layer4_configs {
+      ip_protocol = "all"
+    }
+  }
 }
 
 # Developer SSH via IAP TCP tunnel — no public IP or bastion needed (see ADR-23)
-resource "google_compute_firewall" "allow_iap_ssh" {
-  name    = "allow-iap-ssh"
-  network = google_compute_network.vpc.name
+resource "google_compute_network_firewall_policy_rule" "allow_iap_ssh" {
+  firewall_policy = google_compute_network_firewall_policy.main.name
+  rule_name       = "allow-iap-ssh"
+  description     = "Developer SSH through IAP TCP tunnel"
+  priority        = 1200
+  direction       = "INGRESS"
+  action          = "allow"
 
-  allow {
-    protocol = "tcp"
-    ports    = ["22"]
+  match {
+    src_ip_ranges = ["35.235.240.0/20"]
+    layer4_configs {
+      ip_protocol = "tcp"
+      ports       = ["22"]
+    }
   }
-
-  # Google's IAP IP range — all IAP tunnel traffic originates here
-  source_ranges = ["35.235.240.0/20"]
 }
 
-# Block everything else — lowest priority, catches anything not matched above
-resource "google_compute_firewall" "default_deny" {
-  name     = "default-deny-ingress"
-  network  = google_compute_network.vpc.name
-  priority = 65534
+# Explicit default-deny — catches anything the allow rules above don't match
+resource "google_compute_network_firewall_policy_rule" "default_deny" {
+  firewall_policy = google_compute_network_firewall_policy.main.name
+  rule_name       = "default-deny-ingress"
+  description     = "Catch-all deny for unmatched ingress traffic"
+  priority        = 65534
+  direction       = "INGRESS"
+  action          = "deny"
 
-  deny {
-    protocol = "all"
+  match {
+    src_ip_ranges = ["0.0.0.0/0"]
+    layer4_configs {
+      ip_protocol = "all"
+    }
   }
-
-  source_ranges = ["0.0.0.0/0"]
 }

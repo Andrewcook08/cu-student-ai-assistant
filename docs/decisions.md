@@ -717,10 +717,10 @@ All VMs (data-services, ollama workers) run in a **private VPC subnet with no pu
 - **Usage**: `gcloud compute ssh data-services --tunnel-through-iap --zone=us-central1-a`
 
 **Firewall model — default deny:**
-The VPC starts with a `default-deny-ingress` rule (priority 65534). Then we add explicit allow rules for only the traffic that needs to flow:
-- Cloud Run → VMs (via VPC Connector): database and Ollama ports only
-- VM → VM (internal): all ports (data VM and ollama workers need to communicate)
-- IAP → VMs: port 22 only
+The VPC enforces default-deny via a **Network Firewall Policy** (`cu-assistant-fw-policy`, Terraform resource `google_compute_network_firewall_policy.main`) attached to `cu-assistant-vpc` through `google_compute_network_firewall_policy_association.main`. Rules are priority-keyed within the policy rather than globally-named, which avoids GCP's firewall-name tombstone behaviour that blocks destroy/recreate cycles (see [ADR-40](#adr-40-network-firewall-policy-over-legacy-vpc-firewall-rules)). Three explicit allow rules (priorities 1000, 1100, 1200) plus an ingress-deny-all catch-all (priority 65534) cover all required traffic:
+- Cloud Run → VMs (via VPC Connector): database and Ollama ports only (priority 1000)
+- VM → VM (internal): all ports — data VM and Ollama workers must communicate (priority 1100)
+- IAP → VMs: port 22 only (priority 1200)
 
 This means a misconfigured service or an unexpected port being opened on a VM is harmless — the firewall blocks it. You have to explicitly add a rule to allow new traffic, which means it goes through Terraform code review.
 
@@ -1051,3 +1051,32 @@ When the timeout fires, the handler catches `asyncio.TimeoutError` and sends the
 - The 180-second value should be configurable via environment variable for environments with different performance characteristics (GPU vs. CPU inference).
 - On timeout, the partially-completed graph state is discarded. No messages from the timed-out turn are persisted to Redis (consistent with ADR-38's atomic persistence — if the graph didn't complete, neither message is written).
 - Monitoring should track timeout frequency. A sustained timeout rate indicates infrastructure issues (overloaded Ollama, slow database) rather than application bugs.
+
+---
+
+## ADR-40: Network Firewall Policy over Legacy VPC Firewall Rules
+
+### Decision
+Use `google_compute_network_firewall_policy` + `google_compute_network_firewall_policy_rule` + `google_compute_network_firewall_policy_association` resources (policy name `cu-assistant-fw-policy`) instead of legacy `google_compute_firewall` resources to express all VPC ingress rules for `cu-assistant-vpc`.
+
+### Status
+Accepted
+
+### Context
+Local iterative testing (repeated `terraform destroy` / `terraform apply` cycles via `infra/infra.sh`) hit GCP's **firewall-name tombstone**: after a legacy `google_compute_firewall` resource is destroyed, its name is reserved project-wide for an indeterminate period — sometimes hours — during which a recreate attempt returns HTTP 409 even though a describe returns 404. This made `infra/infra.sh down && infra/infra.sh up` unreliable and blocked rapid iteration on infrastructure changes.
+
+### Alternatives Considered
+1. **Wait out the tombstone** — rejected. The reservation window is unpredictable (minutes to hours). Blocking the team on GCP's internal GC cycle is not acceptable during active development.
+2. **Rename rules with a unique suffix on each apply** (e.g., append a random ID) — rejected. Ugly, pollutes Terraform state with orphaned resources, and complicates drift detection.
+3. **Network Firewall Policy** (chosen) — rules are keyed by _priority within a named policy_, not by globally-unique name. Destroying the policy removes all rules atomically; recreating the policy at the same name with the same priorities is clean with no tombstone.
+
+### Why
+`google_compute_network_firewall_policy` is the current GCP-recommended replacement for legacy VPC firewall rules. Rules live inside a named policy object and are identified by integer priority — there is no globally-unique name to tombstone. Destroy/recreate cycles are therefore idempotent: the policy name can be reused immediately after deletion.
+
+The `infra/infra.sh` script (`plan` / `up` / `down` subcommands) provides a local test harness that wraps the Terraform lifecycle. Now that tombstones no longer block recreate, `down && up` is a reliable reset that any engineer can run locally without risk of a multi-hour stall.
+
+### Consequences
+- Destroy/recreate cycles (`infra/infra.sh down && infra/infra.sh up`) are now clean and reliable.
+- Rule precedence is expressed via explicit numeric priority rather than implicit list order — clearer and auditable.
+- The four ingress rules (priorities 1000, 1100, 1200, 65534) map directly to the same semantic intent described in [ADR-23](#adr-23-network-security--private-subnet--iap-over-bastion): Cloud Run → VMs, VM → VM, IAP → VMs, and default-deny-all.
+- Console and tooling references to these rules now appear under **Network Firewall Policies** rather than the legacy **Firewalls** section of the GCP console — a minor UX shift for operators familiar with the old location.

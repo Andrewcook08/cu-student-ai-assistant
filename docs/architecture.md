@@ -1315,14 +1315,18 @@ All backend infrastructure runs in a private VPC subnet with no public IPs. The 
 
 ### Firewall Rules
 
-All defined in Terraform (`network.tf`). Default deny all ingress, then allow only what's needed:
+All defined in Terraform (`network.tf`) using a **Network Firewall Policy** (`google_compute_network_firewall_policy.main`, named `cu-assistant-fw-policy`) attached to `cu-assistant-vpc` via `google_compute_network_firewall_policy_association.main`. Rules are identified by priority within the policy rather than by globally-unique names — this avoids GCP's firewall-name tombstone behavior that blocked repeated deploy/teardown cycles during local testing.
 
-| Rule | Source | Destination | Ports | Purpose |
-|------|--------|-------------|-------|---------|
-| `allow-vpc-connector` | Serverless VPC Connector IP range | data-services VM, ollama workers | 5432, 7687, 6379, 11434 | Cloud Run → databases + Ollama |
-| `allow-internal` | VPC subnet (10.0.0.0/24) | VPC subnet | All | VM-to-VM (data VM ↔ ollama workers, queue-depth-exporter → Redis) |
-| `allow-iap-ssh` | Google IAP IP range (35.235.240.0/20) | All VMs | 22 | Developer SSH access via IAP tunnel |
-| **Default deny** | 0.0.0.0/0 | All VMs | All | Block everything else |
+Default deny all ingress, then allow only what's needed:
+
+| Rule (resource) | Priority | Source | Destination | Ports | Purpose |
+|-----------------|----------|--------|-------------|-------|---------|
+| `allow_vpc_connector` | 1000 | Serverless VPC Connector IP range | data-services VM, ollama workers | 5432, 7687, 6379, 11434 | Cloud Run → databases + Ollama |
+| `allow_internal` | 1100 | VPC subnet (10.0.0.0/24) | VPC subnet | All | VM-to-VM (data VM ↔ ollama workers, queue-depth-exporter → Redis) |
+| `allow_iap_ssh` | 1200 | Google IAP IP range (35.235.240.0/20) | All VMs | 22 | Developer SSH access via IAP tunnel |
+| `default_deny` | 65534 | 0.0.0.0/0 | All VMs | All | Block everything else |
+
+All four rules are `google_compute_network_firewall_policy_rule` resources inside `cu-assistant-fw-policy`.
 
 ### Key Security Properties
 
@@ -1415,7 +1419,7 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 | `chat-service` | Cloud Run (0-5 instances, concurrency 15) | Chat engine container | ~$0-3/mo (scale-to-zero) |
 | `frontend` | Cloud Run (0-3 instances, concurrency 200) | nginx serving static Vue build | ~$0-1/mo (scale-to-zero) |
 | Artifact Registry | Docker repo | Stores container images for Cloud Run | ~$1/mo |
-| VPC + Connector | Networking | Private subnet (no public IPs), firewall rules (default-deny), Serverless VPC Connector | ~$7/mo |
+| VPC + Connector | Networking | Private subnet (no public IPs), Network Firewall Policy (`cu-assistant-fw-policy`) with default-deny + allow rules, Serverless VPC Connector | ~$7/mo |
 | IAP | SSH access | Identity-Aware Proxy TCP tunneling — developer SSH to private VMs, no bastion needed | ~$0/mo (free) |
 | Cloud Monitoring | Custom metric | `ollama_queue_depth` — scaling signal for MIG autoscaler | ~$0/mo (free tier) |
 | GCS Bucket | Storage | Terraform state backend (versioned, access-restricted) | ~$0/mo |
@@ -1435,9 +1439,10 @@ infra/
 ├── terraform.tfvars.example # Template with placeholder values for team members
 │
 ├── network.tf               # VPC, private subnet (no public IPs on VMs),
-│                            #   firewall rules: allow-vpc-connector (Cloud Run → VMs),
-│                            #   allow-internal (VM ↔ VM), allow-iap-ssh (developer access),
-│                            #   default-deny-ingress. Serverless VPC Connector.
+│                            #   Network Firewall Policy (cu-assistant-fw-policy) + association,
+│                            #   policy rules by priority: allow-vpc-connector (1000),
+│                            #   allow-internal (1100), allow-iap-ssh (1200), default-deny (65534).
+│                            #   Serverless VPC Connector.
 ├── artifact-registry.tf     # Docker image repository in same region
 ├── data-vm.tf               # Compute Engine VM for data services
 │                            #   - Startup script: install Docker, docker-compose up

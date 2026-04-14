@@ -920,7 +920,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocked by**: Nothing (infrastructure only)
 - **Assignee**: Person A
 - **Status**: 📋 Planned
-- **Description**: Create `infra/network.tf`. VPC, private subnet (10.0.0.0/24), firewall rules (allow-vpc-connector, allow-internal, allow-iap-ssh, default-deny), Serverless VPC Connector. Create `infra/main.tf` (provider, GCS backend), `infra/variables.tf`, `infra/outputs.tf`, `infra/terraform.tfvars.example`.
+- **Description**: Create `infra/network.tf`. VPC, private subnet (10.0.0.0/24), Network Firewall Policy (`cu-assistant-fw-policy`) containing 4 rules (allow-vpc-connector @ priority 1000, allow-internal @ 1100, allow-iap-ssh @ 1200, default-deny @ 65534) attached via `google_compute_network_firewall_policy_association`, Serverless VPC Connector. Create `infra/main.tf` (provider, GCS backend), `infra/variables.tf`, `infra/outputs.tf`, `infra/terraform.tfvars.example`, `infra/infra.sh` (local test harness: `./infra.sh plan|up|down`).
 - **Acceptance criteria**:
   - [ ] `terraform plan` succeeds
   - [ ] VPC created with private subnet
