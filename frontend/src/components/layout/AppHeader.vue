@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { HelpCircle, ShoppingCart, LogIn, LogOut } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/authStore'
+import RegisterModal from '@/components/auth/RegisterModal.vue'
 
 const auth = useAuthStore()
+const showRegisterModal = ref(false)
 </script>
 
 <template>
@@ -19,7 +22,12 @@ const auth = useAuthStore()
       </a>
     </div>
     <div class="banner__auth">
-      <a v-if="!auth.isAuthenticated" href="#" class="anon-only" @click.prevent="() => {}">
+      <a
+        v-if="!auth.isAuthenticated"
+        href="#"
+        class="anon-only"
+        @click.prevent="showRegisterModal = true"
+      >
         <LogIn :size="16" aria-hidden="true" />
         Login
       </a>
@@ -34,6 +42,8 @@ const auth = useAuthStore()
       </a>
     </div>
   </header>
+
+  <RegisterModal v-if="showRegisterModal" @close="showRegisterModal = false" />
 </template>
 
 <style scoped>
