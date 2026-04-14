@@ -228,8 +228,8 @@ Chat Service ──► Redis Queue ──► Managed Instance Group
 3. A GCP **Autoscaler** watches the custom metric and scales the MIG:
    - Scale up when queue depth > 5 per instance
    - Scale down when queue depth < 2 per instance
-   - Cooldown: 120 seconds (GPU VMs take ~60s to boot + pull model)
-4. New VMs are created from an **instance template** (g2-standard-4, L4 GPU, startup script installs Docker → pulls Ollama image → starts worker that reads from Redis)
+   - Cooldown: 60 seconds (GPU VMs boot in ~30-40s from pre-baked image, model loads from local disk in ~10-20s)
+4. New VMs are created from an **instance template** that boots a **custom GCE image** with Docker, NVIDIA drivers, Ollama, and models (`gpt-oss:20b`, `nomic-embed-text`) pre-installed. The startup script only starts the Redis queue worker — no downloads at boot.
 5. Workers only remove a request from the queue **after completing it** — if a spot VM is reclaimed mid-inference, the request stays in the queue and another worker picks it up
 
 **MIG Configuration (Terraform):**
@@ -245,7 +245,13 @@ resource "google_compute_instance_template" "ollama_worker" {
     type  = "nvidia-l4"
     count = 1
   }
-  # Startup script: install Docker, NVIDIA toolkit, pull Ollama, start worker
+  # Custom image with Docker, NVIDIA drivers, Ollama, and models pre-baked.
+  # Built via: packer build infra/packer/ollama-worker.pkr.hcl
+  # Rebuild only when changing Ollama version or swapping models.
+  disk {
+    source_image = data.google_compute_image.ollama_worker.self_link
+  }
+  # Lightweight startup script: starts the Ollama Redis queue worker (no provisioning)
   metadata_startup_script = file("scripts/ollama-worker-startup.sh")
 }
 
@@ -268,7 +274,7 @@ resource "google_compute_autoscaler" "ollama" {
       name   = "custom.googleapis.com/redis/ollama_queue_depth"
       target = 5       # scale up when queue > 5 per instance
     }
-    cooldown_period = 120
+    cooldown_period = 60   # no model download — just VM boot + load from disk
   }
 }
 ```
@@ -296,6 +302,26 @@ depth = r.llen("ollama:inference_queue")
 client = monitoring_v3.MetricServiceClient()
 # ... publish depth as custom.googleapis.com/redis/ollama_queue_depth
 ```
+
+### Ollama Worker Image Build Pipeline
+
+Models are **baked into a custom GCE image** so that new workers boot ready to serve — no multi-minute model downloads at scale-up time. The image is built with [Packer](https://www.packer.io/) and stored in a GCE image family.
+
+**What the image contains:**
+- Ubuntu 22.04 LTS base
+- Docker + NVIDIA Container Toolkit + NVIDIA L4 drivers
+- `ollama/ollama:latest` Docker image (pre-pulled)
+- Models pre-loaded: `gpt-oss:20b` (~13GB) and `nomic-embed-text` (~274MB)
+
+**Build command:**
+```bash
+# Run from infra/ directory — produces a GCE image in the "ollama-worker" family
+packer build packer/ollama-worker.pkr.hcl
+```
+
+**When to rebuild:** Only when changing the Ollama version or swapping/adding models. Model updates are infrequent — this is not part of the regular deploy pipeline.
+
+**How it connects:** The instance template in `ollama-mig.tf` references `source_image_family = "ollama-worker"`, so MIG instances always boot from the latest baked image. The lightweight `ollama-worker-startup.sh` only starts the Redis queue worker process — no provisioning.
 
 ### Database Scaling Path
 
@@ -1418,7 +1444,8 @@ infra/
 │                            #   - Persistent disk for database data (survives VM restarts)
 │                            #   - Static internal IP within VPC
 ├── ollama-mig.tf            # Ollama auto-scaling infrastructure:
-│                            #   - Instance template: spot g2-standard-4 + L4 GPU
+│                            #   - Instance template: spot g2-standard-4 + L4 GPU,
+│                            #     boots from custom image (models pre-baked)
 │                            #   - Managed Instance Group (MIG): pool of workers
 │                            #   - Autoscaler: scales on custom metric (Redis queue depth)
 │                            #   - Min 0 (scale to zero), max 3 (budget cap)
@@ -1435,12 +1462,18 @@ infra/
 │                            #   - data-vm-sa: Monitoring writer (queue-depth-exporter)
 │                            #   - IAP tunnel access: roles/iap.tunnelResourceAccessor for devs
 │
+├── packer/
+│   └── ollama-worker.pkr.hcl   # Packer template: builds custom GCE image with
+│                                #   Docker, NVIDIA drivers, Ollama, and models
+│                                #   (gpt-oss:20b, nomic-embed-text) pre-installed.
+│                                #   Rebuild only when changing Ollama version or models.
+│
 └── scripts/
     ├── data-vm-startup.sh       # Cloud-init: install Docker Compose, pull images,
     │                            #   mount persistent disk, start postgres + neo4j + redis,
     │                            #   install queue-depth-exporter cron job
-    ├── ollama-worker-startup.sh # Cloud-init: install Docker, NVIDIA drivers,
-    │                            #   NVIDIA Container Toolkit, pull + start Ollama worker
+    ├── ollama-worker-startup.sh # Lightweight startup: starts Ollama Redis queue worker
+    │                            #   (all provisioning is baked into the custom image)
     └── queue-depth-exporter.py  # Cron script (every 30s): Redis LLEN → Cloud Monitoring
 ```
 

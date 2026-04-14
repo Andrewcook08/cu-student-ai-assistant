@@ -936,12 +936,14 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocked by**: DEPLOY-001, DEPLOY-002 (needs Redis for queue)
 - **Assignee**: Person A
 - **Status**: 📋 Planned
-- **Description**: Create `infra/ollama-mig.tf`. Instance template (spot g2-standard-4, L4 GPU, startup script). MIG with min 0 / max 3. Autoscaler on custom metric (Redis queue depth). Create `infra/monitoring.tf` (custom metric definition). Create `infra/scripts/ollama-worker-startup.sh` and `infra/scripts/queue-depth-exporter.py`.
+- **Description**: Build a custom GCE image (via Packer) with Docker, NVIDIA drivers, Ollama, and models (`gpt-oss:20b`, `nomic-embed-text`) pre-installed. Create `infra/packer/ollama-worker.pkr.hcl`. Create `infra/ollama-mig.tf` — instance template (spot g2-standard-4, L4 GPU, boots from custom image), MIG with min 0 / max 3, autoscaler on custom metric (Redis queue depth). Create `infra/monitoring.tf` (custom metric definition). Create `infra/scripts/ollama-worker-startup.sh` (lightweight — starts Redis queue worker only, no provisioning) and `infra/scripts/queue-depth-exporter.py`.
 - **Acceptance criteria**:
-  - [ ] Instance template creates with GPU
+  - [ ] Custom GCE image built with gpt-oss:20b and nomic-embed-text pre-loaded
+  - [ ] Packer template (`infra/packer/ollama-worker.pkr.hcl`) exists and is documented
+  - [ ] Instance template references custom image family, creates with GPU
   - [ ] MIG starts with target_size 0
-  - [ ] Manual resize to 1 boots a GPU worker
-  - [ ] Worker pulls from Redis queue
+  - [ ] Manual resize to 1 boots a GPU worker ready to serve (no model download)
+  - [ ] Worker pulls inference requests from Redis queue
   - [ ] queue-depth-exporter publishes metric to Cloud Monitoring
   - [ ] Autoscaler responds to metric changes
 
@@ -979,11 +981,11 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocked by**: DEPLOY-002, DATA-005
 - **Assignee**: Person A
 - **Status**: 📋 Planned
-- **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Pull Ollama models. Verify data counts.
+- **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Verify Ollama models are present on GPU worker (from baked image). Verify data counts.
 - **Acceptance criteria**:
   - [ ] All courses, programs, requirements in GCP databases
   - [ ] Embeddings generated and vector index created
-  - [ ] Ollama model pulled on GPU worker
+  - [ ] Ollama models verified present on GPU worker (from baked image)
   - [ ] All validation counts match local
 
 ### DEPLOY-007: End-to-end GCP verification
