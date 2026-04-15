@@ -28,6 +28,9 @@ services:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
     healthcheck:
       test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD}", "RETURN 1"]
+      timeout: 30s
+      interval: 15s
+      retries: 10
 
   redis:
     ports: !reset []

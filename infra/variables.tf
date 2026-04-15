@@ -26,3 +26,15 @@ variable "data_disk_size_gb" {
   type        = number
   default     = 50
 }
+
+variable "developer_accounts" {
+  description = "List of developer Google accounts (user:email) to grant IAP tunnel + OS Login access"
+  type        = list(string)
+  default     = []
+}
+
+variable "alert_notification_channels" {
+  description = "List of Cloud Monitoring notification channel resource names for VM alerts"
+  type        = list(string)
+  default     = []
+}

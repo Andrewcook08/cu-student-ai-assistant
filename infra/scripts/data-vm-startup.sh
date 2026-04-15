@@ -3,11 +3,12 @@
 # Runs on every VM boot via GCE metadata startup-script (idempotent).
 #
 # What this does:
-#   1. Installs Docker CE + Compose plugin (skips if already installed)
-#   2. Mounts the persistent data disk at /data (formats on first boot only)
-#   3. Fetches secrets from GCP Secret Manager
-#   4. Writes docker-compose.yml + .env to /data/compose
-#   5. Starts PostgreSQL, Neo4j, and Redis via docker compose up -d
+#   1. Installs Ops Agent (ships logs/metrics to Cloud Logging/Monitoring)
+#   2. Installs Docker CE + Compose plugin (skips if already installed)
+#   3. Mounts the persistent data disk at /data (formats on first boot only)
+#   4. Fetches secrets from GCP Secret Manager
+#   5. Writes docker-compose.yml + .env to /data/compose
+#   6. Starts PostgreSQL, Neo4j, and Redis via docker compose up -d
 #
 # Prerequisites — populate secret values before the VM is useful:
 #   gcloud secrets versions add data-vm-postgres-password \
@@ -29,7 +30,21 @@ trap 'on_failure "$LINENO" "$?"' ERR
 
 log "Starting data-vm-startup.sh"
 
-# ── 1. Install Docker ──────────────────────────────────────────────────────────
+# ── 1. Install Ops Agent ──────────────────────────────────────────────────────
+# Ships logs and metrics to Cloud Logging / Cloud Monitoring.
+# Must run before Docker so agent starts clean.
+
+if ! systemctl is-active --quiet google-cloud-ops-agent; then
+  log "Installing Ops Agent..."
+  curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+  bash add-google-cloud-ops-agent-repo.sh --also-install
+  rm -f add-google-cloud-ops-agent-repo.sh
+  log "Ops Agent installed: $(google-cloud-ops-agent --version 2>&1 || true)"
+else
+  log "Ops Agent already running"
+fi
+
+# ── 2. Install Docker ──────────────────────────────────────────────────────────
 
 if ! command -v docker &>/dev/null; then
   log "Installing Docker CE..."
@@ -51,7 +66,7 @@ else
   log "Docker already present: $(docker --version)"
 fi
 
-# ── 2. Mount persistent data disk ─────────────────────────────────────────────
+# ── 3. Mount persistent data disk ─────────────────────────────────────────────
 # The Terraform attached_disk device_name "data-disk" surfaces as this path.
 
 DATA_DISK_ID="/dev/disk/by-id/google-data-disk"
@@ -86,7 +101,7 @@ JSON
   log "Docker restarted with data-root=${MOUNT_POINT}/docker"
 fi
 
-# ── 3. Fetch secrets from GCP Secret Manager ──────────────────────────────────
+# ── 4. Fetch secrets from GCP Secret Manager ──────────────────────────────────
 
 log "Fetching secrets..."
 PROJECT=$(curl -sf \
@@ -102,7 +117,7 @@ NEO4J_PASSWORD=$(secret "data-vm-neo4j-password")
 REDIS_PASSWORD=$(secret "data-vm-redis-password")
 log "Secrets fetched"
 
-# ── 4. Write compose files ─────────────────────────────────────────────────────
+# ── 5. Write compose files ─────────────────────────────────────────────────────
 
 COMPOSE_DIR="${MOUNT_POINT}/compose"
 mkdir -p "${COMPOSE_DIR}"
@@ -113,6 +128,11 @@ cat > "${COMPOSE_DIR}/.env" <<EOF
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 NEO4J_PASSWORD=${NEO4J_PASSWORD}
 REDIS_PASSWORD=${REDIS_PASSWORD}
+# Placeholders — app services are not started on this VM (they run on Cloud Run).
+# These values satisfy docker compose interpolation without starting chat-service.
+JWT_SECRET_KEY=not-used-on-data-vm
+ANTHROPIC_API_KEY=not-used-on-data-vm
+CORS_ORIGINS=not-used-on-data-vm
 EOF
 chmod 600 "${COMPOSE_DIR}/.env"
 
@@ -132,26 +152,26 @@ for i in 1 2 3 4 5; do
 done
 log "Compose files ready"
 
-# ── 5. Start data services ─────────────────────────────────────────────────────
+# ── 6. Start data services ─────────────────────────────────────────────────────
 
 log "Starting data services (postgres, neo4j, redis)..."
 cd "${COMPOSE_DIR}"
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d postgres neo4j redis
 
-log "Verifying services started (up to 60 s)..."
-for i in 1 2 3 4 5 6; do
-  docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
-  if docker compose -f docker-compose.yml -f docker-compose.prod.yml ps | grep -q "unhealthy"; then
-    if [ "${i}" -eq 6 ]; then
-      log "STARTUP FAILED — one or more services unhealthy after 60 s"
-      exit 1
-    fi
-    log "Services not yet healthy (attempt ${i}/6) — retrying in 10 s..."
-    sleep 10
-  else
-    log "All services running"
+log "Verifying services healthy (up to 180 s)..."
+for i in $(seq 1 18); do
+  if docker compose -f docker-compose.yml -f docker-compose.prod.yml ps --format json \
+       | jq -e 'all(.[]; .Health == "healthy")' >/dev/null 2>&1; then
+    log "All services healthy"
     break
   fi
+  if [ "${i}" -eq 18 ]; then
+    log "STARTUP FAILED — services did not reach healthy in 180s"
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+    exit 1
+  fi
+  log "Services still starting (attempt ${i}/18) — retrying in 10s..."
+  sleep 10
 done
 
 log "data-vm-startup.sh complete"

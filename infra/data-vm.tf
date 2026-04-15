@@ -1,9 +1,17 @@
 # ─────────────────────────────────────────────
 # Data Services VM  (DEPLOY-002 / CUAI-65)
-# e2-medium Compute Engine VM running PostgreSQL + Neo4j + Redis in Docker.
+# e2-standard-4 Compute Engine VM running PostgreSQL + Neo4j + Redis in Docker.
 # No public IP — reachable from Cloud Run via the Serverless VPC Connector.
 # Developer access via IAP: gcloud compute ssh data-services --tunnel-through-iap
 # ─────────────────────────────────────────────
+
+locals {
+  common_labels = {
+    project    = "cu-assistant"
+    service    = "data-vm"
+    managed_by = "terraform"
+  }
+}
 
 # ── Static internal IP ──────────────────────────────────────────────────────
 # Fixed at 10.0.0.10 so DB connection strings stay stable across stop/start.
@@ -23,12 +31,43 @@ resource "google_compute_address" "data_vm" {
 # All three databases store their data here via bind mounts.
 
 resource "google_compute_disk" "data_vm_data" {
-  name = "data-services-data"
-  type = "pd-standard"
-  zone = var.zone
-  size = var.data_disk_size_gb
+  name   = "data-services-data"
+  type   = "pd-balanced"
+  zone   = var.zone
+  size   = var.data_disk_size_gb
+  labels = local.common_labels
 
   depends_on = [google_project_service.apis["compute.googleapis.com"]]
+}
+
+# ── Snapshot policy ──────────────────────────────────────────────────────────
+# Daily backup with 7-day retention. Snapshots are kept even if the disk is
+# deleted, protecting against accidental terraform destroy.
+
+resource "google_compute_resource_policy" "data_vm_backup" {
+  name   = "data-vm-daily-snapshot"
+  region = var.region
+  snapshot_schedule_policy {
+    schedule {
+      daily_schedule {
+        days_in_cycle = 1
+        start_time    = "07:00"
+      }
+    }
+    retention_policy {
+      max_retention_days    = 7
+      on_source_disk_delete = "KEEP_AUTO_SNAPSHOTS"
+    }
+    snapshot_properties {
+      storage_locations = [var.region]
+    }
+  }
+}
+
+resource "google_compute_disk_resource_policy_attachment" "data_vm_backup" {
+  name = google_compute_resource_policy.data_vm_backup.name
+  disk = google_compute_disk.data_vm_data.name
+  zone = var.zone
 }
 
 # ── Service account ──────────────────────────────────────────────────────────
@@ -65,6 +104,7 @@ locals {
 resource "google_secret_manager_secret" "data_vm" {
   for_each  = toset(local.data_vm_secret_names)
   secret_id = each.value
+  labels    = local.common_labels
 
   replication {
     auto {}
@@ -91,6 +131,22 @@ resource "google_storage_bucket" "vm_assets" {
   location                    = var.region
   uniform_bucket_level_access = true
   force_destroy               = true
+  labels                      = local.common_labels
+
+  public_access_prevention = "enforced"
+
+  versioning {
+    enabled = true
+  }
+
+  lifecycle_rule {
+    condition {
+      num_newer_versions = 5
+    }
+    action {
+      type = "Delete"
+    }
+  }
 
   depends_on = [google_project_service.apis["storage.googleapis.com"]]
 }
@@ -113,18 +169,40 @@ resource "google_storage_bucket_iam_member" "data_vm_assets_reader" {
   member = "serviceAccount:${google_service_account.data_vm.email}"
 }
 
+# ── Developer IAM — IAP tunnel + OS Login ────────────────────────────────────
+# Codified so access survives project rebuilds.
+# Populate developer_accounts in terraform.tfvars (not .example).
+
+resource "google_project_iam_member" "iap_tunnel" {
+  for_each = toset(var.developer_accounts)
+  project  = var.project_id
+  role     = "roles/iap.tunnelResourceAccessor"
+  member   = "user:${each.value}"
+}
+
+resource "google_project_iam_member" "os_login" {
+  for_each = toset(var.developer_accounts)
+  project  = var.project_id
+  role     = "roles/compute.osLogin"
+  member   = "user:${each.value}"
+}
+
 # ── Compute Engine VM ────────────────────────────────────────────────────────
 
 resource "google_compute_instance" "data_services" {
   name         = "data-services"
-  machine_type = "e2-medium"
+  machine_type = "e2-standard-4"
   zone         = var.zone
+  labels       = local.common_labels
+
+  deletion_protection = true
 
   boot_disk {
     initialize_params {
-      image = "ubuntu-os-cloud/ubuntu-2204-lts"
-      size  = 20
-      type  = "pd-standard"
+      image  = "ubuntu-os-cloud/ubuntu-2204-lts"
+      size   = 20
+      type   = "pd-balanced"
+      labels = local.common_labels
     }
   }
 
@@ -147,8 +225,17 @@ resource "google_compute_instance" "data_services" {
   }
 
   metadata = {
-    startup-script   = file("${path.module}/scripts/data-vm-startup.sh")
-    vm-assets-bucket = google_storage_bucket.vm_assets.name
+    startup-script            = file("${path.module}/scripts/data-vm-startup.sh")
+    vm-assets-bucket          = google_storage_bucket.vm_assets.name
+    enable-oslogin            = "TRUE"
+    google-logging-enabled    = "true"
+    google-monitoring-enabled = "true"
+  }
+
+  shielded_instance_config {
+    enable_secure_boot          = true
+    enable_vtpm                 = true
+    enable_integrity_monitoring = true
   }
 
   tags = ["data-services"]
@@ -162,4 +249,31 @@ resource "google_compute_instance" "data_services" {
     google_storage_bucket_object.docker_compose,
     google_storage_bucket_object.docker_compose_prod,
   ]
+}
+
+# ── Uptime / down alert ──────────────────────────────────────────────────────
+# Fires if the VM has been stopped for 5+ minutes.
+# Populate alert_notification_channels in terraform.tfvars.
+
+resource "google_monitoring_alert_policy" "data_vm_down" {
+  display_name = "Data VM down"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "VM instance stopped"
+    condition_threshold {
+      filter          = "metric.type=\"compute.googleapis.com/instance/uptime\" AND resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${google_compute_instance.data_services.instance_id}\""
+      comparison      = "COMPARISON_LT"
+      threshold_value = 1
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_RATE"
+      }
+    }
+  }
+
+  notification_channels = var.alert_notification_channels
+
+  depends_on = [google_project_service.apis["monitoring.googleapis.com"]]
 }
