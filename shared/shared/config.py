@@ -22,10 +22,13 @@ class Settings(BaseSettings):
     redis_url: str
     redis_password: str | None = None
 
-    # Ollama
+    # Ollama (embeddings only)
     ollama_url: str
-    ollama_model: str
     ollama_embed_model: str
+
+    # Anthropic (LLM)
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-20250514"
 
     # Auth
     jwt_secret_key: str
@@ -59,6 +62,9 @@ class Settings(BaseSettings):
             errors.append("CORS_ORIGINS is empty")
         elif "*" in origins or any("localhost" in o for o in origins):
             errors.append("CORS_ORIGINS must not contain '*' or localhost entries in production")
+
+        if not self.anthropic_api_key:
+            errors.append("ANTHROPIC_API_KEY is required in production")
 
         if f":{_DEFAULT_COMPOSE_DB_PASSWORD}@" in self.database_url:
             errors.append(

@@ -34,13 +34,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
+import anthropic
 import redis.asyncio as redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError as RedisLibraryError
 from redis.exceptions import TimeoutError as RedisLibraryTimeoutError
 
-from chat_service.services import ollama_service, redis_service
+from chat_service.services import llm_service, redis_service
 from chat_service.services.redis_service import (
     SESSION_TTL_SECONDS,
     RedisServiceError,
@@ -190,7 +190,7 @@ async def generate_summary(
     messages: list[dict[str, Any]],
     existing_summary: str | None,
     *,
-    ollama_client: httpx.AsyncClient,
+    anthropic_client: anthropic.AsyncAnthropic,
 ) -> str:
     """Generate a compressed summary of the conversation for long-term context.
 
@@ -210,8 +210,8 @@ async def generate_summary(
     existing_summary:
         Prior summary string to fold in, or ``None`` for the first
         compression of the session.
-    ollama_client:
-        Shared httpx client pointed at the Ollama endpoint.
+    anthropic_client:
+        Shared ``AsyncAnthropic`` client for LLM inference.
 
     Returns
     -------
@@ -220,8 +220,8 @@ async def generate_summary(
 
     Raises
     ------
-    OllamaError
-        Propagated from :func:`ollama_service.chat_completion` on LLM
+    LLMError
+        Propagated from :func:`llm_service.chat_completion` on LLM
         failure.  Callers should log a warning and skip compression rather
         than blocking the user's response.
     """
@@ -239,12 +239,12 @@ async def generate_summary(
 
     user_content = "\n\n".join(context_parts) if context_parts else "(no content)"
 
-    result = await ollama_service.chat_completion(
-        ollama_client,
+    result = await llm_service.chat_completion(
+        anthropic_client,
         messages=[
             {"role": "system", "content": _SUMMARIZE_SYSTEM},
             {"role": "user", "content": user_content},
         ],
-        options={"temperature": 0},
+        temperature=0,
     )
     return str(result.get("content", "")).strip()

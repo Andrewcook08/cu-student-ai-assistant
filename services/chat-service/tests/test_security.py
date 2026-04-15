@@ -12,7 +12,7 @@ Organized into five test classes:
 4. ``TestMalformedOutputPipeline``   — output validation (cards, PII, scope)
 5. ``TestCombinedAttackScenarios``   — multi-vector attack compositions
 
-All tests use mocked dependencies -- no live Ollama, Neo4j, or Postgres.
+All tests use mocked dependencies -- no live Anthropic, Ollama, Neo4j, or Postgres.
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ class _GraphCtx:
     """Context manager keeping dependency patches alive during graph.ainvoke().
 
     Node closures look up ``classify_intent``, ``build_context``, and
-    ``ollama_service.get_embedding`` at *invocation* time, so patches must
+    ``llm_service.get_embedding`` at *invocation* time, so patches must
     stay active through the full graph run.
     """
 
@@ -157,7 +157,7 @@ class _GraphCtx:
         await self._stack.__aenter__()
 
         self._stack.enter_context(
-            patch("chat_service.core.llm_engine.ChatOllama", return_value=llm_instance)
+            patch("chat_service.core.llm_engine.ChatAnthropic", return_value=llm_instance)
         )
         self._stack.enter_context(
             patch("chat_service.core.llm_engine.classify_intent", new=self.classify_intent_mock)
@@ -167,14 +167,15 @@ class _GraphCtx:
         )
         self._stack.enter_context(
             patch(
-                "chat_service.core.llm_engine.ollama_service.get_embedding",
+                "chat_service.core.llm_engine.llm_service.get_embedding",
                 new=self.embedding_mock,
             )
         )
 
         self.graph = build_graph(
-            ollama_base_url="http://localhost:11434",
-            ollama_model="test-model",
+            anthropic_api_key="test-key",
+            anthropic_model="test-model",
+            anthropic_client=MagicMock(),
             tools=[],
             tool_executor=self._tool_executor,
             ollama_client=MagicMock(),

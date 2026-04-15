@@ -14,8 +14,9 @@ def _prod_settings(**overrides: str) -> Settings:
         "neo4j_password": "str0ng-neo4j-password",
         "redis_url": "redis://redis:6379/0",
         "ollama_url": "http://ollama:11434",
-        "ollama_model": "gpt-oss:20b",
         "ollama_embed_model": "nomic-embed-text",
+        "anthropic_api_key": "sk-ant-test-key",
+        "anthropic_model": "claude-sonnet-4-20250514",
         "jwt_secret_key": "a" * 32,
         "cors_origins": "https://cu-assistant.example.com",
     }
@@ -87,6 +88,12 @@ def test_database_url_default_compose_password() -> None:
         database_url="postgresql+psycopg://postgres:postgres@postgres:5432/cu_assistant"
     )
     with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        s.validate_production()
+
+
+def test_validate_production_rejects_empty_anthropic_api_key() -> None:
+    s = _prod_settings(anthropic_api_key="")
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         s.validate_production()
 
 

@@ -44,7 +44,7 @@ from langchain_core.tools import tool as lc_tool
 from neo4j import AsyncDriver
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from chat_service.services import neo4j_service, ollama_service, postgres_service
+from chat_service.services import llm_service, neo4j_service, postgres_service
 
 # ─── Public types ────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ def make_tools(
         with ``lookup_course`` for full section details and ``check_prerequisites``
         before recommending any result to the student.
         """
-        embedding = await ollama_service.get_embedding(ollama_client, query)
+        embedding = await llm_service.get_embedding(ollama_client, query)
         results: list[dict[str, Any]] = await neo4j_service.vector_search(
             neo4j_driver, embedding, limit=10
         )

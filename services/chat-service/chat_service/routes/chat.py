@@ -19,7 +19,7 @@ import re
 import time
 from typing import Any
 
-import httpx
+import anthropic
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
@@ -58,7 +58,7 @@ router = APIRouter()
 
 async def _summarize_and_save(
     redis_client: aioredis.Redis,
-    ollama_client: httpx.AsyncClient,
+    anthropic_client: anthropic.AsyncAnthropic,
     *,
     user_id: int,
     session_id: str,
@@ -69,7 +69,7 @@ async def _summarize_and_save(
         new_summary = await memory.generate_summary(
             messages,
             existing_summary=existing_summary,
-            ollama_client=ollama_client,
+            anthropic_client=anthropic_client,
         )
         await memory.save_summary(
             redis_client,
@@ -137,7 +137,7 @@ async def chat_websocket(
     app = websocket.app
     graph = app.state.conversation_graph
     redis_client = app.state.redis
-    ollama_client = app.state.ollama_client
+    anthropic_client = app.state.anthropic_client
 
     rate_count = 0
     rate_window_start = time.monotonic()
@@ -315,7 +315,7 @@ async def chat_websocket(
                 asyncio.create_task(
                     _summarize_and_save(
                         redis_client,
-                        ollama_client,
+                        anthropic_client,
                         user_id=user_id,
                         session_id=session_id,
                         messages=conv_state["messages"],

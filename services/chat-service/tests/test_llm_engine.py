@@ -18,12 +18,12 @@ exercised via graph invocation with mocked dependencies.  Module-level helpers
 are tested directly.
 
 IMPORTANT patching note: the node closures look up ``classify_intent``,
-``build_context``, and ``ollama_service.get_embedding`` by attribute at *call*
+``build_context``, and ``llm_service.get_embedding`` by attribute at *call*
 time (not at ``build_graph`` construction time).  Patches must therefore remain
 active for the full duration of ``graph.ainvoke()``.  Use ``_graph_ctx()`` as
 an async context manager that keeps all patches live through invocation.
 
-All tests are self-contained — no live Ollama, Neo4j, or Postgres required.
+All tests are self-contained — no live Anthropic, Ollama, Neo4j, or Postgres required.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ class _GraphCtx:
     """Context manager that keeps all dependency patches alive.
 
     Node closures look up ``classify_intent``, ``build_context``, and
-    ``ollama_service.get_embedding`` by module attribute at *invocation* time,
+    ``llm_service.get_embedding`` by module attribute at *invocation* time,
     not at ``build_graph()`` construction time.  All patches must therefore
     stay active while ``graph.ainvoke()`` runs, not just while the graph is
     built.
@@ -142,7 +142,7 @@ class _GraphCtx:
         await self._stack.__aenter__()
 
         self._stack.enter_context(
-            patch("chat_service.core.llm_engine.ChatOllama", return_value=llm_instance)
+            patch("chat_service.core.llm_engine.ChatAnthropic", return_value=llm_instance)
         )
         self._stack.enter_context(
             patch("chat_service.core.llm_engine.classify_intent", new=self.classify_intent_mock)
@@ -152,15 +152,16 @@ class _GraphCtx:
         )
         self._stack.enter_context(
             patch(
-                "chat_service.core.llm_engine.ollama_service.get_embedding",
+                "chat_service.core.llm_engine.llm_service.get_embedding",
                 new=self.embedding_mock,
             )
         )
 
-        # Build the graph while patches are active (for ChatOllama constructor).
+        # Build the graph while patches are active (for ChatAnthropic constructor).
         self.graph = build_graph(
-            ollama_base_url="http://localhost:11434",
-            ollama_model="test-model",
+            anthropic_api_key="test-key",
+            anthropic_model="test-model",
+            anthropic_client=MagicMock(),
             tools=[],
             tool_executor=self._tool_executor,
             ollama_client=MagicMock(),
@@ -491,7 +492,7 @@ async def test_build_context_node_calls_get_embedding_for_course_search() -> Non
     llm_mock.bind_tools = MagicMock(return_value=llm_with_tools)
 
     with (
-        patch("chat_service.core.llm_engine.ChatOllama", return_value=llm_mock),
+        patch("chat_service.core.llm_engine.ChatAnthropic", return_value=llm_mock),
         patch(
             "chat_service.core.llm_engine.classify_intent",
             new=AsyncMock(return_value=Intent.COURSE_SEARCH),
@@ -501,13 +502,14 @@ async def test_build_context_node_calls_get_embedding_for_course_search() -> Non
             new=AsyncMock(return_value=context_result),
         ),
         patch(
-            "chat_service.core.llm_engine.ollama_service.get_embedding",
+            "chat_service.core.llm_engine.llm_service.get_embedding",
             new=embedding_mock,
         ),
     ):
         graph = build_graph(
-            ollama_base_url="http://localhost:11434",
-            ollama_model="test-model",
+            anthropic_api_key="test-key",
+            anthropic_model="test-model",
+            anthropic_client=MagicMock(),
             tools=[],
             tool_executor=_make_tool_executor(),
             ollama_client=MagicMock(),
@@ -531,7 +533,7 @@ async def test_build_context_node_calls_get_embedding_for_prereq_check() -> None
     llm_mock.bind_tools = MagicMock(return_value=llm_with_tools)
 
     with (
-        patch("chat_service.core.llm_engine.ChatOllama", return_value=llm_mock),
+        patch("chat_service.core.llm_engine.ChatAnthropic", return_value=llm_mock),
         patch(
             "chat_service.core.llm_engine.classify_intent",
             new=AsyncMock(return_value=Intent.PREREQ_CHECK),
@@ -541,13 +543,14 @@ async def test_build_context_node_calls_get_embedding_for_prereq_check() -> None
             new=AsyncMock(return_value=context_result),
         ),
         patch(
-            "chat_service.core.llm_engine.ollama_service.get_embedding",
+            "chat_service.core.llm_engine.llm_service.get_embedding",
             new=embedding_mock,
         ),
     ):
         graph = build_graph(
-            ollama_base_url="http://localhost:11434",
-            ollama_model="test-model",
+            anthropic_api_key="test-key",
+            anthropic_model="test-model",
+            anthropic_client=MagicMock(),
             tools=[],
             tool_executor=_make_tool_executor(),
             ollama_client=MagicMock(),
@@ -571,7 +574,7 @@ async def test_build_context_node_does_not_call_get_embedding_for_general_questi
     llm_mock.bind_tools = MagicMock(return_value=llm_with_tools)
 
     with (
-        patch("chat_service.core.llm_engine.ChatOllama", return_value=llm_mock),
+        patch("chat_service.core.llm_engine.ChatAnthropic", return_value=llm_mock),
         patch(
             "chat_service.core.llm_engine.classify_intent",
             new=AsyncMock(return_value=Intent.GENERAL_QUESTION),
@@ -581,13 +584,14 @@ async def test_build_context_node_does_not_call_get_embedding_for_general_questi
             new=AsyncMock(return_value=context_result),
         ),
         patch(
-            "chat_service.core.llm_engine.ollama_service.get_embedding",
+            "chat_service.core.llm_engine.llm_service.get_embedding",
             new=embedding_mock,
         ),
     ):
         graph = build_graph(
-            ollama_base_url="http://localhost:11434",
-            ollama_model="test-model",
+            anthropic_api_key="test-key",
+            anthropic_model="test-model",
+            anthropic_client=MagicMock(),
             tools=[],
             tool_executor=_make_tool_executor(),
             ollama_client=MagicMock(),
@@ -600,9 +604,9 @@ async def test_build_context_node_does_not_call_get_embedding_for_general_questi
 
 
 @pytest.mark.asyncio
-async def test_build_context_node_handles_ollama_error_gracefully() -> None:
-    """OllamaError from get_embedding must be swallowed; graph must still complete."""
-    from chat_service.services.ollama_service import OllamaError
+async def test_build_context_node_handles_llm_error_gracefully() -> None:
+    """LLMError from get_embedding must be swallowed; graph must still complete."""
+    from chat_service.services.llm_service import LLMError
 
     context_result = MagicMock()
     context_result.text = ""
@@ -615,20 +619,21 @@ async def test_build_context_node_handles_ollama_error_gracefully() -> None:
     build_context_mock = AsyncMock(return_value=context_result)
 
     with (
-        patch("chat_service.core.llm_engine.ChatOllama", return_value=llm_mock),
+        patch("chat_service.core.llm_engine.ChatAnthropic", return_value=llm_mock),
         patch(
             "chat_service.core.llm_engine.classify_intent",
             new=AsyncMock(return_value=Intent.COURSE_SEARCH),
         ),
         patch("chat_service.core.llm_engine.build_context", new=build_context_mock),
         patch(
-            "chat_service.core.llm_engine.ollama_service.get_embedding",
-            new=AsyncMock(side_effect=OllamaError("embedding service down")),
+            "chat_service.core.llm_engine.llm_service.get_embedding",
+            new=AsyncMock(side_effect=LLMError("embedding service down")),
         ),
     ):
         graph = build_graph(
-            ollama_base_url="http://localhost:11434",
-            ollama_model="test-model",
+            anthropic_api_key="test-key",
+            anthropic_model="test-model",
+            anthropic_client=MagicMock(),
             tools=[],
             tool_executor=_make_tool_executor(),
             ollama_client=MagicMock(),
@@ -684,14 +689,14 @@ async def test_call_llm_node_exception_sets_error_state() -> None:
     """If ainvoke raises, the node must catch it and set state.error."""
     llm_mock = MagicMock()
     llm_with_tools = MagicMock()
-    llm_with_tools.ainvoke = AsyncMock(side_effect=RuntimeError("Ollama crashed"))
+    llm_with_tools.ainvoke = AsyncMock(side_effect=RuntimeError("LLM crashed"))
     llm_mock.bind_tools = MagicMock(return_value=llm_with_tools)
 
     context_result = MagicMock()
     context_result.text = ""
 
     with (
-        patch("chat_service.core.llm_engine.ChatOllama", return_value=llm_mock),
+        patch("chat_service.core.llm_engine.ChatAnthropic", return_value=llm_mock),
         patch(
             "chat_service.core.llm_engine.classify_intent",
             new=AsyncMock(return_value=Intent.GENERAL_QUESTION),
@@ -701,13 +706,14 @@ async def test_call_llm_node_exception_sets_error_state() -> None:
             new=AsyncMock(return_value=context_result),
         ),
         patch(
-            "chat_service.core.llm_engine.ollama_service.get_embedding",
+            "chat_service.core.llm_engine.llm_service.get_embedding",
             new=AsyncMock(return_value=[]),
         ),
     ):
         graph = build_graph(
-            ollama_base_url="http://localhost:11434",
-            ollama_model="test-model",
+            anthropic_api_key="test-key",
+            anthropic_model="test-model",
+            anthropic_client=MagicMock(),
             tools=[],
             tool_executor=_make_tool_executor(),
             ollama_client=MagicMock(),
@@ -875,7 +881,7 @@ async def test_should_continue_error_routes_to_respond() -> None:
     context_result.text = ""
 
     with (
-        patch("chat_service.core.llm_engine.ChatOllama", return_value=llm_mock),
+        patch("chat_service.core.llm_engine.ChatAnthropic", return_value=llm_mock),
         patch(
             "chat_service.core.llm_engine.classify_intent",
             new=AsyncMock(return_value=Intent.GENERAL_QUESTION),
@@ -885,13 +891,14 @@ async def test_should_continue_error_routes_to_respond() -> None:
             new=AsyncMock(return_value=context_result),
         ),
         patch(
-            "chat_service.core.llm_engine.ollama_service.get_embedding",
+            "chat_service.core.llm_engine.llm_service.get_embedding",
             new=AsyncMock(return_value=[]),
         ),
     ):
         graph = build_graph(
-            ollama_base_url="http://localhost:11434",
-            ollama_model="test-model",
+            anthropic_api_key="test-key",
+            anthropic_model="test-model",
+            anthropic_client=MagicMock(),
             tools=[],
             tool_executor=_make_tool_executor(),
             ollama_client=MagicMock(),

@@ -11,7 +11,7 @@ Nodes delegate to existing modules:
 
 - **classify_intent** -> :mod:`chat_service.core.intent_classifier`
 - **build_context** -> :mod:`chat_service.core.context_builder`
-- **call_llm** -> ``ChatOllama`` with ``bind_tools``
+- **call_llm** -> ``ChatAnthropic`` with ``bind_tools``
 - **tool_node** -> :class:`chat_service.core.tool_executor.ToolExecutor`
 - **respond** -> CourseCard extraction from tool results
 
@@ -23,7 +23,7 @@ Design decisions (see ADR-5, ADR-6):
 
 - **Manual StateGraph** over ``create_react_agent`` for full control over
   node logic, error handling, and state inspection.
-- **ChatOllama** from ``langchain_ollama`` for native ``AIMessage.tool_calls``
+- **ChatAnthropic** from ``langchain_anthropic`` for native ``AIMessage.tool_calls``
   that LangGraph's message protocol understands.
 - **Custom tool node** routes through :class:`ToolExecutor` for JWT user_id
   enforcement, rate limiting, parameter whitelisting, and audit logging.
@@ -36,10 +36,11 @@ import json
 import logging
 from typing import Any, Literal
 
+import anthropic
 import httpx
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
-from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from neo4j import AsyncDriver
@@ -50,8 +51,8 @@ from chat_service.core.context_builder import build_context
 from chat_service.core.intent_classifier import Intent, classify_intent
 from chat_service.core.output_validator import validate_output
 from chat_service.core.tool_executor import MAX_TOOL_CALLS_PER_TURN, ToolExecutor
-from chat_service.services import ollama_service
-from chat_service.services.ollama_service import OllamaError
+from chat_service.services import llm_service
+from chat_service.services.llm_service import LLMError
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +180,9 @@ def _extract_course_cards(messages: list[Any]) -> list[dict[str, Any]]:
 
 def build_graph(
     *,
-    ollama_base_url: str,
-    ollama_model: str,
+    anthropic_api_key: str,
+    anthropic_model: str,
+    anthropic_client: anthropic.AsyncAnthropic,
     tools: list[BaseTool],
     tool_executor: ToolExecutor,
     ollama_client: httpx.AsyncClient,
@@ -194,32 +196,32 @@ def build_graph(
 
     Parameters
     ----------
-    ollama_base_url:
-        Ollama HTTP endpoint (e.g. ``http://localhost:11434``).
-    ollama_model:
-        Model identifier (e.g. ``gpt-oss:20b``).
+    anthropic_api_key:
+        Anthropic API key for LLM inference.
+    anthropic_model:
+        Anthropic model identifier (e.g. ``claude-sonnet-4-20250514``).
+    anthropic_client:
+        Shared ``AsyncAnthropic`` client for intent classification
+        fallback and summary generation.
     tools:
         LangChain tool list from :func:`make_tools`.
     tool_executor:
         Auth-enforcing executor from :class:`ToolExecutor`.
     ollama_client:
-        Shared ``httpx.AsyncClient`` for embeddings and intent
-        classifier LLM fallback.
+        Shared ``httpx.AsyncClient`` for Ollama embeddings.
     neo4j_driver:
         Async Neo4j driver for context builder retrieval.
     postgres_sessionmaker:
         Async session factory for context builder profile lookup.
     """
-    # ChatOllama for the LangGraph tool-calling loop.  bind_tools()
-    # converts LangChain tool schemas to Ollama's tool format and
+    # ChatAnthropic for the LangGraph tool-calling loop.  bind_tools()
+    # converts LangChain tool schemas to Anthropic's tool format and
     # produces AIMessage.tool_calls on the response.
-    llm = ChatOllama(
-        model=ollama_model,
-        base_url=ollama_base_url,
+    llm = ChatAnthropic(
+        model=anthropic_model,
+        api_key=anthropic_api_key,
         temperature=0,
-        reasoning=False,
-        num_ctx=8192,
-        keep_alive=-1,
+        max_tokens=4096,
     )
     llm_with_tools = llm.bind_tools(tools)
 
@@ -231,7 +233,7 @@ def build_graph(
         if not human_messages:
             return {"intent": Intent.GENERAL_QUESTION.value}
         last_human = human_messages[-1]
-        intent = await classify_intent(last_human.content, ollama_client=ollama_client)
+        intent = await classify_intent(last_human.content, anthropic_client=anthropic_client)
         return {"intent": intent.value}
 
     async def build_context_node(state: ConversationState) -> dict[str, Any]:
@@ -244,10 +246,8 @@ def build_graph(
         query_embedding: list[float] | None = None
         if intent in (Intent.COURSE_SEARCH, Intent.PREREQ_CHECK) and last_human_content:
             try:
-                query_embedding = await ollama_service.get_embedding(
-                    ollama_client, last_human_content
-                )
-            except OllamaError:
+                query_embedding = await llm_service.get_embedding(ollama_client, last_human_content)
+            except LLMError:
                 logger.warning(
                     "llm_engine: embedding failed for user_id=%s, proceeding without",
                     state["user_id"],
