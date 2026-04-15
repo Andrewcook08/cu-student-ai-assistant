@@ -58,6 +58,15 @@ services:
       dockerfile: services/course-search-api/Dockerfile
     ports: ["8000:8000"]
     env_file: .env
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +77,15 @@ services:
       dockerfile: services/chat-service/Dockerfile
     ports: ["8001:8001"]
     env_file: .env
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,7 +98,16 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports: ["5173:80"]
+    ports: ["5173:8080"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     depends_on: [course-search-api, chat-service]
 
 volumes:
