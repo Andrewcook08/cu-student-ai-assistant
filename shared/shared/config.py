@@ -63,9 +63,6 @@ class Settings(BaseSettings):
         elif "*" in origins or any("localhost" in o for o in origins):
             errors.append("CORS_ORIGINS must not contain '*' or localhost entries in production")
 
-        if not self.anthropic_api_key:
-            errors.append("ANTHROPIC_API_KEY is required in production")
-
         if f":{_DEFAULT_COMPOSE_DB_PASSWORD}@" in self.database_url:
             errors.append(
                 "DATABASE_URL contains the default compose password — set a strong password"

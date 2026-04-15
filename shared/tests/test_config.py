@@ -91,12 +91,6 @@ def test_database_url_default_compose_password() -> None:
         s.validate_production()
 
 
-def test_validate_production_rejects_empty_anthropic_api_key() -> None:
-    s = _prod_settings(anthropic_api_key="")
-    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
-        s.validate_production()
-
-
 def test_multiple_errors_reported_together() -> None:
     """All failures should be reported in a single RuntimeError, not just the first."""
     s = _prod_settings(

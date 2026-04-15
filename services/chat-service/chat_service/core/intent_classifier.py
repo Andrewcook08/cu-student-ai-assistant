@@ -29,8 +29,6 @@ from enum import StrEnum
 import anthropic
 from shared.config import settings
 
-from chat_service.services.llm_service import LLMError  # noqa: F401
-
 logger = logging.getLogger(__name__)
 
 
