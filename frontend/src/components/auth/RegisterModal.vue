@@ -3,7 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAuth } from '@/composables/useAuth'
 import type { CompletedCoursePayload, Program, Requirement } from '@/types/index'
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{
+  close: []
+  'switch-to-login': []
+}>()
 
 const { loading, error, register, fetchPrograms, fetchRequirements, updateProgram, updateCompletedCourses } =
   useAuth()
@@ -296,6 +299,18 @@ async function submitStep2() {
           </button>
         </div>
       </template>
+
+      <p class="modal__switch">
+        Already have an account?
+        <button
+          type="button"
+          class="link-btn"
+          data-testid="switch-to-login"
+          @click="emit('switch-to-login')"
+        >
+          Log in
+        </button>
+      </p>
     </div>
   </div>
 </template>
@@ -430,5 +445,22 @@ async function submitStep2() {
   width: 120px;
   font-size: 12px;
   padding: 4px 8px;
+}
+
+.modal__switch {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #555;
+  text-align: center;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #0277BD;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  text-decoration: underline;
 }
 </style>
