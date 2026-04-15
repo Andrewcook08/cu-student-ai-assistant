@@ -120,3 +120,23 @@ resource "google_compute_network_firewall_policy_rule" "default_deny" {
     }
   }
 }
+
+# ─────────────────────────────────────────────
+# Cloud NAT (Outbound access for private VMs)
+# Allows the data-services VM to reach the internet 
+# to download Docker/updates without a public IP.
+# ─────────────────────────────────────────────
+
+resource "google_compute_router" "router" {
+  name    = "cu-assistant-router"
+  network = google_compute_network.vpc.id
+  region  = var.region
+}
+
+resource "google_compute_router_nat" "nat" {
+  name                               = "cu-assistant-nat"
+  router                             = google_compute_router.router.name
+  region                             = google_compute_router.router.region
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+}
