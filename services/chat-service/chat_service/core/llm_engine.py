@@ -222,6 +222,8 @@ def build_graph(
         api_key=anthropic_api_key,
         temperature=0,
         max_tokens=4096,
+        timeout=120.0,
+        max_retries=2,
     )
     llm_with_tools = llm.bind_tools(tools)
 
@@ -271,7 +273,10 @@ def build_graph(
         system_prompt = _build_system_prompt(state["intent"], state["context_text"])
         if state.get("injection_warning"):
             system_prompt = state["injection_warning"] + "\n\n" + system_prompt
-        system_msg = SystemMessage(content=system_prompt)
+        system_msg = SystemMessage(
+            content=system_prompt,
+            additional_kwargs={"cache_control": {"type": "ephemeral"}},
+        )
 
         # Filter state messages to only HumanMessage, AIMessage, and
         # ToolMessage — these are what the LLM expects.  SystemMessage

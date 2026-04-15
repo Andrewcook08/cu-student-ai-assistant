@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # classification fallback, summary generation).
     app.state.anthropic_client = anthropic.AsyncAnthropic(
         api_key=settings.anthropic_api_key,
+        timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0),
     )
     # Long-lived Redis client. Owns its own connection pool internally,
     # so the same instance is reused across requests by every helper in

@@ -22,14 +22,14 @@ into LangGraph state and JSON.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from enum import StrEnum
 
 import anthropic
+from shared.config import settings
 
-from chat_service.services.llm_service import LLMError, chat_completion
+from chat_service.services.llm_service import LLMError  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +117,21 @@ _FALLBACK_SYSTEM_PROMPT = (
     "- general_question: anything else, including off-topic or chit-chat.\n"
     'Respond ONLY with a JSON object like {"intent": "<label>"}. Do not include any other text.'
 )
+
+_INTENT_TOOL = {
+    "name": "classify_intent",
+    "description": "Record the intent label for the user message.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "intent": {
+                "type": "string",
+                "enum": [i.value for i in Intent],
+            },
+        },
+        "required": ["intent"],
+    },
+}
 
 
 def _heuristic_classify(message: str) -> Intent:
@@ -212,30 +227,22 @@ async def classify_intent(
         return Intent.GENERAL_QUESTION
 
     try:
-        response = await chat_completion(
-            anthropic_client,
-            [
-                {"role": "system", "content": _FALLBACK_SYSTEM_PROMPT},
-                {"role": "user", "content": message},
-            ],
+        response = await anthropic_client.messages.create(
+            model=settings.anthropic_model,
+            system=_FALLBACK_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": message}],
+            tools=[_INTENT_TOOL],
+            tool_choice={"type": "tool", "name": "classify_intent"},
+            max_tokens=64,
             temperature=0,
         )
-        content = response.get("content") or ""
-        if not content:
-            return Intent.GENERAL_QUESTION
-        # Happy path: structured output yields {"intent": "<label>"}.
-        # Fall back to the lenient text parser if the JSON shape is wrong
-        # so the classifier still degrades gracefully instead of dropping
-        # the request.
-        try:
-            payload = json.loads(content)
-            label = payload.get("intent", "") if isinstance(payload, dict) else ""
-            if isinstance(label, str) and label:
-                return _parse_llm_label(label)
-        except (json.JSONDecodeError, TypeError):
-            pass
-        return _parse_llm_label(content)
-    except LLMError as exc:
+        # tool_choice forces a tool call — extract the enum-constrained label.
+        tool_block = response.content[0]
+        label = tool_block.input.get("intent", "")
+        if isinstance(label, str) and label:
+            return _parse_llm_label(label)
+        return Intent.GENERAL_QUESTION
+    except (anthropic.APITimeoutError, anthropic.APIError) as exc:
         logger.debug("LLM intent fallback failed: %s", exc)
         return Intent.GENERAL_QUESTION
     except Exception as exc:  # pragma: no cover - defensive last resort

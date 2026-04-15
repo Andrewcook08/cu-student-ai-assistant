@@ -192,6 +192,15 @@ async def test_chat_completion_returns_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_completion_defaults_missing_role_to_user() -> None:
+    """Messages without an explicit role default to 'user'."""
+    client = _make_anthropic_client()
+    await chat_completion(client, [{"content": "hello"}])
+    call_kwargs = client.messages.create.await_args.kwargs
+    assert call_kwargs["messages"] == [{"role": "user", "content": "hello"}]
+
+
+@pytest.mark.asyncio
 async def test_chat_completion_calls_anthropic_with_model_and_messages() -> None:
     client = _make_anthropic_client(response_text="hi")
     messages = [{"role": "user", "content": "hello"}]

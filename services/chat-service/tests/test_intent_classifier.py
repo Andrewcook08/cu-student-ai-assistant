@@ -2,18 +2,29 @@
 
 The five Jira acceptance examples are exercised against the heuristic
 path with no LLM dependency.  LLM fallback behaviour is covered
-separately by patching ``chat_completion`` and asserting it is only
-called when the heuristic returns GENERAL_QUESTION.
+separately by mocking the ``anthropic_client.messages.create`` tool-use
+call and asserting it is only invoked when the heuristic returns
+GENERAL_QUESTION.
 """
 
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
+import anthropic
 import pytest
 from chat_service.core.intent_classifier import Intent, classify_intent
-from chat_service.services.llm_service import LLMServiceError
+
+
+def _make_tool_response(intent_label: str) -> MagicMock:
+    """Create a mock Anthropic response with a tool_use block."""
+    tool_block = MagicMock()
+    tool_block.input = {"intent": intent_label}
+    response = MagicMock()
+    response.content = [tool_block]
+    return response
+
 
 # Heuristic-bypassing paraphrases used to verify that the LLM fallback
 # path is genuinely exercised. The unit test
@@ -162,46 +173,40 @@ async def test_heuristic_classification_under_budget() -> None:
 async def test_llm_fallback_used_when_heuristic_returns_general() -> None:
     """When heuristic falls through and a client is provided, LLM is consulted."""
     fake_client = MagicMock()
-    with patch(
-        "chat_service.core.intent_classifier.chat_completion",
-        new=AsyncMock(return_value={"content": "course_search"}),
-    ) as mock_chat:
-        result = await classify_intent("tell me about stuff", anthropic_client=fake_client)
+    fake_client.messages.create = AsyncMock(return_value=_make_tool_response("course_search"))
+    result = await classify_intent("tell me about stuff", anthropic_client=fake_client)
 
-    mock_chat.assert_awaited_once()
+    fake_client.messages.create.assert_awaited_once()
     assert result == Intent.COURSE_SEARCH
 
 
 @pytest.mark.asyncio
 async def test_llm_fallback_returns_general_on_llm_error() -> None:
     fake_client = MagicMock()
-    with patch(
-        "chat_service.core.intent_classifier.chat_completion",
-        new=AsyncMock(side_effect=LLMServiceError("boom")),
-    ):
-        result = await classify_intent("ramble ramble", anthropic_client=fake_client)
+    fake_client.messages.create = AsyncMock(
+        side_effect=anthropic.APIError(
+            message="boom",
+            request=MagicMock(),
+            body=None,
+        ),
+    )
+    result = await classify_intent("ramble ramble", anthropic_client=fake_client)
     assert result == Intent.GENERAL_QUESTION
 
 
 @pytest.mark.asyncio
 async def test_llm_fallback_returns_general_on_unknown_label() -> None:
     fake_client = MagicMock()
-    with patch(
-        "chat_service.core.intent_classifier.chat_completion",
-        new=AsyncMock(return_value={"content": "nonsense"}),
-    ):
-        result = await classify_intent("ramble ramble", anthropic_client=fake_client)
+    fake_client.messages.create = AsyncMock(return_value=_make_tool_response("nonsense"))
+    result = await classify_intent("ramble ramble", anthropic_client=fake_client)
     assert result == Intent.GENERAL_QUESTION
 
 
 @pytest.mark.asyncio
 async def test_llm_fallback_returns_general_on_empty_content() -> None:
     fake_client = MagicMock()
-    with patch(
-        "chat_service.core.intent_classifier.chat_completion",
-        new=AsyncMock(return_value={"content": ""}),
-    ):
-        result = await classify_intent("ramble ramble", anthropic_client=fake_client)
+    fake_client.messages.create = AsyncMock(return_value=_make_tool_response(""))
+    result = await classify_intent("ramble ramble", anthropic_client=fake_client)
     assert result == Intent.GENERAL_QUESTION
 
 
@@ -226,11 +231,8 @@ async def test_llm_fallback_returns_general_on_empty_content() -> None:
 async def test_llm_fallback_normalizes_label_variants(raw_label: str) -> None:
     """Small models routinely add punctuation, case, hyphen, or wrapper variants."""
     fake_client = MagicMock()
-    with patch(
-        "chat_service.core.intent_classifier.chat_completion",
-        new=AsyncMock(return_value={"content": raw_label}),
-    ):
-        result = await classify_intent("ramble ramble", anthropic_client=fake_client)
+    fake_client.messages.create = AsyncMock(return_value=_make_tool_response(raw_label))
+    result = await classify_intent("ramble ramble", anthropic_client=fake_client)
     assert result == Intent.COURSE_SEARCH
 
 
@@ -238,50 +240,40 @@ async def test_llm_fallback_normalizes_label_variants(raw_label: str) -> None:
 async def test_llm_fallback_uses_zero_temperature() -> None:
     """Verify the fallback call sets ``temperature=0`` for deterministic classification."""
     fake_client = MagicMock()
-    mock_chat = AsyncMock(return_value={"content": '{"intent": "course_search"}'})
-    with patch("chat_service.core.intent_classifier.chat_completion", new=mock_chat):
-        await classify_intent("tell me about stuff", anthropic_client=fake_client)
+    fake_client.messages.create = AsyncMock(return_value=_make_tool_response("course_search"))
+    await classify_intent("tell me about stuff", anthropic_client=fake_client)
 
-    mock_chat.assert_awaited_once()
-    _, kwargs = mock_chat.await_args.args, mock_chat.await_args.kwargs
-    assert kwargs["temperature"] == 0
+    fake_client.messages.create.assert_awaited_once()
+    call_kwargs = fake_client.messages.create.await_args.kwargs
+    assert call_kwargs["temperature"] == 0
 
 
 @pytest.mark.parametrize(
-    ("json_payload", "expected"),
+    ("intent_label", "expected"),
     [
-        ('{"intent": "course_search"}', Intent.COURSE_SEARCH),
-        ('{"intent": "prereq_check"}', Intent.PREREQ_CHECK),
-        ('{"intent": "degree_planning"}', Intent.DEGREE_PLANNING),
-        ('{"intent": "schedule_help"}', Intent.SCHEDULE_HELP),
-        ('{"intent": "general_question"}', Intent.GENERAL_QUESTION),
-        # Whitespace and newlines around the JSON — LLMs sometimes pad.
-        ('  {"intent": "course_search"}  \n', Intent.COURSE_SEARCH),
+        ("course_search", Intent.COURSE_SEARCH),
+        ("prereq_check", Intent.PREREQ_CHECK),
+        ("degree_planning", Intent.DEGREE_PLANNING),
+        ("schedule_help", Intent.SCHEDULE_HELP),
+        ("general_question", Intent.GENERAL_QUESTION),
     ],
 )
 @pytest.mark.asyncio
-async def test_llm_fallback_parses_structured_json(json_payload: str, expected: Intent) -> None:
-    """The happy path: ``content`` is a JSON object matching the schema."""
+async def test_llm_fallback_parses_tool_use_response(intent_label: str, expected: Intent) -> None:
+    """The happy path: tool_use block returns the intent label directly."""
     fake_client = MagicMock()
-    with patch(
-        "chat_service.core.intent_classifier.chat_completion",
-        new=AsyncMock(return_value={"content": json_payload}),
-    ):
-        result = await classify_intent("ramble ramble", anthropic_client=fake_client)
+    fake_client.messages.create = AsyncMock(return_value=_make_tool_response(intent_label))
+    result = await classify_intent("ramble ramble", anthropic_client=fake_client)
     assert result == expected
 
 
 @pytest.mark.asyncio
-async def test_llm_fallback_handles_json_with_unknown_intent() -> None:
-    """Defense in depth: if the LLM returns a JSON object with an
-    intent value outside the enum, fall back to GENERAL_QUESTION
-    rather than crashing."""
+async def test_llm_fallback_handles_tool_use_with_unknown_intent() -> None:
+    """Defense in depth: if the tool_use block returns an intent value
+    outside the enum, fall back to GENERAL_QUESTION rather than crashing."""
     fake_client = MagicMock()
-    with patch(
-        "chat_service.core.intent_classifier.chat_completion",
-        new=AsyncMock(return_value={"content": '{"intent": "bogus_label"}'}),
-    ):
-        result = await classify_intent("ramble ramble", anthropic_client=fake_client)
+    fake_client.messages.create = AsyncMock(return_value=_make_tool_response("bogus_label"))
+    result = await classify_intent("ramble ramble", anthropic_client=fake_client)
     assert result == Intent.GENERAL_QUESTION
 
 
@@ -320,13 +312,10 @@ async def test_need_to_take_with_course_code_is_prereq_check() -> None:
 async def test_llm_fallback_skipped_when_heuristic_matches() -> None:
     """If the heuristic is confident, the LLM must NOT be called even if a client is supplied."""
     fake_client = MagicMock()
-    with patch(
-        "chat_service.core.intent_classifier.chat_completion",
-        new=AsyncMock(return_value={"content": "course_search"}),
-    ) as mock_chat:
-        result = await classify_intent(
-            "What are prerequisites for CSCI 3104?", anthropic_client=fake_client
-        )
+    fake_client.messages.create = AsyncMock(return_value=_make_tool_response("course_search"))
+    result = await classify_intent(
+        "What are prerequisites for CSCI 3104?", anthropic_client=fake_client
+    )
 
-    mock_chat.assert_not_awaited()
+    fake_client.messages.create.assert_not_awaited()
     assert result == Intent.PREREQ_CHECK

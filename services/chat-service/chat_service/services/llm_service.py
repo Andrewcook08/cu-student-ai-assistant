@@ -87,10 +87,11 @@ async def chat_completion(
     system_parts: list[str] = []
     api_messages: list[dict[str, str]] = []
     for msg in messages:
-        if msg.get("role") == "system":
+        role = msg.get("role", "user")
+        if role == "system":
             system_parts.append(msg["content"])
         else:
-            api_messages.append({"role": msg["role"], "content": msg["content"]})
+            api_messages.append({"role": role, "content": msg["content"]})
 
     kwargs: dict[str, Any] = {
         "model": settings.anthropic_model,

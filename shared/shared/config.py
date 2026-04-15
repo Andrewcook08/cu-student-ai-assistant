@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     ollama_embed_model: str
 
     # Anthropic (LLM)
-    anthropic_api_key: str = ""
+    anthropic_api_key: str
     anthropic_model: str = "claude-sonnet-4-20250514"
 
     # Auth

@@ -15,7 +15,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-def test_lifespan_configures_ollama_client_with_120s_read_timeout() -> None:
+def test_lifespan_configures_ollama_embedding_client_timeout() -> None:
+    """Pin the Ollama httpx client timeout for embeddings."""
     from chat_service.main import app
 
     with TestClient(app):
@@ -23,6 +24,16 @@ def test_lifespan_configures_ollama_client_with_120s_read_timeout() -> None:
         assert client.timeout.read == 120.0
         # Tight connect timeout — unreachable Ollama should surface quickly.
         assert client.timeout.connect == 10.0
+
+
+def test_lifespan_configures_anthropic_client_with_120s_read_timeout() -> None:
+    """Pin the Anthropic SDK timeout to match the inference budget."""
+    from chat_service.main import app
+
+    with TestClient(app):
+        client = app.state.anthropic_client
+        assert client._client.timeout.read == 120.0
+        assert client._client.timeout.connect == 10.0
 
 
 def test_lifespan_creates_anthropic_client() -> None:
