@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { useChat } from './useChat'
 import { useChatStore } from '@/stores/chatStore'
+import { useAuthStore } from '@/stores/authStore'
 
 // ---------------------------------------------------------------------------
 // MockWebSocket — replaces global WebSocket in jsdom
@@ -46,18 +48,21 @@ let instance: MockWebSocket
 // Setup / teardown
 // ---------------------------------------------------------------------------
 beforeEach(() => {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const authStore = useAuthStore()
+  // payload = {"sub":1,"exp":9999999999}
+  authStore.setAuth('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjEsImV4cCI6OTk5OTk5OTk5OX0.sig', 1, 'TestUser')
   vi.stubGlobal('WebSocket', class extends MockWebSocket {
     constructor(url: string) {
       super(url)
       instance = this
     }
   })
-  localStorage.setItem('token', 'test-jwt')
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  localStorage.clear()
   vi.clearAllTimers()
 })
 
@@ -68,18 +73,21 @@ describe('useChat — connect', () => {
   it('creates a WebSocket with the correct URL structure', () => {
     const { connect } = useChat()
     connect()
-    expect(instance.url).toMatch(/^ws:\/\/localhost:8001\/ws\/chat\/[^?]+\?token=test-jwt$/)
+    expect(instance.url).toMatch(/^ws:\/\/localhost:8001\/ws\/chat\/[^?]+\?token=eyJhbGciOiJIUzI1NiJ9\..+$/)
   })
 
-  it('uses the token from localStorage', () => {
-    localStorage.setItem('token', 'secret-token')
+  it('uses the token from authStore', () => {
+    const authStore = useAuthStore()
+    // payload = {"sub":2,"exp":9999999999}
+    authStore.setAuth('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjIsImV4cCI6OTk5OTk5OTk5OX0.sig2', 2, 'OtherUser')
     const { connect } = useChat()
     connect()
-    expect(instance.url).toContain('?token=secret-token')
+    expect(instance.url).toContain('?token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjIsImV4cCI6OTk5OTk5OTk5OX0.sig2')
   })
 
-  it('uses empty string token when localStorage has none', () => {
-    localStorage.removeItem('token')
+  it('uses empty string token when authStore has no token', () => {
+    const authStore = useAuthStore()
+    authStore.logout()
     const { connect } = useChat()
     connect()
     expect(instance.url).toContain('?token=')

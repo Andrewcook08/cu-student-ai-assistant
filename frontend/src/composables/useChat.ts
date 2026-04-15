@@ -1,5 +1,6 @@
 import { onUnmounted } from 'vue'
 import { useChatStore } from '@/stores/chatStore'
+import { useAuthStore } from '@/stores/authStore'
 import type { WsClientMessage, WsServerMessage } from '@/types/index'
 
 const WS_OPEN = 1 // WebSocket.OPEN — avoids dependency on global being set correctly
@@ -23,7 +24,8 @@ export function useChat() {
   function connect() {
     if (ws && ws.readyState <= WS_OPEN) return  // already connected or connecting
     const sid = store.initSession()
-    const token = localStorage.getItem('token') ?? ''
+    const authStore = useAuthStore()
+    const token = authStore.token ?? ''
     ws = new WebSocket(`${WS_BASE_URL}/ws/chat/${sid}?token=${token}`)
 
     ws.onopen = () => {

@@ -3,6 +3,7 @@ import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import { MessageCircle, X } from 'lucide-vue-next'
 import ChatInput from './ChatInput.vue'
 import ChatMessage from './ChatMessage.vue'
+import LoginModal from '@/components/auth/LoginModal.vue'
 import type { Action } from '@/types/index'
 import { useChatStore } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -14,6 +15,7 @@ const panelEl = ref<HTMLElement | null>(null)
 const store = useChatStore()
 const auth = useAuthStore()
 const { connect, send } = useChat()
+const showLoginModal = ref(false)
 
 // ── Resize by dragging the header bar upward/leftward ────────
 let resizing = false
@@ -116,26 +118,44 @@ watch(
 
     <div v-if="store.isReconnecting" class="chat-reconnecting">Reconnecting...</div>
 
-    <div ref="messagesEl" class="chat-panel__messages">
-      <ChatMessage
-        v-for="(msg, i) in store.messages"
-        :key="i"
-        :message="msg"
-        @action-selected="handleActionSelected"
-      />
-      <div v-if="store.toolStatus" class="chat-tool-status">
-        {{ store.toolStatus }}
+    <template v-if="auth.isAuthenticated">
+      <div ref="messagesEl" class="chat-panel__messages">
+        <ChatMessage
+          v-for="(msg, i) in store.messages"
+          :key="i"
+          :message="msg"
+          @action-selected="handleActionSelected"
+        />
+        <div v-if="store.toolStatus" class="chat-tool-status">
+          {{ store.toolStatus }}
+        </div>
+        <div v-else-if="store.isTyping && !store.isStreaming" class="chat-msg chat-msg--ai chat-msg--typing">
+          <span></span><span></span><span></span>
+        </div>
       </div>
-      <div v-else-if="store.isTyping && !store.isStreaming" class="chat-msg chat-msg--ai chat-msg--typing">
-        <span></span><span></span><span></span>
-      </div>
-    </div>
 
-    <ChatInput
-      :disabled="store.isTyping || store.isStreaming || !!store.connectionError"
-      @send="send"
-    />
+      <ChatInput
+        :disabled="store.isTyping || store.isStreaming || !!store.connectionError"
+        @send="send"
+      />
+    </template>
+
+    <template v-else>
+      <div class="chat-auth-gate">
+        <p>Log in to start chatting with your AI advisor.</p>
+        <button
+          type="button"
+          class="chat-login-btn"
+          data-testid="chat-login-btn"
+          @click="showLoginModal = true"
+        >
+          Log In
+        </button>
+      </div>
+    </template>
   </div>
+
+  <LoginModal v-if="showLoginModal" @close="showLoginModal = false" />
 </template>
 
 <style scoped>
@@ -256,6 +276,35 @@ watch(
 @keyframes shimmer {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
+}
+
+/* Auth gate */
+.chat-auth-gate {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  gap: 16px;
+  color: #555;
+  font-size: 14px;
+  text-align: center;
+}
+
+.chat-login-btn {
+  background: #CFB87C;
+  color: #000;
+  font-weight: 600;
+  border: none;
+  border-radius: 3px;
+  padding: 8px 20px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chat-login-btn:hover {
+  background: #c4a94f;
 }
 
 /* Typing indicator */
