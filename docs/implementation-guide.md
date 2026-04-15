@@ -1372,12 +1372,15 @@ cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with real values
 
 # 1. Network (everything depends on this)
+# Preferred local workflow: ./infra.sh up  (wraps the steps below)
 terraform apply -target=google_compute_network.vpc \
                 -target=google_compute_subnetwork.private \
-                -target=google_compute_firewall.allow_internal \
-                -target=google_compute_firewall.allow_vpc_connector \
-                -target=google_compute_firewall.allow_iap_ssh \
-                -target=google_compute_firewall.default_deny \
+                -target=google_compute_network_firewall_policy.main \
+                -target=google_compute_network_firewall_policy_association.main \
+                -target=google_compute_network_firewall_policy_rule.allow_vpc_connector \
+                -target=google_compute_network_firewall_policy_rule.allow_internal \
+                -target=google_compute_network_firewall_policy_rule.allow_iap_ssh \
+                -target=google_compute_network_firewall_policy_rule.default_deny \
                 -target=google_vpc_access_connector.connector
 
 # 2. Artifact Registry (needed for Docker images)
@@ -1404,12 +1407,17 @@ terraform apply -target=google_cloud_run_v2_service.course_search_api \
                 -target=google_cloud_run_v2_service.chat_service \
                 -target=google_cloud_run_v2_service.frontend
 
-# 7. Ollama MIG (needs VPC + monitoring metric)
+# 7. Build custom Ollama worker image (must run before MIG apply)
+# This bakes Docker, NVIDIA drivers, Ollama, and models into a GCE image.
+# Only needs to re-run when changing Ollama version or swapping models.
+cd infra && packer build packer/ollama-worker.pkr.hcl && cd ..
+
+# 8. Ollama MIG (needs VPC + monitoring metric + custom image from step 7)
 terraform apply -target=google_compute_instance_template.ollama_worker \
                 -target=google_compute_instance_group_manager.ollama_mig \
                 -target=google_compute_autoscaler.ollama
 
-# 8. Full apply to catch anything missed
+# 9. Full apply to catch anything missed
 terraform apply
 ```
 

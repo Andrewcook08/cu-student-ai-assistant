@@ -894,6 +894,20 @@
 
 All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in already-merged code (auth enforcement, secret validation, rate limiting, compose hardening, WebSocket enforcement). They share the `security` and `phase-3` labels and are owned end-to-end by **Person A (Scott)** — the work spans the shared package, API middleware, compose configuration, and WebSocket routing, all of which fall under Scott's infra/shared remit. SEC-008 is the only inter-ticket dependency: it requires SEC-006 to land first so the `ENVIRONMENT=production` flag has a validator to trip. ADR-33 in `decisions.md` is the architectural source of truth for the rationale and threat model behind these tickets.
 
+#### SEC-010: Security headers middleware (CUAI-86)
+- **Points**: 2
+- **Phase**: 3 / Sprint 3
+- **Blocked by**: Nothing
+- **Assignee**: Person C (Andrew)
+- **Labels**: `security`, `phase-3`
+- **Status**: 📋 Planned
+- **Description**: Add a security headers middleware to both FastAPI services (`course-search-api/main.py` and `chat-service/main.py`). Headers: `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security` (production only, gated on `ENVIRONMENT` env var). The architecture doc already lists these headers as planned (line 1262) — this ticket implements them. DOMPurify on the frontend already handles XSS sanitization; these headers add defense-in-depth at the browser level.
+- **Acceptance criteria**:
+  - [ ] Both services return all five security headers on every response
+  - [ ] HSTS header only present when `ENVIRONMENT=production`
+  - [ ] Existing tests still pass
+  - [ ] New test verifies headers are present on a sample response
+
 ---
 
 ## Epic 10: GCP Deployment
@@ -906,7 +920,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocked by**: Nothing (infrastructure only)
 - **Assignee**: Person A
 - **Status**: 📋 Planned
-- **Description**: Create `infra/network.tf`. VPC, private subnet (10.0.0.0/24), firewall rules (allow-vpc-connector, allow-internal, allow-iap-ssh, default-deny), Serverless VPC Connector. Create `infra/main.tf` (provider, GCS backend), `infra/variables.tf`, `infra/outputs.tf`, `infra/terraform.tfvars.example`.
+- **Description**: Create `infra/network.tf`. VPC, private subnet (10.0.0.0/24), Network Firewall Policy (`cu-assistant-fw-policy`) containing 4 rules (allow-vpc-connector @ priority 1000, allow-internal @ 1100, allow-iap-ssh @ 1200, default-deny @ 65534) attached via `google_compute_network_firewall_policy_association`, Serverless VPC Connector. Create `infra/main.tf` (provider, GCS backend), `infra/variables.tf`, `infra/outputs.tf`, `infra/terraform.tfvars.example`, `infra/infra.sh` (local test harness: `./infra.sh plan|up|down`).
 - **Acceptance criteria**:
   - [ ] `terraform plan` succeeds
   - [ ] VPC created with private subnet
@@ -936,12 +950,14 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocked by**: DEPLOY-001, DEPLOY-002 (needs Redis for queue)
 - **Assignee**: Person A
 - **Status**: 📋 Planned
-- **Description**: Create `infra/ollama-mig.tf`. Instance template (spot g2-standard-4, L4 GPU, startup script). MIG with min 0 / max 3. Autoscaler on custom metric (Redis queue depth). Create `infra/monitoring.tf` (custom metric definition). Create `infra/scripts/ollama-worker-startup.sh` and `infra/scripts/queue-depth-exporter.py`.
+- **Description**: Build a custom GCE image (via Packer) with Docker, NVIDIA drivers, Ollama, and models (`gpt-oss:20b`, `nomic-embed-text`) pre-installed. Create `infra/packer/ollama-worker.pkr.hcl`. Create `infra/ollama-mig.tf` — instance template (spot g2-standard-4, L4 GPU, boots from custom image), MIG with min 0 / max 3, autoscaler on custom metric (Redis queue depth). Create `infra/monitoring.tf` (custom metric definition). Create `infra/scripts/ollama-worker-startup.sh` (lightweight — starts Redis queue worker only, no provisioning) and `infra/scripts/queue-depth-exporter.py`.
 - **Acceptance criteria**:
-  - [ ] Instance template creates with GPU
+  - [ ] Custom GCE image built with gpt-oss:20b and nomic-embed-text pre-loaded
+  - [ ] Packer template (`infra/packer/ollama-worker.pkr.hcl`) exists and is documented
+  - [ ] Instance template references custom image family, creates with GPU
   - [ ] MIG starts with target_size 0
-  - [ ] Manual resize to 1 boots a GPU worker
-  - [ ] Worker pulls from Redis queue
+  - [ ] Manual resize to 1 boots a GPU worker ready to serve (no model download)
+  - [ ] Worker pulls inference requests from Redis queue
   - [ ] queue-depth-exporter publishes metric to Cloud Monitoring
   - [ ] Autoscaler responds to metric changes
 
@@ -958,6 +974,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
   - [ ] Chat service has min_instances=1
   - [ ] CORS_ORIGINS set to frontend Cloud Run URL
   - [ ] Health endpoints return 200
+  - [ ] `frontend_url` exported from `infra/outputs.tf` (using `google_cloud_run_v2_service.frontend.uri`) so `./infra.sh status` prints the deployed `*.run.app` URL. Chat and API URLs are intentionally *not* exported — those services use `ingress = "internal-and-cloud-load-balancing"` and aren't meant to be hit directly.
   - [ ] *(security ADR-33)* Cloud Run services have `ingress = "all"` only for the Course Search API (public login/register); Chat Service is `ingress = "internal-and-cloud-load-balancing"` if a BFF fronts it — otherwise document why public is acceptable.
   - [ ] *(security ADR-33)* Service env vars sourced from Secret Manager, not inline plaintext.
   - [ ] *(security ADR-33)* `ENVIRONMENT=production` env var set on both services (triggers the SEC-006 validator).
@@ -979,11 +996,11 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocked by**: DEPLOY-002, DATA-005
 - **Assignee**: Person A
 - **Status**: 📋 Planned
-- **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Pull Ollama models. Verify data counts.
+- **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Verify Ollama models are present on GPU worker (from baked image). Verify data counts.
 - **Acceptance criteria**:
   - [ ] All courses, programs, requirements in GCP databases
   - [ ] Embeddings generated and vector index created
-  - [ ] Ollama model pulled on GPU worker
+  - [ ] Ollama models verified present on GPU worker (from baked image)
   - [ ] All validation counts match local
 
 ### DEPLOY-007: End-to-end GCP verification
@@ -1013,11 +1030,12 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocks**: FE-001 merge (CI must be live before any feature PR lands, so we start with a green baseline)
 - **Assignee**: Person B
 - **Status**: ✅ Done (Sprint 1 — CUAI-71)
-- **Description**: Create `.github/workflows/ci.yml`. Runs on every PR and push to main. Jobs: (1) Python — all commands run **from the repo root** so test discovery is workspace-wide: `uv sync`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy .`, `uv run pytest` (skip gracefully if no tests exist). Because pytest is invoked from the root, it auto-discovers every service's tests via `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml` — **no `ci.yml` edits are needed when a new service is added**, contributors only update `[tool.uv.workspace].members` and `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml`. (2) Frontend — `cd frontend && npm ci && npm run type-check && npm run lint && npm run test -- --run && npm run build`. After this lands, enable branch protection on `main` requiring CI green before merge. See `docs/development-workflow.md § How CI Discovers Tests` for the canonical rule and maintenance guidance for future contributors.
+- **Description**: Create `.github/workflows/ci.yml`. Runs on every PR and push to main. Jobs: (1) Python — all commands run **from the repo root** so test discovery is workspace-wide: `uv sync`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy .`, `uv run pytest` (skip gracefully if no tests exist). Because pytest is invoked from the root, it auto-discovers every service's tests via `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml` — **no `ci.yml` edits are needed when a new service is added**, contributors only update `[tool.uv.workspace].members` and `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml`. (2) Frontend — `cd frontend && npm ci && npm run type-check && npm run lint && npm run test -- --run && npm run build`. (3) Terraform — `terraform fmt -check` + `terraform init -backend=false` + `terraform validate` against `infra/`. No `plan`/`apply` (those need GCP auth and would imply auto-deploy, which we deliberately don't do — see ADR notes on local-only provisioning). Just a syntax/type/reference guardrail. After this lands, enable branch protection on `main` requiring CI green before merge. See `docs/development-workflow.md § How CI Discovers Tests` for the canonical rule and maintenance guidance for future contributors.
 - **Acceptance criteria**:
   - [x] CI runs on every PR targeting main and every push to main
   - [x] Python job runs ruff check, ruff format --check, mypy, and pytest
   - [x] Frontend job runs type-check, lint, vitest, and build
+  - [x] Terraform job runs `fmt -check` + `validate` against `infra/` (no `plan`/`apply` — provisioning stays local via `infra/infra.sh`)
   - [x] Fails if any step fails
   - [x] Status check shown on PR page
   - [x] Branch protection on main requires CI green before merge
@@ -1253,9 +1271,10 @@ CHAT-008 ──→ DEMO-001 ──→ DEMO-002
 | SEC-003 | 2 | Person B | 16-17 |
 | SEC-004 | 5 | Person C | 17-18 |
 | DEMO-001 | 5 | Person C | 18-19 |
-| **Total** | **41** | | |
+| SEC-010 | 2 | Person C | 19 |
+| **Total** | **43** | | |
 
-**Per-person**: A=11, B=17, C=13. Person A (Scott) owns conversation memory. Person C (Andrew) focuses on security hardening + prompt tuning (DEMO-001 moved from Sprint 4 since its blocker CHAT-008 is now done).
+**Per-person**: A=11, B=17, C=15. Person A (Scott) owns conversation memory. Person C (Andrew) focuses on security hardening + prompt tuning (DEMO-001 moved from Sprint 4 since its blocker CHAT-008 is now done). SEC-010 added for security headers middleware.
 
 ### Sprint 4: Deploy + Demo (Days 20-24, Apr 13-17)
 **Goal**: Live on GCP, demo rehearsed.
@@ -1292,5 +1311,5 @@ CHAT-008 ──→ DEMO-001 ──→ DEMO-002
 | **Cross-person blocks** | 12 (most front-loaded in Days 1-2 scaffolding, zero mid-sprint blocking) |
 | **Critical path stories** | INFRA-001, INFRA-002, INFRA-003, DATA-001, DATA-002, DATA-006, CHAT-001, CHAT-008 |
 | **Highest risk story** | CHAT-008 (LangGraph engine — 8 points, complex integration; de-risked by CHAT-000 spike) — ✅ Done |
-| **Security stories** | 10 (SEC-001 through SEC-009 + CHAT-006) |
+| **Security stories** | 11 (SEC-001 through SEC-010 + CHAT-006) |
 | **Sprint 2 retrofit (ADR-33)** | SEC-005..009 — 14 pts total, filing auth enforcement, secret validation, rate limiting, compose hardening, and WS hardening gaps |

@@ -1,12 +1,19 @@
 from collections.abc import Generator
 
 import pytest
+from course_search_api.limiter import limiter
 from course_search_api.main import app
 from fastapi.testclient import TestClient
 from shared.auth import create_access_token, hash_password
 from shared.database import engine, get_db
 from shared.models import User
 from sqlalchemy.orm import Session
+
+
+@pytest.fixture(autouse=True)
+def reset_limiter() -> None:
+    """Reset slowapi in-memory counters before each test to prevent bleed-over."""
+    limiter.reset()
 
 
 @pytest.fixture

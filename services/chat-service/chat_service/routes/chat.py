@@ -5,8 +5,9 @@ incoming message is routed through the compiled ``StateGraph`` on
 ``app.state.conversation_graph``, which orchestrates intent classification,
 context building, LLM inference, and tool calling.
 
-Conversation history is persisted in Redis (last 20 messages, 2-hour TTL)
-so multi-turn sessions work across reconnections.
+Conversation state (last 20 messages + optional running summary) is loaded
+from Redis via ``core.memory`` so multi-turn sessions work across reconnections.
+The summary is passed into the LangGraph state for context building (MEM-001).
 """
 
 from __future__ import annotations
@@ -14,14 +15,19 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import time
 from typing import Any
 
+import httpx
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from langchain_core.messages import AIMessage, HumanMessage
 from shared.auth import decode_access_token
 
-from chat_service.services import redis_service
+from chat_service.core import memory
+from chat_service.core.input_sanitizer import sanitize_message
 from chat_service.services.redis_service import RedisError
 
 #: Hard timeout for a single graph invocation (intent + context + LLM + tools).
@@ -29,9 +35,54 @@ from chat_service.services.redis_service import RedisError
 #: or a tool call blocks.
 GRAPH_TIMEOUT_SECONDS = 180
 
+#: UUID v4 pattern — session_id must match before the message loop begins.
+_UUID4_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+#: Maximum raw frame size in bytes.  Frames exceeding this are rejected
+#: with close code 1009 (message too large).
+MAX_MESSAGE_BYTES = 4096
+
+#: Per-connection rate limit: at most this many frames per window.
+RATE_LIMIT_MESSAGES = 20
+
+#: Rolling window length in seconds for the per-connection rate limit.
+RATE_LIMIT_WINDOW_SECONDS = 10
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _summarize_and_save(
+    redis_client: aioredis.Redis,
+    ollama_client: httpx.AsyncClient,
+    *,
+    user_id: int,
+    session_id: str,
+    messages: list[dict[str, Any]],
+    existing_summary: str | None,
+) -> None:
+    try:
+        new_summary = await memory.generate_summary(
+            messages,
+            existing_summary=existing_summary,
+            ollama_client=ollama_client,
+        )
+        await memory.save_summary(
+            redis_client,
+            user_id=user_id,
+            session_id=session_id,
+            summary=new_summary,
+        )
+    except Exception:
+        logger.warning(
+            "chat: summary generation failed for user_id=%s session=%s",
+            user_id,
+            session_id,
+        )
 
 
 def _redis_history_to_langchain(
@@ -68,19 +119,50 @@ async def chat_websocket(
     (with optional structured data) is sent back.
     """
     await websocket.accept()
+
+    # TODO(P1): replace query-string token with WebSocket subprotocol header
+    #   to prevent tokens from appearing in server access logs.
     try:
         user_id = int(decode_access_token(token))
     except (JWTError, ValueError):
         await websocket.close(code=4001, reason="Invalid token")
         return
 
+    if not _UUID4_RE.match(session_id):
+        await websocket.close(code=4002, reason="Invalid session_id")
+        return
+
+    logger.info("chat: connection accepted user_id=%s session=%s", user_id, session_id)
+
     app = websocket.app
     graph = app.state.conversation_graph
     redis_client = app.state.redis
+    ollama_client = app.state.ollama_client
+
+    rate_count = 0
+    rate_window_start = time.monotonic()
 
     try:
         while True:
             raw = await websocket.receive_text()
+
+            # ── Size guard ──────────────────────────────────────────
+            if len(raw.encode("utf-8")) > MAX_MESSAGE_BYTES:
+                await websocket.send_json({"type": "error", "code": "message_too_large"})
+                await websocket.close(code=1009)
+                return
+
+            # ── Per-connection rate limit (in-process token bucket) ─
+            now = time.monotonic()
+            if now - rate_window_start >= RATE_LIMIT_WINDOW_SECONDS:
+                rate_count = 0
+                rate_window_start = now
+            rate_count += 1
+            if rate_count > RATE_LIMIT_MESSAGES:
+                await websocket.send_json({"type": "error", "code": "rate_limit"})
+                await websocket.close(code=1008)
+                return
+
             try:
                 data = json.loads(raw)
                 message = data.get("message", "") if isinstance(data, dict) else ""
@@ -90,13 +172,30 @@ async def chat_websocket(
             if not message.strip():
                 continue
 
+            # ── Input sanitization (SEC-002) ───────────────────────
+            sanitization = sanitize_message(message)
+            message = sanitization.content
+            injection_warning = sanitization.injection_warning
+
+            # Re-check after sanitization — a message made entirely of
+            # control characters would be empty after stripping.
+            if not message.strip():
+                continue
+
+            if sanitization.injection_flagged:
+                logger.info(
+                    "chat: injection pattern flagged for user_id=%s session=%s",
+                    user_id,
+                    session_id,
+                )
+
             # Typing indicator — sent before processing begins.
             await websocket.send_json({"type": "typing"})
 
-            # ── Load conversation history from Redis ────────────────
-            history: list[dict[str, Any]] = []
+            # ── Load conversation state from Redis ──────────────────
+            conv_state: dict[str, Any] = {"messages": [], "summary": None}
             try:
-                history = await redis_service.get_messages(
+                conv_state = await memory.get_conversation_state(
                     redis_client, user_id=user_id, session_id=session_id
                 )
             except RedisError:
@@ -108,7 +207,7 @@ async def chat_websocket(
                 )
 
             # Convert to LangChain messages and append the new user message.
-            lc_messages = _redis_history_to_langchain(history)
+            lc_messages = _redis_history_to_langchain(conv_state["messages"])
             lc_messages.append(HumanMessage(content=message))
 
             # ── Run the LangGraph engine ────────────────────────────
@@ -121,6 +220,10 @@ async def chat_websocket(
                 "call_count": 0,
                 "structured_data": [],
                 "error": None,
+                "conversation_summary": conv_state["summary"],
+                "injection_warning": injection_warning,
+                "pii_detected": False,
+                "scope_violation_detected": False,
             }
 
             try:
@@ -169,9 +272,16 @@ async def chat_websocket(
                 ) or "I couldn't generate a response. Please try again."
                 structured_data = result.get("structured_data") or None
 
+            if result.get("pii_detected"):
+                logger.info(
+                    "chat: PII redacted from response — user_id=%s session=%s",
+                    user_id,
+                    session_id,
+                )
+
             # ── Persist to Redis ────────────────────────────────────
             try:
-                await redis_service.append_messages(
+                needs_summary = await memory.save_messages(
                     redis_client,
                     user_id=user_id,
                     session_id=session_id,
@@ -186,6 +296,7 @@ async def chat_websocket(
                     user_id,
                     session_id,
                 )
+                needs_summary = False
 
             # ── Send response ───────────────────────────────────────
             response: dict[str, Any] = {
@@ -197,6 +308,20 @@ async def chat_websocket(
                 response["structured_data"] = structured_data
 
             await websocket.send_json(response)
+
+            # ── Summarize if buffer exceeded threshold (MEM-002) ────
+            # Fired as a background task so the response ships first.
+            if needs_summary:
+                asyncio.create_task(
+                    _summarize_and_save(
+                        redis_client,
+                        ollama_client,
+                        user_id=user_id,
+                        session_id=session_id,
+                        messages=conv_state["messages"],
+                        existing_summary=conv_state["summary"],
+                    )
+                )
 
     except WebSocketDisconnect:
         return

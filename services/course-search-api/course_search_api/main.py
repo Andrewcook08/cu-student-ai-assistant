@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from neo4j import AsyncGraphDatabase
 from shared.config import settings
 from shared.database import engine
+from shared.middleware import SecurityHeadersMiddleware
 from shared.models import Base
 from shared.rate_limit import make_rate_limit_handler
 from slowapi.errors import RateLimitExceeded
@@ -46,6 +47,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware, environment=settings.environment)
 
 
 app.include_router(auth.router)

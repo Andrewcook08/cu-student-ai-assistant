@@ -228,8 +228,8 @@ Chat Service ──► Redis Queue ──► Managed Instance Group
 3. A GCP **Autoscaler** watches the custom metric and scales the MIG:
    - Scale up when queue depth > 5 per instance
    - Scale down when queue depth < 2 per instance
-   - Cooldown: 120 seconds (GPU VMs take ~60s to boot + pull model)
-4. New VMs are created from an **instance template** (g2-standard-4, L4 GPU, startup script installs Docker → pulls Ollama image → starts worker that reads from Redis)
+   - Cooldown: 60 seconds (GPU VMs boot in ~30-40s from pre-baked image, model loads from local disk in ~10-20s)
+4. New VMs are created from an **instance template** that boots a **custom GCE image** with Docker, NVIDIA drivers, Ollama, and models (`gpt-oss:20b`, `nomic-embed-text`) pre-installed. The startup script only starts the Redis queue worker — no downloads at boot.
 5. Workers only remove a request from the queue **after completing it** — if a spot VM is reclaimed mid-inference, the request stays in the queue and another worker picks it up
 
 **MIG Configuration (Terraform):**
@@ -245,7 +245,13 @@ resource "google_compute_instance_template" "ollama_worker" {
     type  = "nvidia-l4"
     count = 1
   }
-  # Startup script: install Docker, NVIDIA toolkit, pull Ollama, start worker
+  # Custom image with Docker, NVIDIA drivers, Ollama, and models pre-baked.
+  # Built via: packer build infra/packer/ollama-worker.pkr.hcl
+  # Rebuild only when changing Ollama version or swapping models.
+  disk {
+    source_image = data.google_compute_image.ollama_worker.self_link
+  }
+  # Lightweight startup script: starts the Ollama Redis queue worker (no provisioning)
   metadata_startup_script = file("scripts/ollama-worker-startup.sh")
 }
 
@@ -268,7 +274,7 @@ resource "google_compute_autoscaler" "ollama" {
       name   = "custom.googleapis.com/redis/ollama_queue_depth"
       target = 5       # scale up when queue > 5 per instance
     }
-    cooldown_period = 120
+    cooldown_period = 60   # no model download — just VM boot + load from disk
   }
 }
 ```
@@ -296,6 +302,26 @@ depth = r.llen("ollama:inference_queue")
 client = monitoring_v3.MetricServiceClient()
 # ... publish depth as custom.googleapis.com/redis/ollama_queue_depth
 ```
+
+### Ollama Worker Image Build Pipeline
+
+Models are **baked into a custom GCE image** so that new workers boot ready to serve — no multi-minute model downloads at scale-up time. The image is built with [Packer](https://www.packer.io/) and stored in a GCE image family.
+
+**What the image contains:**
+- Ubuntu 22.04 LTS base
+- Docker + NVIDIA Container Toolkit + NVIDIA L4 drivers
+- `ollama/ollama:latest` Docker image (pre-pulled)
+- Models pre-loaded: `gpt-oss:20b` (~13GB) and `nomic-embed-text` (~274MB)
+
+**Build command:**
+```bash
+# Run from infra/ directory — produces a GCE image in the "ollama-worker" family
+packer build packer/ollama-worker.pkr.hcl
+```
+
+**When to rebuild:** Only when changing the Ollama version or swapping/adding models. Model updates are infrequent — this is not part of the regular deploy pipeline.
+
+**How it connects:** The instance template in `ollama-mig.tf` references `source_image_family = "ollama-worker"`, so MIG instances always boot from the latest baked image. The lightweight `ollama-worker-startup.sh` only starts the Redis queue worker process — no provisioning.
 
 ### Database Scaling Path
 
@@ -822,8 +848,8 @@ cu-student-ai-assistant/
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  INFRASTRUCTURE  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
 │
-# infra/ — PLANNED for Phase 4 (DEPLOY-*). See § GCP Deployment & Infrastructure.
-#          No directory exists yet; Terraform IaC will be added when GCP work begins.
+# infra/ — Phase 4 (DEPLOY-*). See § GCP Deployment & Infrastructure.
+#          DEPLOY-001 (VPC + networking) merged. Remaining stories in progress.
 │
 ├── .github/
 │   └── workflows/
@@ -1244,7 +1270,7 @@ The token is currently delivered in the query string (`?token=...`). This is a k
 
 ## Network Security
 
-**Status**: Design only — not yet implemented. Target: Phase 4 (Epic 11 DEPLOY-*).
+**Status**: In progress — DEPLOY-001 (VPC + private subnet + network firewall policy + VPC connector) merged and verified deployed. Remaining stories in Phase 4 (Epic 11 DEPLOY-*).
 
 All backend infrastructure runs in a private VPC subnet with no public IPs. The only internet-facing components are Cloud Run services, which GCP manages and terminates TLS for. See [ADR-23](decisions.md#adr-23-network-security-private-subnet--iap-over-bastion) for the rationale.
 
@@ -1289,14 +1315,18 @@ All backend infrastructure runs in a private VPC subnet with no public IPs. The 
 
 ### Firewall Rules
 
-All defined in Terraform (`network.tf`). Default deny all ingress, then allow only what's needed:
+All defined in Terraform (`network.tf`) using a **Network Firewall Policy** (`google_compute_network_firewall_policy.main`, named `cu-assistant-fw-policy`) attached to `cu-assistant-vpc` via `google_compute_network_firewall_policy_association.main`. Rules are identified by priority within the policy rather than by globally-unique names — this avoids GCP's firewall-name tombstone behavior that blocked repeated deploy/teardown cycles during local testing.
 
-| Rule | Source | Destination | Ports | Purpose |
-|------|--------|-------------|-------|---------|
-| `allow-vpc-connector` | Serverless VPC Connector IP range | data-services VM, ollama workers | 5432, 7687, 6379, 11434 | Cloud Run → databases + Ollama |
-| `allow-internal` | VPC subnet (10.0.0.0/24) | VPC subnet | All | VM-to-VM (data VM ↔ ollama workers, queue-depth-exporter → Redis) |
-| `allow-iap-ssh` | Google IAP IP range (35.235.240.0/20) | All VMs | 22 | Developer SSH access via IAP tunnel |
-| **Default deny** | 0.0.0.0/0 | All VMs | All | Block everything else |
+Default deny all ingress, then allow only what's needed:
+
+| Rule (resource) | Priority | Source | Destination | Ports | Purpose |
+|-----------------|----------|--------|-------------|-------|---------|
+| `allow_vpc_connector` | 1000 | Serverless VPC Connector IP range | data-services VM, ollama workers | 5432, 7687, 6379, 11434 | Cloud Run → databases + Ollama |
+| `allow_internal` | 1100 | VPC subnet (10.0.0.0/24) | VPC subnet | All | VM-to-VM (data VM ↔ ollama workers, queue-depth-exporter → Redis) |
+| `allow_iap_ssh` | 1200 | Google IAP IP range (35.235.240.0/20) | All VMs | 22 | Developer SSH access via IAP tunnel |
+| `default_deny` | 65534 | 0.0.0.0/0 | All VMs | All | Block everything else |
+
+All four rules are `google_compute_network_firewall_policy_rule` resources inside `cu-assistant-fw-policy`.
 
 ### Key Security Properties
 
@@ -1339,7 +1369,7 @@ All defined in Terraform (`network.tf`). Default deny all ingress, then allow on
 
 ## GCP Deployment & Infrastructure
 
-**Status**: Design only — not yet implemented. Target: Phase 4 (Epic 11 DEPLOY-*). No `infra/` directory exists in the repo yet.
+**Status**: In progress — DEPLOY-001 (VPC + networking) merged. Remaining stories in Phase 4 (Epic 11 DEPLOY-*).
 
 See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.md#adr-18-terraform-for-iac), and [ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm) for the reasoning behind these decisions.
 
@@ -1389,7 +1419,7 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 | `chat-service` | Cloud Run (0-5 instances, concurrency 15) | Chat engine container | ~$0-3/mo (scale-to-zero) |
 | `frontend` | Cloud Run (0-3 instances, concurrency 200) | nginx serving static Vue build | ~$0-1/mo (scale-to-zero) |
 | Artifact Registry | Docker repo | Stores container images for Cloud Run | ~$1/mo |
-| VPC + Connector | Networking | Private subnet (no public IPs), firewall rules (default-deny), Serverless VPC Connector | ~$7/mo |
+| VPC + Connector | Networking | Private subnet (no public IPs), Network Firewall Policy (`cu-assistant-fw-policy`) with default-deny + allow rules, Serverless VPC Connector | ~$7/mo |
 | IAP | SSH access | Identity-Aware Proxy TCP tunneling — developer SSH to private VMs, no bastion needed | ~$0/mo (free) |
 | Cloud Monitoring | Custom metric | `ollama_queue_depth` — scaling signal for MIG autoscaler | ~$0/mo (free tier) |
 | GCS Bucket | Storage | Terraform state backend (versioned, access-restricted) | ~$0/mo |
@@ -1398,7 +1428,7 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 
 ### Infrastructure-as-Code (Terraform)
 
-All GCP resources are defined in Terraform, stored in `infra/` at the repo root. State is stored in a GCS bucket for team collaboration.
+All GCP resources are defined in Terraform, stored in `infra/` at the repo root. State is stored in a GCS bucket for team collaboration. GCP API enablement is managed declaratively via `google_project_service` resources in `apis.tf` — `terraform apply` on a fresh project enables all required APIs automatically, so team members don't need to enable them manually through the console or `gcloud`.
 
 ```
 infra/
@@ -1408,17 +1438,23 @@ infra/
 ├── terraform.tfvars         # Actual values (gitignored — never committed)
 ├── terraform.tfvars.example # Template with placeholder values for team members
 │
+├── apis.tf                  # GCP API enablement (google_project_service) — ensures
+│                            #   compute, vpcaccess, run, artifactregistry, monitoring,
+│                            #   and iam APIs are enabled before any resources are created.
+│                            #   All other .tf files depend on these implicitly.
 ├── network.tf               # VPC, private subnet (no public IPs on VMs),
-│                            #   firewall rules: allow-vpc-connector (Cloud Run → VMs),
-│                            #   allow-internal (VM ↔ VM), allow-iap-ssh (developer access),
-│                            #   default-deny-ingress. Serverless VPC Connector.
+│                            #   Network Firewall Policy (cu-assistant-fw-policy) + association,
+│                            #   policy rules by priority: allow-vpc-connector (1000),
+│                            #   allow-internal (1100), allow-iap-ssh (1200), default-deny (65534).
+│                            #   Serverless VPC Connector.
 ├── artifact-registry.tf     # Docker image repository in same region
 ├── data-vm.tf               # Compute Engine VM for data services
 │                            #   - Startup script: install Docker, docker-compose up
 │                            #   - Persistent disk for database data (survives VM restarts)
 │                            #   - Static internal IP within VPC
 ├── ollama-mig.tf            # Ollama auto-scaling infrastructure:
-│                            #   - Instance template: spot g2-standard-4 + L4 GPU
+│                            #   - Instance template: spot g2-standard-4 + L4 GPU,
+│                            #     boots from custom image (models pre-baked)
 │                            #   - Managed Instance Group (MIG): pool of workers
 │                            #   - Autoscaler: scales on custom metric (Redis queue depth)
 │                            #   - Min 0 (scale to zero), max 3 (budget cap)
@@ -1435,12 +1471,18 @@ infra/
 │                            #   - data-vm-sa: Monitoring writer (queue-depth-exporter)
 │                            #   - IAP tunnel access: roles/iap.tunnelResourceAccessor for devs
 │
+├── packer/
+│   └── ollama-worker.pkr.hcl   # Packer template: builds custom GCE image with
+│                                #   Docker, NVIDIA drivers, Ollama, and models
+│                                #   (gpt-oss:20b, nomic-embed-text) pre-installed.
+│                                #   Rebuild only when changing Ollama version or models.
+│
 └── scripts/
     ├── data-vm-startup.sh       # Cloud-init: install Docker Compose, pull images,
     │                            #   mount persistent disk, start postgres + neo4j + redis,
     │                            #   install queue-depth-exporter cron job
-    ├── ollama-worker-startup.sh # Cloud-init: install Docker, NVIDIA drivers,
-    │                            #   NVIDIA Container Toolkit, pull + start Ollama worker
+    ├── ollama-worker-startup.sh # Lightweight startup: starts Ollama Redis queue worker
+    │                            #   (all provisioning is baked into the custom image)
     └── queue-depth-exporter.py  # Cron script (every 30s): Redis LLEN → Cloud Monitoring
 ```
 

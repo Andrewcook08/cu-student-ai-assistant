@@ -27,6 +27,7 @@ docker-compose.override.yml
 infra/*.tfstate*
 infra/.terraform/
 infra/terraform.tfvars
+infra/tfplan
 
 # Node
 frontend/node_modules/
@@ -34,3 +35,6 @@ frontend/dist/
 
 # Tasks (Claude Code plans, todos, lessons)
 tasks/
+
+# Claude Code runtime artifacts
+.claude/*.lock
