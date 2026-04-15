@@ -48,7 +48,7 @@ export const useAuthStore = defineStore('auth', () => {
     const payload = parseTokenPayload(rawToken)
     if (!payload) return null
     const sub = payload.sub
-    if (typeof sub === 'number' && Number.isInteger(sub)) return sub
+    if (typeof sub === 'number' && Number.isInteger(sub) && sub > 0) return sub
     if (typeof sub === 'string') {
       const n = Number(sub)
       return Number.isInteger(n) && n > 0 ? n : null

@@ -5,7 +5,7 @@ import * as authApi from '@/services/authApi'
 
 beforeEach(() => {
   vi.restoreAllMocks()
-  localStorage.clear()
+  sessionStorage.clear()
 })
 
 describe('useAuth', () => {
@@ -22,7 +22,7 @@ describe('useAuth', () => {
       expect(result).toEqual({ token: 'tok', user_id: 1 })
       expect(loading.value).toBe(false)
       expect(error.value).toBeNull()
-      expect(localStorage.getItem('token')).toBe('tok')
+      expect(sessionStorage.getItem('token')).toBe('tok')
     })
 
     it('sets error.value and rethrows on authApi.register failure', async () => {
