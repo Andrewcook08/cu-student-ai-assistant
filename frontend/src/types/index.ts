@@ -142,3 +142,12 @@ export interface ProgramRequirementsResponse {
   program: Program
   requirements: Requirement[]
 }
+
+export interface LoginFormData {
+  email: string
+  password: string
+}
+
+export interface AuthLoginResponse {
+  token: string
+}

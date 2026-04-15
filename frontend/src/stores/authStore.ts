@@ -12,9 +12,9 @@ export const useAuthStore = defineStore('auth', () => {
     userId.value = newUserId
     userName.value = name
     isAuthenticated.value = true
-    localStorage.setItem('token', newToken)
-    localStorage.setItem('userId', String(newUserId))
-    localStorage.setItem('userName', name)
+    sessionStorage.setItem('token', newToken)
+    sessionStorage.setItem('userId', String(newUserId))
+    sessionStorage.setItem('userName', name)
   }
 
   function logout() {
@@ -22,27 +22,44 @@ export const useAuthStore = defineStore('auth', () => {
     userName.value = ''
     token.value = null
     userId.value = null
-    localStorage.removeItem('token')
-    localStorage.removeItem('userId')
-    localStorage.removeItem('userName')
+    sessionStorage.removeItem('token')
+    sessionStorage.removeItem('userId')
+    sessionStorage.removeItem('userName')
   }
 
-  function isTokenExpired(rawToken: string): boolean {
+  function parseTokenPayload(rawToken: string): Record<string, unknown> | null {
     try {
       const parts = rawToken.split('.')
-      if (parts.length !== 3) return true
-      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>
-      if (typeof payload.exp !== 'number') return false
-      return payload.exp * 1000 < Date.now()
+      if (parts.length !== 3) return null
+      return JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>
     } catch {
-      return true
+      return null
     }
   }
 
+  function isTokenExpired(rawToken: string): boolean {
+    const payload = parseTokenPayload(rawToken)
+    if (!payload) return true
+    if (typeof payload.exp !== 'number') return false
+    return payload.exp * 1000 < Date.now()
+  }
+
+  function parseTokenSub(rawToken: string): number | null {
+    const payload = parseTokenPayload(rawToken)
+    if (!payload) return null
+    const sub = payload.sub
+    if (typeof sub === 'number' && Number.isInteger(sub)) return sub
+    if (typeof sub === 'string') {
+      const n = Number(sub)
+      return Number.isInteger(n) && n > 0 ? n : null
+    }
+    return null
+  }
+
   function initFromStorage() {
-    const storedToken = localStorage.getItem('token')
-    const storedUserId = localStorage.getItem('userId')
-    const storedName = localStorage.getItem('userName')
+    const storedToken = sessionStorage.getItem('token')
+    const storedUserId = sessionStorage.getItem('userId')
+    const storedName = sessionStorage.getItem('userName')
     const parsedUserId = storedUserId ? Number(storedUserId) : Number.NaN
 
     if (
@@ -61,5 +78,5 @@ export const useAuthStore = defineStore('auth', () => {
     logout()
   }
 
-  return { isAuthenticated, userName, token, userId, setAuth, logout, initFromStorage }
+  return { isAuthenticated, userName, token, userId, setAuth, logout, initFromStorage, parseTokenSub }
 })
