@@ -8,6 +8,22 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+          pids: 256
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -22,6 +38,22 @@ services:
       NEO4J_PLUGINS: '["apoc"]'
     volumes:
       - neo4j_data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+          pids: 256
     healthcheck:
       test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "development", "RETURN 1"]
       interval: 10s
@@ -34,6 +66,19 @@ services:
     ports: ["6379:6379"]
     volumes:
       - redis_data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+          pids: 128
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -45,6 +90,21 @@ services:
     ports: ["${OLLAMA_HOST_PORT:-11434}:11434"]
     volumes:
       - ollama_data:/root/.ollama
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+          pids: 256
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -58,6 +118,19 @@ services:
       dockerfile: services/course-search-api/Dockerfile
     ports: ["8000:8000"]
     env_file: .env
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+          pids: 128
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +141,19 @@ services:
       dockerfile: services/chat-service/Dockerfile
     ports: ["8001:8001"]
     env_file: .env
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+          pids: 128
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,7 +166,20 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports: ["5173:80"]
+    ports: ["5173:8080"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+          pids: 64
     depends_on: [course-search-api, chat-service]
 
 volumes:
