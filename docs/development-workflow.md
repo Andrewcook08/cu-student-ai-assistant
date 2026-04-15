@@ -247,7 +247,7 @@ CI (CUAI-71, `.github/workflows/ci.yml`) runs from the repo root and auto-discov
 
 **What NOT to gate CI on:**
 
-- `scripts/test_tool_calling.py` — requires a running Ollama instance; manual validation only.
+- `scripts/test_tool_calling.py` — requires an Anthropic API key; manual validation only.
 - Anything that needs a live external service (production database, real LLM, paid API). These belong in manual QA scripts, not CI.
 - E2E tests that need the full stack up — if/when we add these, they go in a separate nightly workflow, not the PR gate.
 
@@ -453,7 +453,7 @@ You: Add a new tool to the conversation engine. Define it in
 - For Neo4j Cypher queries, always tell Claude Code to use parameterized queries: "Use $code not f-strings"
 - LangGraph engine is implemented (CHAT-008 / CUAI-40). To extend it, add tools in `core/tools.py` — the graph, executor, and retry logic are wired
 - Uses manual `StateGraph` pattern (not `create_react_agent`) — gives full control over nodes, state, and error handling (validated by CUAI-32 spike, implemented in CUAI-40)
-- Use gpt-oss:20b for tool calling — validated by CUAI-32 extended spike for reliable two-tool pattern. 3B models hallucinate tool args and over-trigger tools.
+- Use Claude Sonnet (Anthropic API) for tool calling — reliable tool calling and response generation. Set `ANTHROPIC_MODEL=claude-sonnet-4-20250514` in `.env`.
 - Add a max-iterations guard to the tool loop to prevent infinite cycles
 - The `search_courses` → `lookup_course` two-tool pattern is critical: fuzzy search resolves names to codes, then exact lookup gets full details
 - For the Redis queue, start with the simple pattern: LPUSH to enqueue, BRPOP to dequeue, pub/sub for results
@@ -489,7 +489,7 @@ git checkout main && git pull
 git checkout feat/YOUR-STORY
 git rebase origin/main
 
-# Start services if not running
+# Start services if not running (ollama is for embeddings only)
 docker compose up -d postgres neo4j redis ollama
 
 # Start Claude Code

@@ -45,10 +45,6 @@ services:
     ports: ["${OLLAMA_HOST_PORT:-11434}:11434"]
     volumes:
       - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        limits:
-          memory: 20g
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -78,8 +74,6 @@ services:
       neo4j:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
 
   frontend:

@@ -1,6 +1,6 @@
 # Local Development Guide
 
-> Run the entire system on your machine before spending GCP credits. Databases run in Docker. On Apple Silicon Macs, run Ollama natively (via Ollama.app) for Metal GPU acceleration — Docker on Mac cannot access the GPU.
+> Run the entire system on your machine before spending GCP credits. Databases run in Docker. Ollama runs in Docker for embeddings only (nomic-embed-text, ~274MB — fast even on CPU). LLM inference uses the Anthropic API and only requires an API key — no GPU or model download needed.
 
 ---
 
@@ -31,15 +31,14 @@ Install these before starting:
 | **Git** | ≥ 2.x | Already installed on macOS/Linux | Version control |
 
 **Hardware recommendations:**
-- **RAM**: 16GB minimum, 32GB recommended (Neo4j and Ollama are memory-hungry)
-- **Disk**: ~20GB free (Docker images + database data + Ollama model)
-- **GPU**: Optional but recommended. On **Apple Silicon Macs**, run Ollama natively via [Ollama.app](https://ollama.com/download) for Metal GPU acceleration (~5-10s per response). Docker on Mac runs CPU-only (~60-90s per response) because Docker's Linux VM cannot access Metal. On **Linux with NVIDIA GPU**, Docker can use GPU passthrough (`--gpus all`).
+- **RAM**: 8GB minimum (the embed model is tiny; Neo4j is the main consumer)
+- **Disk**: ~10GB free (Docker images + database data; no large model download)
 
 ---
 
 ## Day-to-day: use `scripts/dev.sh`
 
-`scripts/dev.sh` is the canonical dev environment manager and is how the team runs the stack day-to-day. It wraps `docker compose`, waits for container healthchecks (120s timeout), verifies that required Ollama models (`nomic-embed-text`, `gpt-oss:20b`) are present on disk, and drives the full data ingestion pipeline. Prefer it over raw `docker compose` commands.
+`scripts/dev.sh` is the canonical dev environment manager and is how the team runs the stack day-to-day. It wraps `docker compose`, waits for container healthchecks (120s timeout), verifies that the Ollama embedding model (`nomic-embed-text`) is present, and drives the full data ingestion pipeline. Prefer it over raw `docker compose` commands.
 
 | Command | Description |
 |---------|-------------|
@@ -95,15 +94,16 @@ NEO4J_USER=neo4j
 NEO4J_PASSWORD=development
 REDIS_URL=redis://redis:6379/0
 
-# Ollama (running in Docker)
+# LLM (Anthropic API)
+ANTHROPIC_API_KEY=        # Get from https://console.anthropic.com/
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
+
+# Embeddings (Ollama — runs in Docker, used only for vector search)
 OLLAMA_URL=http://ollama:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
 
 # Auth
 JWT_SECRET_KEY=local-development-secret-change-in-production
-
-# Ollama models (pre-provisioned on disk — not pulled at runtime)
-OLLAMA_MODEL=gpt-oss:20b
-OLLAMA_EMBED_MODEL=nomic-embed-text
 
 # CORS (frontend origin — must match Vite dev server or Cloud Run URL)
 CORS_ORIGINS=http://localhost:5173
@@ -130,33 +130,27 @@ Either starts 7 containers:
 | `postgres` | 5432 | `postgresql+psycopg://postgres:postgres@localhost:5432/cu_assistant` |
 | `neo4j` | 7474 (browser), 7687 (bolt) | http://localhost:7474 |
 | `redis` | 6379 | `redis://localhost:6379` |
-| `ollama` | 11434 | http://localhost:11434 |
+| `ollama` | 11434 | http://localhost:11434 (embeddings only) |
 | `course-search-api` | 8000 | http://localhost:8000/api/health |
 | `chat-service` | 8001 | http://localhost:8001/api/chat/health |
 | `frontend` | 5173 | http://localhost:5173 |
 
-### 4. Ollama models
+### 4. Embeddings model + Anthropic API key
 
-The required models (`gpt-oss:20b`, `nomic-embed-text`) are **pre-provisioned on disk** — `scripts/dev.sh` verifies they're present before seeding and there is no runtime `ollama pull` step. If a model is missing, the script will report it so you can provision it once manually.
+**Embeddings (Ollama):** The embedding model (`nomic-embed-text`) runs in the Ollama Docker container. It is pulled automatically when you run `scripts/dev.sh seed` — no manual provisioning step needed. The model is small (~274MB) and fast on CPU, so no Apple Silicon native Ollama setup is required.
 
-**Apple Silicon Mac (recommended):** Run Ollama natively for Metal GPU acceleration.
+**Anthropic API key (for LLM inference):** The chat service calls the Anthropic API instead of a local LLM. To get your key:
 
-```bash
-# Install Ollama.app from https://ollama.com/download (or brew install ollama)
-# Launch Ollama.app (NOT `ollama serve` — the app enables Metal GPU)
+1. Create an account at [console.anthropic.com](https://console.anthropic.com/)
+2. Go to **API Keys** and generate a new key
+3. Add it to your `.env` (or `.env.local` when running outside Docker):
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
 ```
 
-Then update your `.env` to point at native Ollama instead of Docker:
-```
-OLLAMA_URL=http://localhost:11434
-```
-
-And start Docker **without** the Ollama container:
-```bash
-docker compose up -d postgres neo4j redis
-```
-
-**Linux / other platforms:** Use the Docker container (models are mounted/cached in the `ollama_data` volume and persist across restarts).
+No GPU, no model download, no Ollama.app — just the API key.
 
 ### 5. Run data ingestion
 
@@ -189,7 +183,7 @@ open http://localhost:7474
 # Login: neo4j / development
 # Run: MATCH (c:Course) RETURN count(c)
 
-# Check Ollama
+# Check Ollama (embedding service)
 curl http://localhost:11434/api/tags
 ```
 
@@ -279,13 +273,14 @@ All ingestion scripts are idempotent — running them again will upsert (update 
 For faster iteration, you can run the backend services **outside Docker** while keeping the databases in Docker:
 
 ```bash
-# Start only the data services
+# Start only the data services (ollama is for embeddings)
 docker compose up -d postgres neo4j redis ollama
 
 # Run course-search-api locally (hot reload)
 uv run --package course-search-api uvicorn course_search_api.main:app --reload --port 8000
 
 # Run chat-service locally (hot reload) in another terminal
+# Ensure ANTHROPIC_API_KEY is set in .env or .env.local
 uv run --package chat-service uvicorn chat_service.main:app --reload --port 8001
 ```
 
@@ -296,7 +291,8 @@ When running locally (outside Docker), use `localhost` connection strings instea
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/cu_assistant
 NEO4J_URI=bolt://localhost:7687
 REDIS_URL=redis://localhost:6379/0
-OLLAMA_URL=http://localhost:11434
+OLLAMA_URL=http://localhost:11434  # embeddings only
+ANTHROPIC_API_KEY=sk-ant-...       # LLM inference
 ```
 
 ### Frontend development (Vue)
@@ -317,7 +313,7 @@ Vite is configured to proxy API calls:
 
 Typical development session:
 ```bash
-# Terminal 1: Data services (Docker)
+# Terminal 1: Data services (Docker — ollama is for embeddings)
 docker compose up -d postgres neo4j redis ollama
 
 # Terminal 2: Course Search API (hot reload)
@@ -345,7 +341,7 @@ This gives you hot reload on all application code while databases run in Docker.
 | `postgres` | `postgres:16` | `5432:5432` | — | `postgres_data` |
 | `neo4j` | `neo4j:5` (with APOC) | `7474:7474`, `7687:7687` | — | `neo4j_data` |
 | `redis` | `redis:7-alpine` | `6379:6379` | — | `redis_data` |
-| `ollama` | `ollama/ollama:latest` | `${OLLAMA_HOST_PORT:-11434}:11434` | — | `ollama_data` |
+| `ollama` | `ollama/ollama:latest` | `${OLLAMA_HOST_PORT:-11434}:11434` | — | `ollama_data` (embeddings only) |
 | `course-search-api` | built from `services/course-search-api/Dockerfile` | `8000:8000` | `postgres` (healthy) | — |
 | `chat-service` | built from `services/chat-service/Dockerfile` | `8001:8001` | `postgres`, `neo4j`, `redis`, `ollama` (all healthy) | — |
 | `frontend` | built from `frontend/Dockerfile` (nginx) | `5173:80` | `course-search-api`, `chat-service` | — |
@@ -354,7 +350,7 @@ This gives you hot reload on all application code while databases run in Docker.
 
 **Credentials (local only)**: postgres `postgres/postgres`, neo4j `neo4j/development`, DB name `cu_assistant`. These are dev-only — production values come from Terraform secrets (Phase 4). When the production override (SEC-008) lands, these defaults will be rejected at boot by the SEC-006 validator, and the stack will refuse to start without real secrets in the environment.
 
-**GPU**: the committed compose file has no GPU config. If you have an NVIDIA GPU and want Ollama to use it, add a `deploy.resources.reservations.devices` block to the `ollama` service locally (uncommitted) — or start Ollama natively on the host. See the Ollama Docker docs for the exact YAML.
+**GPU**: not required. The Ollama container runs the embed model (nomic-embed-text) on CPU. LLM inference is handled by the Anthropic API.
 
 ### Port map
 
@@ -367,7 +363,7 @@ This gives you hot reload on all application code while databases run in Docker.
 | 7474 | Neo4j Browser | HTTP |
 | 7687 | Neo4j Bolt | TCP |
 | 6379 | Redis | TCP |
-| 11434 | Ollama | HTTP |
+| 11434 | Ollama (embeddings only) | HTTP |
 
 ### Production override (SEC-008)
 
@@ -496,13 +492,6 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 
 ## Troubleshooting
 
-### Ollama is slow on CPU
-If you're on an Apple Silicon Mac and seeing ~60-90s per response, you're running Ollama in Docker (CPU-only). Switch to native Ollama via **Ollama.app** for Metal GPU acceleration (~5-10s per response). See [Step 4](#4-pull-the-ollama-model-first-time-only-13gb-download) for setup.
-
-**Important:** Use **Ollama.app** (the macOS app), not `ollama serve` from the CLI. The CLI server does not enable Metal GPU. Verify with `ollama ps` — it should show `100% GPU`, not `100% CPU`.
-
-**Tip**: For faster local iteration on non-AI code (frontend, REST API, data ingestion), you don't need Ollama running. Only start it when testing the chat feature.
-
 ### Port already in use
 ```bash
 # Find what's using the port (e.g., 5432)
@@ -515,17 +504,26 @@ lsof -i :5432
 Neo4j needs ~1GB of heap memory. If Docker is constrained:
 - Docker Desktop → Settings → Resources → increase memory to at least 24GB
 
-### Ollama model not found
+### Embedding model not found (nomic-embed-text)
 
-Models are pre-provisioned on disk (in the `ollama_data` volume for Docker, or `~/.ollama/` for native Ollama) — they are not pulled at runtime. `scripts/dev.sh seed` verifies the required models (`gpt-oss:20b`, `nomic-embed-text`) are present before ingesting and reports if any are missing.
+If `scripts/dev.sh seed` reports the embed model is missing, pull it manually:
 
 ```bash
-# Check which models are present
-docker compose exec ollama ollama list
-
-# If a model is missing, provision it once (manual, not part of normal flow):
-docker compose exec ollama ollama pull gpt-oss:20b
+docker compose exec ollama ollama pull nomic-embed-text
 ```
+
+### Anthropic API errors
+
+If the chat service returns errors about the LLM, check that `ANTHROPIC_API_KEY` is set:
+
+```bash
+# Verify the key is present in your environment
+grep ANTHROPIC_API_KEY .env
+
+# If running outside Docker, also check .env.local
+```
+
+Generate a key at [console.anthropic.com](https://console.anthropic.com/) if you don't have one.
 
 ### Database data is stale / want to start fresh
 ```bash
@@ -556,7 +554,7 @@ Understanding these differences ensures local testing is valid before deploying:
 |--------|-------|-----|
 | **App services** | Docker containers or `uvicorn --reload` | Cloud Run (auto-scaling, scale-to-zero) |
 | **Databases** | Docker containers on your machine | Docker Compose on a Compute Engine VM |
-| **Ollama** | Native (Metal GPU on Apple Silicon) or Docker (CPU-only on Mac, GPU on Linux) | L4 GPU on Compute Engine, auto-scaled via Managed Instance Group (fast) |
+| **Ollama** | Docker (embeddings only, CPU) | Docker on data VM (embeddings only) |
 | **Networking** | `localhost` / Docker internal network | Private VPC subnet (no public IPs) + Serverless VPC Connector |
 | **Secrets** | `.env` file | Terraform-managed Cloud Run env vars |
 | **Data persistence** | Docker volumes (local disk) | Persistent disk on Compute Engine VM |

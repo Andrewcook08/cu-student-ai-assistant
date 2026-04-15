@@ -22,4 +22,4 @@
 | Git / branching workflow | `development-workflow.md` | `claude-code-project-context.md` |
 | Dataset counts | `architecture.md` § Datasets | `jira-epics-and-stories.md` (acceptance criteria) |
 | Conversation memory | `architecture.md` § Conversation Memory | `decisions.md` (ADR-8), `implementation-guide.md`, Jira stories (MEM-*) |
-| Ollama model choice | `decisions.md` § ADR-26 | `architecture.md` § Tech Stack, `claude-code-project-context.md` |
+| LLM model choice | `decisions.md` § ADR-41, ADR-26 | `architecture.md` § Tech Stack, `claude-code-project-context.md` |

@@ -32,7 +32,7 @@ These should be answered by end of Phase 1:
 
 | # | Question | Decision Needed | Who Decides |
 |---|----------|----------------|-------------|
-| 2 | ~~**LLM model choice**~~ | ~~Resolved: Llama 3.1 8B minimum (CUAI-32 spike). 3B fails tool calling. Upgraded to gpt-oss:20b per extended spike.~~ | ~~Person C~~ |
+| 2 | ~~**LLM model choice**~~ | ~~Resolved: Migrated to Anthropic API (Claude Sonnet) per CUAI-87. OSS models (gpt-oss:20b, qwen2.5:32b) couldn't reliably do both tool calling and response generation.~~ | ~~Person C~~ |
 | 5 | **Embedding model** | nomic-embed-text (768 dims) — test on course descriptions | Person C |
 | 9 | **WebSocket protocol** | JSON format for WS messages (defined below in Phase 2) | Person B + C |
 | 10 | **Error handling** | Inline errors in chat, toast for API errors (defined below) | Person B + C |
@@ -127,7 +127,7 @@ mkdir -p shared/shared
 
 `shared/shared/schemas.py`: See [architecture.md  Chat Response Schema](architecture.md#chat-response-schema) for the full contract. Implementation notes: all Pydantic `BaseModel` subclasses. Key models: `CourseCard` (code, title, credits, description, topic_titles, instruction_mode, status, attributes as `list[str] | None`), `Action` (type, label, payload), `ChatRequest`, `ChatResponse`, `ErrorResponse`.
 
-**3. Create `.env.example`** -- see `.env.example` and [local-development.md](local-development.md) for all variables. Covers: database connections (PostgreSQL, Neo4j, Redis), Ollama settings (base URL, model, embed model), JWT secret, and CORS origins.
+**3. Create `.env.example`** -- see `.env.example` and [local-development.md](local-development.md) for all variables. Covers: database connections (PostgreSQL, Neo4j, Redis), Anthropic API key and model, Ollama settings (URL, embed model for vector search), JWT secret, and CORS origins.
 
 **4. Create `docker-compose.yml`**
 
@@ -166,7 +166,7 @@ from shared.config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Course Search API: Base.metadata.create_all(bind=engine)
-    # Chat Service: connect Neo4j, Redis, verify Ollama; disconnect on shutdown
+    # Chat Service: connect Neo4j, Redis, initialize Anthropic client; disconnect on shutdown
     yield
 
 app = FastAPI(title="...", lifespan=lifespan)
@@ -187,7 +187,7 @@ mkdir -p services/chat-service/chat_service/{routes,core,services}
 mkdir -p services/chat-service/tests
 ```
 
-`services/chat-service/pyproject.toml`: deps are fastapi, uvicorn[standard], shared (workspace), langchain, langgraph, langchain-ollama, neo4j, redis, httpx.
+`services/chat-service/pyproject.toml`: deps are fastapi, uvicorn[standard], shared (workspace), langchain, langgraph, langchain-anthropic, anthropic, neo4j, redis, httpx.
 
 **7. Scaffold the Data Ingest Package**
 
@@ -658,15 +658,17 @@ docker compose exec postgres psql -U postgres -d cu_assistant -c "SELECT count(*
 
 This is the Phase 1 validation gate from the Tool Calling Reliability section.
 
-The chat model (`gpt-oss:20b`) is pre-provisioned on disk — no runtime pull needed. `scripts/dev.sh` verifies model presence before seeding.
+The LLM uses the Anthropic API (Claude Sonnet). Set `ANTHROPIC_API_KEY` in `.env`. No local model download needed.
+
+The embedding model (nomic-embed-text) is pre-provisioned on disk — no runtime pull needed. `scripts/dev.sh` verifies embedding model presence before seeding.
 
 Create a test script `scripts/test_tool_calling.py`:
 ```python
 """Test if the chosen model can reliably call tools."""
-import httpx
+import anthropic
 import json
 
-OLLAMA_URL = "http://localhost:11434"
+ANTHROPIC_API_KEY = None  # reads from env by default
 
 TOOLS = [
     {
@@ -785,33 +787,30 @@ TEST_QUERIES = [
 ]
 
 def test_tool_call(query: str, expected_tool: str) -> bool:
-    resp = httpx.post(f"{OLLAMA_URL}/api/chat", json={
-        "model": "gpt-oss:20b",
-        "messages": [
-            {"role": "system", "content": "You are an academic advisor. Use tools to answer questions."},
-            {"role": "user", "content": query},
-        ],
-        "tools": TOOLS,
-        "stream": False,
-    }, timeout=120)
-    result = resp.json()
-    tool_calls = result.get("message", {}).get("tool_calls", [])
+    client = anthropic.Anthropic()
+    resp = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        tools=TOOLS,
+        messages=[{"role": "user", "content": query}],
+    )
+    tool_calls = [b for b in resp.content if b.type == "tool_use"]
     if not tool_calls:
         print(f"  FAIL: No tool call for '{query}'")
         return False
-    called = tool_calls[0]["function"]["name"]
+    called = tool_calls[0].name
     if called != expected_tool:
         print(f"  FAIL: Expected {expected_tool}, got {called} for '{query}'")
         return False
     # Validate JSON parameters parse correctly
     try:
-        params = tool_calls[0]["function"]["arguments"]
+        params = tool_calls[0].input
         if isinstance(params, str):
             json.loads(params)
     except (json.JSONDecodeError, KeyError):
         print(f"  FAIL: Malformed params for '{query}'")
         return False
-    print(f"  PASS: {called}({tool_calls[0]['function']['arguments']})")
+    print(f"  PASS: {called}({tool_calls[0].input})")
     return True
 
 if __name__ == "__main__":
@@ -819,7 +818,7 @@ if __name__ == "__main__":
     total = len(TEST_QUERIES)
     print(f"\n{passed}/{total} passed ({passed/total*100:.0f}%)")
     if passed / total < 0.8:
-        print("WARNING: Tool calling reliability below 80%. Consider switching to a larger model.")
+        print("WARNING: Tool calling reliability below 80%. Investigate tool docstring clarity.")
 ```
 
 Run it:
@@ -827,7 +826,7 @@ Run it:
 uv run python scripts/test_tool_calling.py
 ```
 
-**Decision point**: gpt-oss:20b is the validated model (CUAI-32 extended spike). If pass rate is still < 80%, investigate tool docstring clarity before considering model changes.
+**Decision point**: Claude Sonnet is the production model (CUAI-87 migration). Tool calling reliability is consistently high. If issues arise, investigate tool docstring clarity.
 
 ---
 
@@ -1078,7 +1077,7 @@ app.include_router(chat_router)
 
 #### Days 9-11: LangGraph Engine + Tools
 
-`services/chat-service/chat_service/core/tools.py`: Implements all 7 tools from [architecture.md  Tool Calling](architecture.md#tool-calling). Implementation notes: `@tool` decorator from `langchain_core.tools`. All functions are `async`. Docstrings are critical -- the LLM uses them to decide which tool to call. Each tool delegates to service functions in `neo4j_service`, `postgres_service`, or `ollama_service`.
+`services/chat-service/chat_service/core/tools.py`: Implements all 7 tools from [architecture.md  Tool Calling](architecture.md#tool-calling). Implementation notes: `@tool` decorator from `langchain_core.tools`. All functions are `async`. Docstrings are critical -- the LLM uses them to decide which tool to call. Each tool delegates to service functions in `neo4j_service`, `postgres_service`, or `ollama_service` (embeddings only).
 
 `services/chat-service/chat_service/core/tool_executor.py`:
 ```python
@@ -1132,9 +1131,9 @@ The `build_context()` function takes `intent`, `user_id`, optional `query_embedd
 
 `services/chat-service/chat_service/core/intent_classifier.py` is implemented in CUAI-39 / CHAT-007. The module exports an `Intent` `StrEnum` (`course_search`, `prereq_check`, `degree_planning`, `schedule_help`, `general_question`) and a single public `async def classify_intent(message, *, ollama_client=None) -> Intent`. The design is hybrid: a pure regex + keyword `_heuristic_classify` pass runs first and catches all five Jira acceptance examples with no Ollama dependency (deterministic, ~microseconds, trivially unit-tested). If the heuristic returns `GENERAL_QUESTION` and an `ollama_client` is supplied, a single `ollama_service.chat_completion` call fires as a fallback using Ollama's structured-output mode — a JSON-schema enum built from the `Intent` members themselves is passed as `format`, so the model is logit-masked to exactly the five labels. `options={"temperature": 0}` pins sampling for deterministic argmax. A lenient text parser (`_parse_llm_label`) handles the small mutations gpt-oss-tier models add even when the system prompt asks for a bare label (wrapper phrasing like `"Intent: course_search"`, trailing punctuation, `-`/space separator variants). **`classify_intent()` never raises** — every failure path (`OllamaError`, `JSONDecodeError`, unknown label, empty content) collapses to `Intent.GENERAL_QUESTION` so a downstream exception cannot drop a chat request. See [ADR-34](decisions.md#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007).
 
-This ticket also extended `ollama_service.chat_completion` with two optional kwarg-only parameters, `format` and `options`, forwarded to the Ollama request body only when non-`None` to preserve back-compat with existing callers. CHAT-008 reuses the same kwargs on the main LLM path for tool-call reliability (JSON-schema-constrained tool arguments) and sampler pinning — see [ADR-35](decisions.md#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008). Integration tests for the classifier live at `services/chat-service/tests/test_intent_classifier_integration.py` and are gated behind `pytest -m integration` (excluded from CI via the pyproject default `addopts`); they hit a live `gpt-oss:20b` on `localhost:11434` with paraphrases deliberately crafted to bypass every heuristic keyword. A parametrized unit test pins each integration paraphrase against the heuristic path (asserting `classify_intent(..., ollama_client=None)` returns `GENERAL_QUESTION`) so a future heuristic tweak cannot silently degrade the integration test into hitting the heuristic instead of the LLM.
+This ticket also extended `ollama_service.chat_completion` with two optional kwarg-only parameters, `format` and `options`, forwarded to the Ollama request body only when non-`None` to preserve back-compat with existing callers (embeddings path). Integration tests for the classifier live at `services/chat-service/tests/test_intent_classifier_integration.py` and are gated behind `pytest -m integration` (excluded from CI via the pyproject default `addopts`); they hit Claude Sonnet via the Anthropic API with paraphrases deliberately crafted to bypass every heuristic keyword. A parametrized unit test pins each integration paraphrase against the heuristic path (asserting `classify_intent(..., llm_client=None)` returns `GENERAL_QUESTION`) so a future heuristic tweak cannot silently degrade the integration test into hitting the heuristic instead of the LLM.
 
-`services/chat-service/chat_service/core/llm_engine.py` is implemented in CUAI-40 / CHAT-008. The module is a LangGraph `StateGraph` with 5 nodes (`classify_intent → build_context → call_llm → execute_tools → respond`). `ChatOllama` from `langchain_ollama` is configured with `reasoning=False` and `temperature=0` for tool-calling reliability (see [ADR-35](decisions.md#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008)). All 7 tools are bound via `llm.bind_tools()`. Key implementation details:
+`services/chat-service/chat_service/core/llm_engine.py` is implemented in CUAI-40 / CHAT-008, updated in CUAI-87 to use the Anthropic API. The module is a LangGraph `StateGraph` with 5 nodes (`classify_intent → build_context → call_llm → execute_tools → respond`). `ChatAnthropic` from `langchain_anthropic` is configured with `temperature=0` for tool-calling reliability. All 7 tools are bound via `llm.bind_tools()`. Key implementation details:
 
 - **Retry-without-tools fallback**: When the LLM emits a malformed tool call, the engine strips tool bindings and retries the same prompt so the user still gets a natural-language answer instead of an error. See [ADR-36](decisions.md#adr-36-retry-without-tools-fallback-on-malformed-tool-calls-cuai-40--chat-008).
 - **Parallel tool execution**: Multiple tool calls in a single LLM turn are dispatched concurrently via `asyncio.gather` for lower latency. See [ADR-37](decisions.md#adr-37-parallel-tool-execution-via-asynciogather-cuai-40--chat-008).
@@ -1152,7 +1151,7 @@ What the module exposes (downstream stories should treat this as the public surf
 - **Session storage**: `store_session(client, *, user_id, session_id, data)` / `get_session(...)` — `SETEX` / `GET` with a 2-hour TTL, keyed `session:{user_id}:{session_id}` so user_id scoping prevents cross-user leakage if a `session_id` is guessed.
 - **Conversation cache**: `append_messages(...)` (batch) / `append_message(...)` (single) / `get_messages(..., limit=20)` — `RPUSH` + `EXPIRE` / `LRANGE -limit -1`, keyed `messages:{user_id}:{session_id}` (same user-scoped key shape). The WebSocket handler uses `append_messages()` to atomically persist the user message and assistant response via a Redis pipeline.
 - **Inference queue**: `enqueue_inference(client, request, *, timeout=120.0, progress_interval=30.0, on_progress=None)` — subscribes to `ollama:result:{request_id}` **before** LPUSHing to `ollama:inference_queue` (pub/sub has no backlog, so subscribing after the push would race a fast worker), uses a wall-clock deadline with a per-tick budget of `min(progress_interval, remaining_total)` so `on_progress` fires roughly every ~30s while the hard 120s `timeout` is still enforced, raises `RedisTimeoutError` on expiry, and tears the pubsub down in a `finally` block on every exit path. Never silently retried.
-- **Error family**: `RedisError` / `RedisTimeoutError` / `RedisServiceError`, mirroring `OllamaError` / `OllamaTimeoutError` / `OllamaServiceError` from `ollama_service.py`.
+- **Error family**: `RedisError` / `RedisTimeoutError` / `RedisServiceError`, mirroring `OllamaError` / `OllamaTimeoutError` / `OllamaServiceError` from `ollama_service.py` (embeddings). Note: the LLM error family was renamed to `LLMError` / `LLMTimeoutError` / `LLMServiceError` as part of the Anthropic API migration (CUAI-87).
 
 The chat service already reads `shared.config.settings.redis_password` and passes it to `build_redis_client`, so SEC-008 (CUAI-82) can wire `REDIS_PASSWORD` through the prod compose override without touching this module.
 
@@ -1400,24 +1399,18 @@ gcloud compute ssh data-services --tunnel-through-iap --zone=us-central1-a -- -L
 DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/cu_assistant \
 NEO4J_URI=bolt://localhost:7687 \
 OLLAMA_URL=http://localhost:11434 \
+ANTHROPIC_API_KEY=<your-key> \
 uv run --package data-ingest python -m data.ingest.run_all
+
+# Note: OLLAMA_URL is used for embeddings (nomic-embed-text) only.
+# LLM inference uses the Anthropic API — set ANTHROPIC_API_KEY and ANTHROPIC_MODEL in Cloud Run env vars.
 
 # 6. Cloud Run services (needs Artifact Registry + VPC connector)
 terraform apply -target=google_cloud_run_v2_service.course_search_api \
                 -target=google_cloud_run_v2_service.chat_service \
                 -target=google_cloud_run_v2_service.frontend
 
-# 7. Build custom Ollama worker image (must run before MIG apply)
-# This bakes Docker, NVIDIA drivers, Ollama, and models into a GCE image.
-# Only needs to re-run when changing Ollama version or swapping models.
-cd infra && packer build packer/ollama-worker.pkr.hcl && cd ..
-
-# 8. Ollama MIG (needs VPC + monitoring metric + custom image from step 7)
-terraform apply -target=google_compute_instance_template.ollama_worker \
-                -target=google_compute_instance_group_manager.ollama_mig \
-                -target=google_compute_autoscaler.ollama
-
-# 9. Full apply to catch anything missed
+# 7. Full apply to catch anything missed
 terraform apply
 ```
 
@@ -1503,11 +1496,11 @@ jobs:
 ### Everyone: Demo Day (Day 24)
 
 Pre-warm the system 5 minutes before:
-```bash
-# Force one GPU worker online
-gcloud compute instance-groups managed resize ollama-workers --size=1 --zone=us-central1-a
 
-# Send a test message to warm the model
+No GPU warm-up needed — the Anthropic API handles inference scaling transparently.
+
+```bash
+# Send a test message to verify the chat service is up
 curl -X POST https://<chat-service-url>/api/chat \
   -H "Authorization: Bearer <test-token>" \
   -H "Content-Type: application/json" \
@@ -1525,7 +1518,7 @@ curl -X POST https://<chat-service-url>/api/chat \
 
 ### Integration Tests
 - Course Search API: test against a real PostgreSQL (Docker) with seeded data
-- Chat Service: test WebSocket flow with a mock Ollama (return canned responses)
+- Chat Service: test WebSocket flow with mock LLM responses (return canned responses)
 - Data ingestion: test against real databases, verify counts match expected
 
 ### End-to-End Smoke Test
@@ -1546,9 +1539,8 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy .
 
 | Risk | Mitigation | When to Act |
 |------|-----------|-------------|
-| LLM can't reliably call tools | Test on Day 4-5. Switch model via `OLLAMA_MODEL`. | If < 80% accuracy on test script |
+| LLM can't reliably call tools | Claude Sonnet has consistently reliable tool calling. If issues arise, check tool docstrings. | If tool call accuracy drops unexpectedly |
 | ~~LangGraph integration is harder than expected~~ | ~~Start with raw Ollama tool calling loop (no LangGraph). Add LangGraph later.~~ — Resolved: CUAI-40 / CHAT-008 shipped the full LangGraph engine with 5 nodes, parallel tool execution, and retry fallback. | ~~If Day 10 and no working chat~~ |
 | Neo4j vector search quality is poor | Fall back to PostgreSQL `ILIKE` search. Vector search is a bonus, not critical. | If embedding results are irrelevant |
-| Redis queue complexity | Simplify to direct HTTP calls to Ollama with `httpx.AsyncClient(timeout=120)`. Add queue later. | If Day 12 and queue isn't working |
 | Terraform issues on GCP | Manual deployment via `gcloud` CLI as backup. Terraform is nice-to-have for the demo. | If Day 22 and Terraform is broken |
-| Spot VM reclaimed during demo | Pre-warm with `gcloud resize --size=1` 5 min before. Have a backup on-demand VM ready. | Demo day |
+| Spot VM reclaimed during demo | No GPU VMs in use — Anthropic API handles inference. No warm-up needed. | N/A |
