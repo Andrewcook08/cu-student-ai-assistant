@@ -85,7 +85,11 @@ watch(
 )
 
 watch(
-  () => store.messages.length,
+  () => {
+    const msgs = store.messages
+    const last = msgs[msgs.length - 1]
+    return [msgs.length, last?.reply?.length ?? 0]
+  },
   async () => {
     await nextTick()
     messagesEnd.value?.scrollIntoView({ behavior: 'smooth' })
