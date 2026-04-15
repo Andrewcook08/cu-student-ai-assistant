@@ -11,19 +11,24 @@
 #   POSTGRES_PASSWORD  — strong password for PostgreSQL
 #   NEO4J_PASSWORD     — strong password for Neo4j (replaces the "development" dev default)
 #   REDIS_PASSWORD     — requirepass password for Redis
-#   JWT_SECRET_KEY     — ≥32-char random string
-#                        Generate: python -c "import secrets; print(secrets.token_hex(32))"
+#   JWT_SECRET_KEY     — injected by Cloud Run from Secret Manager; optional on the data VM
 #   CORS_ORIGINS       — comma-separated allowed origins (no localhost, no wildcard)
 
 services:
   # ── Data services — host ports cleared, strong secrets required ─────────────
+  # volumes !reset: replaces named volumes (which live on the boot disk under
+  # /var/lib/docker/volumes) with bind mounts on the persistent data disk at /data.
   postgres:
     ports: !reset []
+    volumes: !reset
+      - /data/postgres:/var/lib/postgresql/data
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
 
   neo4j:
     ports: !reset []
+    volumes: !reset
+      - /data/neo4j:/data
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
     healthcheck:
@@ -31,6 +36,8 @@ services:
 
   redis:
     ports: !reset []
+    volumes: !reset
+      - /data/redis:/data
     command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
@@ -45,7 +52,7 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/cu_assistant
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD required}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY required}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
 
   chat-service:
     environment:
@@ -53,4 +60,4 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/cu_assistant
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD required}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY required}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}

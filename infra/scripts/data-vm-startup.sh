@@ -16,13 +16,17 @@
 #     --data-file=<(openssl rand -hex 20)
 #   gcloud secrets versions add data-vm-redis-password \
 #     --data-file=<(openssl rand -hex 20)
-#   gcloud secrets versions add data-vm-jwt-secret-key \
-#     --data-file=<(python3 -c "import secrets; print(secrets.token_hex(32), end='')")
-
 set -euo pipefail
 exec > >(tee /var/log/data-vm-startup.log) 2>&1
 
 log() { echo "[startup] $(date -u +%H:%M:%S) $*"; }
+
+on_failure() {
+  log "STARTUP FAILED at line $1 (exit $2)"
+  echo "failed at $(date -u +%FT%TZ)" > /var/log/data-vm-startup.FAILED
+}
+trap 'on_failure "$LINENO" "$?"' ERR
+
 log "Starting data-vm-startup.sh"
 
 # ── 1. Install Docker ──────────────────────────────────────────────────────────
@@ -90,7 +94,6 @@ secret() {
 POSTGRES_PASSWORD=$(secret "data-vm-postgres-password")
 NEO4J_PASSWORD=$(secret "data-vm-neo4j-password")
 REDIS_PASSWORD=$(secret "data-vm-redis-password")
-JWT_SECRET_KEY=$(secret "data-vm-jwt-secret-key")
 log "Secrets fetched"
 
 # ── 4. Write compose files ─────────────────────────────────────────────────────
@@ -104,7 +107,6 @@ cat > "${COMPOSE_DIR}/.env" <<EOF
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 NEO4J_PASSWORD=${NEO4J_PASSWORD}
 REDIS_PASSWORD=${REDIS_PASSWORD}
-JWT_SECRET_KEY=${JWT_SECRET_KEY}
 EOF
 chmod 600 "${COMPOSE_DIR}/.env"
 
@@ -116,8 +118,12 @@ BUCKET=$(curl -sf \
   -H "Metadata-Flavor: Google")
 
 log "Pulling compose files from gs://${BUCKET}..."
-gsutil cp "gs://${BUCKET}/docker-compose.yml"      "${COMPOSE_DIR}/docker-compose.yml"
-gsutil cp "gs://${BUCKET}/docker-compose.prod.yml" "${COMPOSE_DIR}/docker-compose.prod.yml"
+for i in 1 2 3 4 5; do
+  gsutil cp "gs://${BUCKET}/docker-compose.yml"      "${COMPOSE_DIR}/docker-compose.yml" && \
+  gsutil cp "gs://${BUCKET}/docker-compose.prod.yml" "${COMPOSE_DIR}/docker-compose.prod.yml" && break
+  log "gsutil cp failed (attempt ${i}) — retrying in 10 s"
+  sleep 10
+done
 log "Compose files ready"
 
 # ── 5. Start data services ─────────────────────────────────────────────────────
@@ -126,5 +132,20 @@ log "Starting data services (postgres, neo4j, redis)..."
 cd "${COMPOSE_DIR}"
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d postgres neo4j redis
 
+log "Verifying services started (up to 60 s)..."
+for i in 1 2 3 4 5 6; do
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+  if docker compose -f docker-compose.yml -f docker-compose.prod.yml ps | grep -q "unhealthy"; then
+    if [ "${i}" -eq 6 ]; then
+      log "STARTUP FAILED — one or more services unhealthy after 60 s"
+      exit 1
+    fi
+    log "Services not yet healthy (attempt ${i}/6) — retrying in 10 s..."
+    sleep 10
+  else
+    log "All services running"
+    break
+  fi
+done
+
 log "data-vm-startup.sh complete"
-docker compose ps

@@ -51,8 +51,6 @@ resource "google_service_account" "data_vm" {
 #     --data-file=<(openssl rand -hex 20)
 #   gcloud secrets versions add data-vm-redis-password \
 #     --data-file=<(openssl rand -hex 20)
-#   gcloud secrets versions add data-vm-jwt-secret-key \
-#     --data-file=<(python3 -c "import secrets; print(secrets.token_hex(32), end='')")
 #
 # Values never enter Terraform state.
 
@@ -61,7 +59,6 @@ locals {
     "data-vm-postgres-password",
     "data-vm-neo4j-password",
     "data-vm-redis-password",
-    "data-vm-jwt-secret-key",
   ]
 }
 

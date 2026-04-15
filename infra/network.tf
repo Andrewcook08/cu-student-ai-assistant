@@ -52,6 +52,8 @@ resource "google_compute_network_firewall_policy_association" "main" {
 }
 
 # Cloud Run → data-services VM + ollama workers (database + inference ports only)
+# Note: Neo4j HTTP browser (7474) is intentionally excluded — clients use Bolt (7687).
+# Port 7474 is blocked from all sources by the default-deny rule at priority 65534.
 resource "google_compute_network_firewall_policy_rule" "allow_vpc_connector" {
   firewall_policy = google_compute_network_firewall_policy.main.name
   rule_name       = "allow-vpc-connector"
@@ -87,13 +89,16 @@ resource "google_compute_network_firewall_policy_rule" "allow_internal" {
 }
 
 # Developer SSH via IAP TCP tunnel — no public IP or bastion needed (see ADR-23)
+# Scoped to the data-services VM service account so future VMs are not automatically
+# SSH-reachable via IAP without an explicit rule change.
 resource "google_compute_network_firewall_policy_rule" "allow_iap_ssh" {
-  firewall_policy = google_compute_network_firewall_policy.main.name
-  rule_name       = "allow-iap-ssh"
-  description     = "Developer SSH through IAP TCP tunnel"
-  priority        = 1200
-  direction       = "INGRESS"
-  action          = "allow"
+  firewall_policy         = google_compute_network_firewall_policy.main.name
+  rule_name               = "allow-iap-ssh"
+  description             = "Developer SSH through IAP TCP tunnel (data-services VM only)"
+  priority                = 1200
+  direction               = "INGRESS"
+  action                  = "allow"
+  target_service_accounts = [google_service_account.data_vm.email]
 
   match {
     src_ip_ranges = ["35.235.240.0/20"]
