@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fetchCourses, fetchCourse } from '@/services/courseApi'
+import { useAuthStore } from '@/stores/authStore'
 
 function mockFetch(body: unknown, init?: ResponseInit): void {
   vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
@@ -7,8 +8,15 @@ function mockFetch(body: unknown, init?: ResponseInit): void {
   )
 }
 
+function getLastFetchCall(): [RequestInfo | URL, RequestInit | undefined] {
+  const lastCall = vi.mocked(globalThis.fetch).mock.calls.at(-1)
+  if (!lastCall) throw new Error('Expected fetch to have been called')
+  return [lastCall[0], lastCall[1] as RequestInit | undefined]
+}
+
 beforeEach(() => {
   vi.restoreAllMocks()
+  sessionStorage.clear()
 })
 
 describe('courseApi', () => {
@@ -132,6 +140,23 @@ describe('courseApi', () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('', { status: 403 }))
       await expect(fetchCourses()).rejects.toThrow('Failed to fetch courses: 403')
     })
+
+    it('attaches Authorization header when store has a token', async () => {
+      const store = useAuthStore()
+      store.setAuth('my-token', 1, 'Alice')
+      mockFetch({ items: [], total: 0, offset: 0, limit: 50 })
+      await fetchCourses()
+      const [, requestInit] = getLastFetchCall()
+      expect((requestInit?.headers as Record<string, string>)['Authorization']).toBe('Bearer my-token')
+    })
+
+    it('clears auth state on 401 response', async () => {
+      const store = useAuthStore()
+      store.setAuth('expired-token', 1, 'Alice')
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 401 }))
+      await expect(fetchCourses()).rejects.toThrow('Failed to fetch courses: 401')
+      expect(store.isAuthenticated).toBe(false)
+    })
   })
 
   describe('fetchCourse', () => {
@@ -176,6 +201,15 @@ describe('courseApi', () => {
     it('throws generic error on 403', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('', { status: 403 }))
       await expect(fetchCourse('CSCI 1300')).rejects.toThrow('Failed to fetch course: 403')
+    })
+
+    it('attaches Authorization header for fetchCourse when authenticated', async () => {
+      const store = useAuthStore()
+      store.setAuth('my-token', 1, 'Alice')
+      mockFetch({ code: 'CSCI1300', title: 'Computer Science 1', credits: '4', dept: 'CSCI', sections: [] })
+      await fetchCourse('CSCI1300')
+      const [, requestInit] = getLastFetchCall()
+      expect((requestInit?.headers as Record<string, string>)['Authorization']).toBe('Bearer my-token')
     })
   })
 })
