@@ -23,12 +23,24 @@ import anthropic
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from shared.auth import decode_access_token
 
 from chat_service.core import memory
 from chat_service.core.input_sanitizer import sanitize_message
 from chat_service.services.redis_service import RedisError
+
+# User-friendly labels for tool calls shown during streaming.
+_TOOL_PROGRESS_LABELS: dict[str, str] = {
+    "search_courses": "Searching courses...",
+    "lookup_course": "Looking up course details...",
+    "check_prerequisites": "Checking prerequisites...",
+    "get_degree_requirements": "Fetching degree requirements...",
+    "get_student_profile": "Loading your academic profile...",
+    "find_schedule_conflicts": "Checking schedule conflicts...",
+    "save_decision": "Saving your decision...",
+    "remove_decision": "Removing decision...",
+}
 
 #: Hard timeout for a single graph invocation (intent + context + LLM + tools).
 #: Prevents the WebSocket handler from stalling indefinitely if the LLM hangs
@@ -251,31 +263,47 @@ async def chat_websocket(
                             # msg.content can be str or list (Anthropic
                             # content blocks) — extract text only.
                             node = metadata.get("langgraph_node")
-                            if msg.content and node == "call_llm":
-                                text = msg.content
-                                if isinstance(text, list):
-                                    text = "".join(
-                                        b.get("text", "")
-                                        for b in text
-                                        if isinstance(b, dict)
-                                    )
-                                if text:
-                                    if not in_llm_segment:
-                                        in_llm_segment = True
-                                        # Insert separator between
-                                        # successive LLM segments
-                                        # (i.e. after a tool call).
-                                        if llm_segment_count > 0:
-                                            sep = "\n\n"
-                                            streamed_reply += sep
-                                            await websocket.send_json(
-                                                {"type": "token", "token": sep}
-                                            )
-                                        llm_segment_count += 1
-                                    streamed_reply += text
-                                    await websocket.send_json(
-                                        {"type": "token", "token": text}
-                                    )
+                            if node == "call_llm":
+                                # Send progress labels for tool calls.
+                                if (
+                                    isinstance(msg, AIMessageChunk)
+                                    and getattr(msg, "tool_calls", None)
+                                ):
+                                    for tc in msg.tool_calls:
+                                        label = _TOOL_PROGRESS_LABELS.get(
+                                            tc.get("name", ""),
+                                            "Working...",
+                                        )
+                                        await websocket.send_json(
+                                            {"type": "progress", "message": label}
+                                        )
+
+                                # Stream text tokens.
+                                if msg.content:
+                                    text = msg.content
+                                    if isinstance(text, list):
+                                        text = "".join(
+                                            b.get("text", "")
+                                            for b in text
+                                            if isinstance(b, dict)
+                                        )
+                                    if text:
+                                        if not in_llm_segment:
+                                            in_llm_segment = True
+                                            # Insert separator between
+                                            # successive LLM segments
+                                            # (i.e. after a tool call).
+                                            if llm_segment_count > 0:
+                                                sep = "\n\n"
+                                                streamed_reply += sep
+                                                await websocket.send_json(
+                                                    {"type": "token", "token": sep}
+                                                )
+                                            llm_segment_count += 1
+                                        streamed_reply += text
+                                        await websocket.send_json(
+                                            {"type": "token", "token": text}
+                                        )
                         elif chunk["type"] == "updates":
                             # Each update is {node_name: state_update}
                             for node_name, state_update in chunk["data"].items():

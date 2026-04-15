@@ -8,6 +8,7 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([])
   const isTyping = ref(false)
   const isStreaming = ref(false)
+  const toolStatus = ref<string | null>(null)
   const isConnected = ref(false)
   const isReconnecting = ref(false)
   const connectionError = ref<string | null>(null)
@@ -41,6 +42,10 @@ export const useChatStore = defineStore('chat', () => {
     isStreaming.value = v
   }
 
+  function setToolStatus(msg: string | null) {
+    toolStatus.value = msg
+  }
+
   function setConnected(v: boolean) {
     isConnected.value = v
   }
@@ -68,6 +73,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     isTyping,
     isStreaming,
+    toolStatus,
     isConnected,
     isReconnecting,
     connectionError,
@@ -77,6 +83,7 @@ export const useChatStore = defineStore('chat', () => {
     clearMessages,
     setTyping,
     setStreaming,
+    setToolStatus,
     setConnected,
     setReconnecting,
     setError,

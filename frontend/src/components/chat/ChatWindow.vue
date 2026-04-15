@@ -117,7 +117,10 @@ watch(
         :message="msg"
         @action-selected="handleActionSelected"
       />
-      <div v-if="store.isTyping && !store.isStreaming" class="chat-msg chat-msg--ai chat-msg--typing">
+      <div v-if="store.toolStatus" class="chat-tool-status">
+        {{ store.toolStatus }}
+      </div>
+      <div v-else-if="store.isTyping && !store.isStreaming" class="chat-msg chat-msg--ai chat-msg--typing">
         <span></span><span></span><span></span>
       </div>
       <div ref="messagesEnd" />
@@ -224,6 +227,30 @@ watch(
   flex-direction: column;
   gap: 8px;
   background: #fafafa;
+}
+
+/* Tool status */
+.chat-tool-status {
+  align-self: flex-start;
+  font-size: 12px;
+  font-style: italic;
+  padding: 4px 12px;
+  background: linear-gradient(
+    90deg,
+    #aaa 0%,
+    #CFB87C 40%,
+    #aaa 80%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 
 /* Typing indicator */
