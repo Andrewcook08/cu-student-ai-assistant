@@ -146,9 +146,7 @@ def test_websocket_returns_structured_data(client: TestClient) -> None:
     from chat_service.main import app
 
     structured = [{"course": "CSCI 1300", "credits": 3}]
-    app.state.conversation_graph = _mock_graph(
-        reply="Here are courses", structured_data=structured
-    )
+    app.state.conversation_graph = _mock_graph(reply="Here are courses", structured_data=structured)
 
     token = create_access_token(1)
     with (

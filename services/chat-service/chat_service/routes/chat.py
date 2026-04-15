@@ -265,9 +265,8 @@ async def chat_websocket(
                             node = metadata.get("langgraph_node")
                             if node == "call_llm":
                                 # Send progress labels for tool calls.
-                                if (
-                                    isinstance(msg, AIMessageChunk)
-                                    and getattr(msg, "tool_calls", None)
+                                if isinstance(msg, AIMessageChunk) and getattr(
+                                    msg, "tool_calls", None
                                 ):
                                     for tc in msg.tool_calls:
                                         label = _TOOL_PROGRESS_LABELS.get(
@@ -283,9 +282,7 @@ async def chat_websocket(
                                     text = msg.content
                                     if isinstance(text, list):
                                         text = "".join(
-                                            b.get("text", "")
-                                            for b in text
-                                            if isinstance(b, dict)
+                                            b.get("text", "") for b in text if isinstance(b, dict)
                                         )
                                     if text:
                                         if not in_llm_segment:
@@ -301,9 +298,7 @@ async def chat_websocket(
                                                 )
                                             llm_segment_count += 1
                                         streamed_reply += text
-                                        await websocket.send_json(
-                                            {"type": "token", "token": text}
-                                        )
+                                        await websocket.send_json({"type": "token", "token": text})
                         elif chunk["type"] == "updates":
                             # Each update is {node_name: state_update}
                             for node_name, state_update in chunk["data"].items():
