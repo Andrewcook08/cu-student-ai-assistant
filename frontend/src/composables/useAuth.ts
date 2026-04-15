@@ -2,12 +2,14 @@ import { ref } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
 import {
   register as apiRegister,
+  login as apiLogin,
   fetchPrograms as apiFetchPrograms,
   fetchProgramRequirements,
   updateProgram as apiUpdateProgram,
   updateCompletedCourses as apiUpdateCourses,
 } from '@/services/authApi'
 import type {
+  LoginFormData,
   RegisterFormData,
   AuthRegisterResponse,
   Program,
@@ -24,8 +26,23 @@ export function useAuth() {
     if (!store.token) {
       throw new Error('You must be signed in to continue')
     }
-
     return store.token
+  }
+
+  async function login(data: LoginFormData): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      const result = await apiLogin(data.email, data.password)
+      const userId = store.parseTokenSub(result.token)
+      if (!userId) throw new Error('Invalid token received from server')
+      store.setAuth(result.token, userId, data.email)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Login failed'
+      throw e
+    } finally {
+      loading.value = false
+    }
   }
 
   async function register(data: RegisterFormData): Promise<AuthRegisterResponse> {
@@ -95,5 +112,5 @@ export function useAuth() {
     }
   }
 
-  return { loading, error, register, fetchPrograms, fetchRequirements, updateProgram, updateCompletedCourses }
+  return { loading, error, login, register, fetchPrograms, fetchRequirements, updateProgram, updateCompletedCourses }
 }
