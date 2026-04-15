@@ -9,6 +9,10 @@ COPY services/chat-service/ services/chat-service/
 
 RUN uv sync --package chat-service --frozen --no-dev
 
+RUN adduser --disabled-password --no-create-home --uid 1000 appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
 WORKDIR /app/services/chat-service
 EXPOSE 8001
 CMD ["/app/.venv/bin/uvicorn", "chat_service.main:app", "--host", "0.0.0.0", "--port", "8001"]

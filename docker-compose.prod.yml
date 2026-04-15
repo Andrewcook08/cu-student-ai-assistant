@@ -13,6 +13,7 @@
 #   REDIS_PASSWORD     — requirepass password for Redis
 #   JWT_SECRET_KEY     — injected by Cloud Run from Secret Manager; optional on the data VM
 #   CORS_ORIGINS       — comma-separated allowed origins (no localhost, no wildcard)
+#   ANTHROPIC_API_KEY  — injected by Cloud Run from Secret Manager
 
 services:
   # ── Data services — host ports cleared, strong secrets required ─────────────
@@ -52,4 +53,5 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/cu_assistant
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD required}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY required}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY required}
