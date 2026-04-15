@@ -74,11 +74,17 @@ if ! grep -q "${DATA_DISK_ID}" /etc/fstab; then
   log "Added fstab entry (auto-mount on reboot)"
 fi
 
-# Bind-mount targets — one directory per database on the persistent disk
-mkdir -p \
-  "${MOUNT_POINT}/postgres" \
-  "${MOUNT_POINT}/neo4j" \
-  "${MOUNT_POINT}/redis"
+# Redirect Docker data-root to the persistent disk so named volumes, images,
+# and layer cache all land on /data — not the 20 GB boot disk.
+if ! grep -q '"data-root"' /etc/docker/daemon.json 2>/dev/null; then
+  log "Redirecting Docker data-root to ${MOUNT_POINT}/docker..."
+  mkdir -p "${MOUNT_POINT}/docker"
+  cat > /etc/docker/daemon.json <<'JSON'
+{ "data-root": "/data/docker" }
+JSON
+  systemctl restart docker
+  log "Docker restarted with data-root=${MOUNT_POINT}/docker"
+fi
 
 # ── 3. Fetch secrets from GCP Secret Manager ──────────────────────────────────
 
