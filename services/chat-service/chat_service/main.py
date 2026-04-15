@@ -4,11 +4,6 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
-
 import anthropic
 import httpx
 from fastapi import FastAPI
@@ -28,6 +23,10 @@ from chat_service.services.redis_service import build_redis_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     settings.validate_production()
     # Long-lived singleton — the driver owns a connection pool and must
     # outlive individual requests. Tool handlers pull it off app.state.
