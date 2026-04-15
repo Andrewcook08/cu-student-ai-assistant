@@ -66,7 +66,7 @@ from shared.models import (
     StudentDecision,
     User,
 )
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -367,6 +367,44 @@ async def save_student_decision(
         "decision_type": row.decision_type,
         "notes": row.notes,
         "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+# ─── Decision removal ──────────────────────────────────────────────────
+
+
+async def remove_student_decision(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    course_code: str,
+) -> dict[str, Any]:
+    """Delete all decisions for *course_code* belonging to *user_id*.
+
+    Returns a summary of how many rows were removed.  If no matching
+    decisions exist, the result indicates zero removed (not an error).
+    """
+    cleaned_code = course_code.strip().upper() if isinstance(course_code, str) else ""
+    if not cleaned_code:
+        raise ValueError("course_code must be a non-empty string")
+
+    try:
+        result = await session.execute(
+            delete(StudentDecision).where(
+                StudentDecision.user_id == user_id,
+                StudentDecision.course_code == cleaned_code,
+            )
+        )
+        await session.commit()
+    except (SQLAlchemyError, DBAPIError) as exc:
+        with contextlib.suppress(SQLAlchemyError):
+            await session.rollback()
+        raise PostgresServiceError(_SERVICE_MESSAGE) from exc
+
+    return {
+        "user_id": user_id,
+        "course_code": cleaned_code,
+        "removed": result.rowcount,
     }
 
 

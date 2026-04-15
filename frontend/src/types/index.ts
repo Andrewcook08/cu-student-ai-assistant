@@ -118,3 +118,26 @@ export interface PaginatedResponse<T> {
   offset: number
   limit: number
 }
+
+// Auth types
+export interface AuthRegisterResponse {
+  token: string
+  user_id: number
+}
+
+export interface RegisterFormData {
+  email: string
+  password: string
+  name: string
+  program_id?: number
+}
+
+export interface CompletedCoursePayload {
+  course_code: string
+  grade?: string
+}
+
+export interface ProgramRequirementsResponse {
+  program: Program
+  requirements: Requirement[]
+}

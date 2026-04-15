@@ -6,12 +6,12 @@
 
 ## Table of Contents
 - [ADR-1: Service Architecture — Two Services, Not a Monolith or Full Microservices](#adr-1-service-architecture)
-- [ADR-2: Self-Hosted LLM via Ollama](#adr-2-self-hosted-llm-via-ollama)
+- [ADR-2: Self-Hosted LLM via Ollama (Superseded)](#adr-2-self-hosted-llm-via-ollama)
 - [ADR-3: Neo4j for Graph RAG + Vector Search](#adr-3-neo4j-for-graph-rag--vector-search)
 - [ADR-4: Dual Database — Neo4j + PostgreSQL](#adr-4-dual-database)
 - [ADR-5: LangChain + LangGraph for Orchestration](#adr-5-langchain--langgraph-for-orchestration)
 - [ADR-6: Tool Calling Over Raw RAG](#adr-6-tool-calling-over-raw-rag)
-- [ADR-7: Redis Queue for Ollama Inference](#adr-7-redis-queue-for-ollama-inference)
+- [ADR-7: Redis Queue for Ollama Inference (Superseded)](#adr-7-redis-queue-for-ollama-inference)
 - [ADR-8: Two-Tier Conversation Memory](#adr-8-two-tier-conversation-memory)
 - [ADR-9: Persistent Decision History in PostgreSQL](#adr-9-persistent-decision-history)
 - [ADR-10: JWT Authentication (Not CU SSO Initially)](#adr-10-jwt-authentication)
@@ -25,26 +25,28 @@
 - [ADR-18: Terraform for Infrastructure-as-Code](#adr-18-terraform-for-iac)
 - [ADR-19: Self-Hosted Databases on VM vs. Managed Services](#adr-19-self-hosted-databases-on-vm)
 - [ADR-20: Scaling Strategy — Independent Layers, Config-Only Scaling](#adr-20-scaling-strategy)
-- [ADR-21: Ollama Auto-Scaling via Managed Instance Group](#adr-21-ollama-auto-scaling-via-managed-instance-group)
+- [ADR-21: Ollama Auto-Scaling via Managed Instance Group (Superseded)](#adr-21-ollama-auto-scaling-via-managed-instance-group)
 - [ADR-22: Cloud SQL for Production PostgreSQL Scaling](#adr-22-cloud-sql-for-production-postgresql-scaling)
 - [ADR-23: Network Security — Private Subnet + IAP Over Bastion](#adr-23-network-security-private-subnet--iap-over-bastion)
-- [ADR-26: gpt-oss:20b as Default LLM](#adr-26-gpt-oss20b-as-default-llm)
+- [ADR-26: gpt-oss:20b as Default LLM (Superseded)](#adr-26-gpt-oss20b-as-default-llm)
 - [ADR-27: Normalize Course Attributes into a Join Table (CUAI-20 / DATA-001)](#adr-27-normalize-course-attributes-into-a-join-table-cuai-20--data-001)
 - [ADR-31: cu-classes.html as Design Baseline for the Course Search Page](#adr-31-cu-classeshtml-as-design-baseline-for-the-course-search-page)
 - [ADR-33: API & Infrastructure Security Hardening](#adr-33-api--infrastructure-security-hardening)
 - [ADR-34: Hybrid Intent Classifier with Structured-Output LLM Fallback (CUAI-39 / CHAT-007)](#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007)
-- [ADR-35: ChatOllama reasoning=False + temperature=0 for Tool-Calling Reliability (CUAI-40 / CHAT-008)](#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008)
+- [ADR-35: ChatOllama reasoning=False + temperature=0 for Tool-Calling Reliability (CUAI-40 / CHAT-008) (Superseded)](#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008)
 - [ADR-36: Retry-Without-Tools Fallback for OSS Model Reliability (CUAI-40 / CHAT-008)](#adr-36-retry-without-tools-fallback-for-oss-model-reliability-cuai-40--chat-008)
 - [ADR-37: Parallel Tool Execution via asyncio.gather (CUAI-40 / CHAT-008)](#adr-37-parallel-tool-execution-via-asynciogather-cuai-40--chat-008)
 - [ADR-38: Atomic Redis Message Persistence (CUAI-40 / CHAT-008)](#adr-38-atomic-redis-message-persistence-cuai-40--chat-008)
 - [ADR-39: Graph Invocation Timeout (CUAI-40 / CHAT-008)](#adr-39-graph-invocation-timeout-cuai-40--chat-008)
+- [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference)
+- [ADR-42: Prebaked Ollama Embed Image on Cloud Run](#adr-42-prebaked-ollama-embed-image-on-cloud-run)
 
 ---
 
 ## ADR-1: Service Architecture
 
 ### Decision
-Split the backend into **two services**: a Course Search API (stateless REST) and a Chat Service (stateful AI orchestration), plus Ollama workers as a third service.
+Split the backend into **two services**: a Course Search API (stateless REST) and a Chat Service (stateful AI orchestration), plus Ollama (embeddings only).
 
 ### Alternatives Considered
 1. **Full monolith** — one FastAPI backend with everything
@@ -58,7 +60,7 @@ The course search API and chat engine have fundamentally different operational p
 |----------|------------------|-------------|
 | Response time | <50ms | 2-10 seconds |
 | State | Stateless | Stateful (WebSocket, conversation memory) |
-| Scaling bottleneck | CPU/DB connections | GPU (Ollama inference) |
+| Scaling bottleneck | CPU/DB connections | Anthropic API (external) |
 | Failure mode | Quick error, retry | Long timeout, queue backup |
 
 Coupling them in a monolith means:
@@ -76,6 +78,8 @@ Full microservices would be overkill because:
 ---
 
 ## ADR-2: Self-Hosted LLM via Ollama
+
+> **Status: Superseded** by [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference). Ollama is retained for embeddings (nomic-embed-text) only. The rationale below is preserved for historical context.
 
 ### Decision
 Run LLM inference on self-hosted Ollama instances (gpt-oss:20b) on GPU VMs, rather than using a hosted API (Claude, GPT).
@@ -169,7 +173,7 @@ This is not redundant — each database serves a different query pattern optimal
 Use LangChain for tool calling abstractions and LangGraph for stateful conversation flow management.
 
 ### Alternatives Considered
-1. **Raw Ollama API calls** — no framework, build everything from scratch
+1. **Raw LLM API calls** — no framework, build everything from scratch
 2. **LangChain only** — chains and agents without LangGraph's state management
 3. **LangChain + LangGraph** (chosen)
 4. **LlamaIndex** — alternative RAG-focused framework
@@ -231,6 +235,8 @@ This also means the LLM needs less context window for data (tool results are com
 
 ## ADR-7: Redis Queue for Ollama Inference
 
+> **Status: Superseded** by [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference). With LLM inference moved to the Anthropic API (direct HTTPS calls), the Redis queue architecture for Ollama workers is no longer needed.
+
 ### Decision
 Decouple the Chat Service from Ollama inference using a Redis-based async queue.
 
@@ -270,7 +276,7 @@ Use a two-tier memory system: recent messages in full (Redis) + a running summar
 ### Why
 Academic advising conversations are **context-heavy**. A student might say "I'm a CS major" in message 3, discuss electives in messages 5-15, then ask "does that fit with what I need?" in message 20. Losing message 3 would be catastrophic.
 
-**Sending all messages** doesn't work well even with larger context windows. The gpt-oss:20b model has a larger context window than 8B models, but the sliding-window design remains valuable for keeping context focused and costs manageable. A 30-message conversation with tool results could easily grow unwieldy.
+**Sending all messages** doesn't work well even with larger context windows. Claude Sonnet has a 200k token context window, but the sliding-window design remains valuable for keeping context focused and costs manageable. A 30-message conversation with tool results could easily grow unwieldy.
 
 **A fixed sliding window** (last 20 messages) loses critical early context — the student's major, their completed courses, decisions they've already made.
 
@@ -383,7 +389,7 @@ This also means the **AI can drive the UI based on context**. If a student asks 
 ## ADR-13: GCP for Cloud Deployment
 
 ### Decision
-Deploy on Google Cloud Platform using a hybrid approach: **Cloud Run** for the three app containers (course-search-api, chat-service, frontend), a **Compute Engine VM** for data services (PostgreSQL, Neo4j, Redis), and a **GPU VM** for Ollama. All managed via Terraform ([ADR-18](#adr-18-terraform-for-iac)).
+Deploy on Google Cloud Platform using a hybrid approach: **Cloud Run** for the three app containers (course-search-api, chat-service, frontend), a **Compute Engine VM** for data services (PostgreSQL, Neo4j, Redis), and Ollama for embeddings (runs on the data-services VM). All managed via Terraform ([ADR-18](#adr-18-terraform-for-iac)).
 
 ### Alternatives Considered
 1. **GCP hybrid (Cloud Run + Compute Engine)** (chosen)
@@ -401,7 +407,7 @@ Deploy on Google Cloud Platform using a hybrid approach: **Cloud Run** for the t
 
 **Compute Engine VM** for databases because managed services are too expensive for student credits ([ADR-19](#adr-19-self-hosted-databases-on-vm)). An `e2-medium` running all three databases in Docker costs ~$25/mo vs. ~$40-110/mo for managed equivalents.
 
-**GPU VM** (not Cloud Run) for Ollama because Cloud Run doesn't support GPUs. Ollama needs a `g2-standard-4` with an L4 GPU. These can be stopped when not in use to save credits.
+**Ollama** runs on the data-services VM alongside databases for embedding generation only. LLM inference uses the Anthropic API (external, no GCP infrastructure needed).
 
 **GCP over AWS/Azure** — no strong technical preference. GCP has a good free tier for students, Cloud Run's scale-to-zero is best-in-class, and the team has no existing preference for another cloud. If the team has AWS/Azure credits, those would work equally well — the architecture is cloud-agnostic (everything runs in Docker containers).
 
@@ -584,7 +590,7 @@ This is a cost decision driven by the student credit budget:
 | Neo4j | AuraDB Free: $0 (but 200K node limit) or AuraDB Pro: ~$65/mo | Part of $25/mo VM |
 | **Total** | **~$40-110/mo** (databases alone) | **~$25/mo** (one VM for all three) |
 
-Self-hosting saves **$15-85/month** depending on which managed tiers are used. Over a semester, that's $60-340 in credits preserved for GPU VM time (which is the real expense at ~$0.70/hr).
+Self-hosting saves **$15-85/month** depending on which managed tiers are used. Over a semester, that's $60-340 in credits preserved for other compute (GPU VMs are no longer part of the architecture — LLM inference uses the Anthropic API).
 
 **Why this is acceptable (not just cheap):**
 - The team has an infrastructure automation engineer who runs PostgreSQL on VMs professionally. This is not a skill gap — it's a strength.
@@ -615,7 +621,7 @@ Option 2 (GKE) is the enterprise answer but adds enormous operational complexity
 
 Option 3 uses the simplest GCP primitive for each layer:
 - **Cloud Run** for stateless/HTTP services — built-in auto-scaling, scale-to-zero, no configuration beyond min/max instances and concurrency
-- **MIG + custom metric** for GPU workers — the standard GCP pattern for non-HTTP workloads that scale on a queue
+- **MIG + custom metric** for GPU workers — the standard GCP pattern for non-HTTP workloads that scale on a queue (eliminated by ADR-41; LLM inference now uses the Anthropic API)
 - **Managed services** (Cloud SQL, Memorystore) as the database scaling path — swappable via connection strings
 
 This gives us a scaling story for the presentation without adding operational complexity during the 3.5-week build.
@@ -623,6 +629,8 @@ This gives us a scaling story for the presentation without adding operational co
 ---
 
 ## ADR-21: Ollama Auto-Scaling via Managed Instance Group
+
+> **Status: Superseded** by [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference). GPU worker auto-scaling is eliminated — LLM inference uses the Anthropic API, which handles scaling transparently.
 
 ### Decision
 Use a GCP **Managed Instance Group (MIG)** with an autoscaler driven by a custom Cloud Monitoring metric (Redis queue depth) to scale Ollama GPU workers. Workers run on **spot/preemptible** GPU VMs. Min replicas = 0, max replicas = 3.
@@ -693,7 +701,7 @@ If the system were adopted for production use, migrate PostgreSQL from the self-
 ## ADR-23: Network Security — Private Subnet + IAP Over Bastion
 
 ### Decision
-All VMs (data-services, ollama workers) run in a **private VPC subnet with no public IPs**. Developer SSH access uses **GCP Identity-Aware Proxy (IAP) TCP tunneling** instead of a bastion host. Firewall rules follow a default-deny model with explicit allow rules only for required traffic.
+The data-services VM runs in a **private VPC subnet with no public IPs**. Developer SSH access uses **GCP Identity-Aware Proxy (IAP) TCP tunneling** instead of a bastion host. Firewall rules follow a default-deny model with explicit allow rules only for required traffic.
 
 ### Alternatives Considered
 1. **Public IPs on VMs** + firewall rules to restrict access — simpler but larger attack surface
@@ -718,8 +726,8 @@ All VMs (data-services, ollama workers) run in a **private VPC subnet with no pu
 
 **Firewall model — default deny:**
 The VPC enforces default-deny via a **Network Firewall Policy** (`cu-assistant-fw-policy`, Terraform resource `google_compute_network_firewall_policy.main`) attached to `cu-assistant-vpc` through `google_compute_network_firewall_policy_association.main`. Rules are priority-keyed within the policy rather than globally-named, which avoids GCP's firewall-name tombstone behaviour that blocks destroy/recreate cycles (see [ADR-40](#adr-40-network-firewall-policy-over-legacy-vpc-firewall-rules)). Three explicit allow rules (priorities 1000, 1100, 1200) plus an ingress-deny-all catch-all (priority 65534) cover all required traffic:
-- Cloud Run → VMs (via VPC Connector): database and Ollama ports only (priority 1000)
-- VM → VM (internal): all ports — data VM and Ollama workers must communicate (priority 1100)
+- Cloud Run → data-services VM (via VPC Connector): database and embedding service ports only (priority 1000)
+- VM → VM (internal): all ports — reserved for future multi-VM scenarios (priority 1100)
 - IAP → VMs: port 22 only (priority 1200)
 
 This means a misconfigured service or an unexpected port being opened on a VM is harmless — the firewall blocks it. You have to explicitly add a rule to allow new traffic, which means it goes through Terraform code review.
@@ -733,6 +741,8 @@ Each Cloud Run service and VM has its own GCP service account with only the IAM 
 ---
 
 ## ADR-26: gpt-oss:20b as Default LLM
+
+> **Status: Superseded** by [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference). gpt-oss:20b replaced by Claude Sonnet via the Anthropic API due to superior combined tool-calling and response-generation reliability.
 
 ### Decision
 Switch from `llama3.1:8b` to `gpt-oss:20b` as the default Ollama model (`OLLAMA_MODEL=gpt-oss:20b`).
@@ -871,7 +881,7 @@ Health endpoints (`/api/health`, `/api/chat/health`) remain public for load bala
 
 2. **A single FastAPI middleware that requires auth on all paths** with an allowlist for health endpoints — rejected. Per-route `Depends(get_current_user)` is more explicit, survives router re-mounting, and shows up in the OpenAPI schema. An allowlist approach has real drift risk: every new public endpoint requires a manual allowlist update.
 
-3. **Defer all controls until after Sprint 2** — rejected. `/api/courses/search` triggers an Ollama embedding call plus a Neo4j vector search on every unauthenticated request. Unauthenticated + unrate-limited is a cost/DoS vector, not a polish item.
+3. **Defer all controls until after Sprint 2** — rejected. `/api/courses/search` triggers a local Ollama embedding call (nomic-embed-text, not GPU inference) plus a Neo4j vector search on every unauthenticated request. Unauthenticated + unrate-limited is a cost/DoS vector, not a polish item.
 
 4. **Centralize rate limiting at a reverse proxy (nginx / Cloud Armor)** — rejected for Phase 3. Per-user limits require the JWT subject (application context the proxy doesn't have). Cloud Armor is Phase 4 scope. `slowapi` is one decorator per route and survives the eventual move to a reverse proxy without code changes.
 
@@ -879,7 +889,7 @@ Health endpoints (`/api/health`, `/api/chat/health`) remain public for load bala
 
 ADR-14 and ADR-17 secure the LLM/tool layer. ADR-23 secures the network perimeter. Neither layer covers the API surface between them: unauthenticated catalog routes, weak secrets reaching production, unbounded request rates, exposed datastore ports in the compose stack, and an unsanitized WebSocket endpoint.
 
-**`/api/courses/search` is the acute gap.** Each call fans out to Ollama (embedding) and Neo4j (vector search). Without auth or rate limiting, a single unauthenticated client can pin both datastores. The fix is mechanical — one `Depends()` and one `@limiter.limit()` — but it must land before the service is deployed.
+**`/api/courses/search` is the acute gap.** Each call fans out to Ollama (local embedding via nomic-embed-text) and Neo4j (vector search). Without auth or rate limiting, a single unauthenticated client can pin both datastores. The fix is mechanical — one `Depends()` and one `@limiter.limit()` — but it must land before the service is deployed.
 
 **Secret validation at boot** is cheap insurance. The committed defaults (`changeme`, `neo4j`, `secret`) are in the repo history. A service that starts successfully in production with those defaults provides a false sense of security. A one-time `validate_production()` call in the lifespan eliminates the entire class of "forgot to rotate the default" incidents.
 
@@ -931,6 +941,8 @@ The "never raises" contract matters because intent classification sits on the ho
 
 ## ADR-35: ChatOllama reasoning=False + temperature=0 for Tool-Calling Reliability (CUAI-40 / CHAT-008)
 
+> **Status: Superseded** by [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference). The `reasoning=False` workaround was specific to gpt-oss:20b's thinking mode leaking into tool-call JSON. `ChatAnthropic` does not have this issue. `temperature=0` is still used for determinism.
+
 ### Decision
 Configure `ChatOllama` with `reasoning=False` and `temperature=0` as the default LLM instance for the LangGraph conversation engine.
 
@@ -964,7 +976,7 @@ When the LLM-with-tools call fails (e.g., malformed tool-call JSON despite ADR-3
 3. **Retry once without tools** (chosen) — strips tool bindings so the model cannot attempt a tool call. The response is text-only, which is always parseable.
 
 ### Why
-This is a graceful degradation strategy specific to OSS model reliability. Commercial APIs (Claude, GPT-4) almost never produce malformed tool-call JSON, but open-source models at the 20B parameter scale occasionally do — even with thinking disabled and temperature pinned. The failure mode is: the model decides to call a tool but produces JSON that Ollama's parser rejects, raising a `ChatOllamaError` or similar exception.
+This is a general resilience measure. While Claude Sonnet (the primary model via ADR-41) rarely produces malformed tool-call JSON, the fallback is retained as defense-in-depth against transient API issues or unexpected model behavior. The failure mode is: the model decides to call a tool but produces malformed JSON, raising an exception in the LangChain tool-call parser.
 
 The retry-without-tools approach works because:
 - The user's question is still answerable — the LLM just has to answer from its parametric knowledge instead of calling a tool.
@@ -1078,5 +1090,70 @@ The `infra/infra.sh` script (`plan` / `up` / `down` subcommands) provides a loca
 ### Consequences
 - Destroy/recreate cycles (`infra/infra.sh down && infra/infra.sh up`) are now clean and reliable.
 - Rule precedence is expressed via explicit numeric priority rather than implicit list order — clearer and auditable.
-- The four ingress rules (priorities 1000, 1100, 1200, 65534) map directly to the same semantic intent described in [ADR-23](#adr-23-network-security--private-subnet--iap-over-bastion): Cloud Run → VMs, VM → VM, IAP → VMs, and default-deny-all.
+- The four ingress rules (priorities 1000, 1100, 1200, 65534) map directly to the same semantic intent described in [ADR-23](#adr-23-network-security--private-subnet--iap-over-bastion): Cloud Run → data-services VM, VM → VM, IAP → VMs, and default-deny-all.
 - Console and tooling references to these rules now appear under **Network Firewall Policies** rather than the legacy **Firewalls** section of the GCP console — a minor UX shift for operators familiar with the old location.
+
+---
+
+## ADR-41: Anthropic API for LLM Inference
+
+**Decision**: Migrate LLM inference from self-hosted Ollama (gpt-oss:20b on GPU VMs) to the Anthropic Messages API (Claude Sonnet). Retain Ollama for embeddings only (nomic-embed-text).
+
+**Alternatives considered**:
+1. **Continue with Ollama + gpt-oss:20b** — rejected. After extensive prompt refinement with gpt-oss:20b and qwen2.5:32b, OSS models at the 20-32B parameter scale proved reliable at either tool calling or generating contextual responses, but not both simultaneously. This limitation caused inconsistent user experiences: the model would correctly call tools but then produce poor natural-language summaries of the results, or vice versa.
+2. **Anthropic API (Claude Sonnet)** (chosen) — hosted API with native, reliable tool calling and high-quality response generation in the same turn.
+3. **OpenAI API (GPT-4o)** — viable alternative, but the team has more experience with Anthropic's SDK and tool-calling format.
+
+**Rationale**: Claude Sonnet solves the core quality problem that OSS models could not: reliable tool calling combined with high-quality contextual responses in the same conversation turn. The architectural simplification is significant:
+
+- **Eliminates GPU infrastructure**: No GPU VMs, no MIG auto-scaling, no Packer image builds, no NVIDIA driver management, no model pre-provisioning, no Redis inference queue, no queue-depth-exporter.
+- **Simplifies dev setup**: Developers need an API key instead of 16GB+ RAM and GPU provisioning. Local dev no longer requires downloading a 13GB model.
+- **Reduces operational complexity**: No spot VM reclamation handling, no custom Cloud Monitoring metrics, no cold-start model loading.
+- **Cost trade-off**: Moves from fixed infrastructure cost (~$0.28/hr per GPU VM) to per-token pricing (~$0.01/conversation turn). For a class project with intermittent usage, API pricing is cheaper than keeping a GPU VM running.
+
+**What stays**: Ollama continues to run for embedding generation via `nomic-embed-text` (768-dim). The embedding model is small (~274MB) and runs efficiently on CPU. For production, it deploys as a Cloud Run service with a prebaked Docker image ([ADR-42](#adr-42-prebaked-ollama-embed-image-on-cloud-run)). The Neo4j vector index, `build_embeddings.py` pipeline, and `search_courses` tool embedding calls are unchanged.
+
+**What changes**:
+- `ChatOllama` → `ChatAnthropic` (from `langchain-anthropic`)
+- `ollama_service.chat_completion()` → Anthropic SDK `messages.create()`
+- `OLLAMA_MODEL` env var → `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`
+- `langchain-ollama` dependency → `langchain-anthropic` + `anthropic`
+- Docker Compose Ollama service downsized from 20GB to ~1GB memory (embeddings only)
+- GPU VM infrastructure (MIG, Packer, instance templates) removed from Terraform
+- `scripts/ollama-gpu-test.sh` deleted
+
+**Supersedes**: [ADR-2](#adr-2-self-hosted-llm-via-ollama), [ADR-7](#adr-7-redis-queue-for-ollama-inference), [ADR-21](#adr-21-ollama-auto-scaling-via-managed-instance-group), [ADR-26](#adr-26-gpt-oss20b-as-default-llm), [ADR-35](#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008).
+
+---
+
+## ADR-42: Prebaked Ollama Embed Image on Cloud Run
+
+**Decision**: Deploy the Ollama embedding service (nomic-embed-text) as a Cloud Run service using a custom Docker image with the model prebaked at build time. Use Cloud Run's native autoscaling instead of a custom MIG.
+
+**Alternatives considered**:
+1. **Pull model at container startup** — rejected. Adds ~274MB download on every cold start, increasing spin-up time from <10s to 30-60s depending on network. Non-deterministic — model registry availability becomes a runtime dependency.
+2. **Persistent VM with Ollama** — rejected for production. No autoscaling, no scale-to-zero, fixed cost even when idle. Fine for dev/demo but not production-ready.
+3. **Prebaked Cloud Run image** (chosen) — model weights baked into the Docker image at build time. Cloud Run autoscales on request concurrency and scales to zero when idle.
+4. **MIG auto-scaling** (original DEPLOY-003 approach) — rejected. MIG was designed for GPU-bound LLM inference. Embedding generation is CPU-only and fast (~10-50ms per request), making MIG unnecessary overhead. Cloud Run's request-based autoscaling is a better fit.
+
+**Rationale**: The embedding model (nomic-embed-text, ~274MB) is small and CPU-only — it doesn't need GPU VMs or custom scaling infrastructure. Prebaking it into the Docker image ensures:
+- **Fast cold starts**: No model download at runtime; container is ready to serve immediately
+- **Deterministic deployments**: Model version is pinned at build time, not pulled from a registry at runtime
+- **Cost efficiency**: Cloud Run scales to zero when idle; no fixed VM costs
+- **Operational simplicity**: No Packer images, no custom Cloud Monitoring metrics, no queue-depth exporters
+
+**Cloud Run configuration**:
+- `min_instances = 0` (scale to zero — saves cost during idle periods)
+- `max_instances = 3` (budget cap; embedding requests are fast so 3 instances handles significant load)
+- `concurrency = 50` (embedding requests are non-blocking and complete in ~10-50ms)
+- CPU-only (no GPU allocation needed)
+- VPC connector attached for database access
+
+**Dockerfile approach**:
+```dockerfile
+FROM ollama/ollama:latest
+# Prebake the embedding model at build time
+RUN ollama serve & sleep 5 && ollama pull nomic-embed-text && pkill ollama
+```
+
+**What this replaces**: The cancelled [DEPLOY-003](#deploy-003) MIG approach. That was designed for GPU-bound LLM inference (gpt-oss:20b) which is now handled by the Anthropic API ([ADR-41](#adr-41-anthropic-api-for-llm-inference)).

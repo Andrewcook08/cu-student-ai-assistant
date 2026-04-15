@@ -14,7 +14,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
 # Models to pull into Ollama before seeding.
-OLLAMA_MODELS=("nomic-embed-text" "gpt-oss:20b")
+OLLAMA_MODELS=("nomic-embed-text")
 
 HEALTH_TIMEOUT=120  # seconds to wait for all services to be healthy
 
