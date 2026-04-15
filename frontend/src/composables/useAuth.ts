@@ -4,6 +4,7 @@ import {
   register as apiRegister,
   fetchPrograms as apiFetchPrograms,
   fetchProgramRequirements,
+  updateProgram as apiUpdateProgram,
   updateCompletedCourses as apiUpdateCourses,
 } from '@/services/authApi'
 import type {
@@ -68,6 +69,19 @@ export function useAuth() {
     }
   }
 
+  async function updateProgram(programId: number | null): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      await apiUpdateProgram(programId, requireToken())
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to update program'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function updateCompletedCourses(courses: CompletedCoursePayload[]): Promise<void> {
     loading.value = true
     error.value = null
@@ -81,5 +95,5 @@ export function useAuth() {
     }
   }
 
-  return { loading, error, register, fetchPrograms, fetchRequirements, updateCompletedCourses }
+  return { loading, error, register, fetchPrograms, fetchRequirements, updateProgram, updateCompletedCourses }
 }

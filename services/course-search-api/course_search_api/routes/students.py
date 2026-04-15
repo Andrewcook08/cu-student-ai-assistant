@@ -2,7 +2,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from shared.models import CompletedCourse, Course, StudentDecision, User
+from shared.models import CompletedCourse, Course, Program, StudentDecision, User
 from sqlalchemy.orm import Session
 
 from course_search_api.dependencies import get_current_user, get_db
@@ -74,6 +74,29 @@ def get_current_student(
             for d in decisions
         ],
     }
+
+
+class UpdateProgramBody(BaseModel):
+    program_id: int | None
+
+
+@router.put("/me/program")
+@limiter.limit("10/minute", key_func=user_key_func)
+def update_program(
+    request: Request,
+    body: UpdateProgramBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Set or clear the authenticated user's declared program."""
+    if body.program_id is not None:
+        program = db.query(Program).filter(Program.id == body.program_id).first()
+        if not program:
+            raise HTTPException(status_code=422, detail="Unknown program_id")
+
+    user.program_id = body.program_id
+    db.commit()
+    return {"program_id": user.program_id}
 
 
 @router.put("/me/completed-courses")

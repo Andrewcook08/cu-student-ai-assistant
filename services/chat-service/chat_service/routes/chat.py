@@ -227,10 +227,72 @@ async def chat_websocket(
             }
 
             try:
+                result: dict[str, Any] = {}
+                streamed_reply = ""
+
+                async def _run_stream(
+                    _input: dict[str, Any] = initial_state,
+                ) -> dict[str, Any]:
+                    nonlocal streamed_reply
+                    final_state: dict[str, Any] = {}
+                    # Track how many times call_llm has emitted tokens.
+                    # If > 0, a tool call happened in between and we need
+                    # a separator before the next batch of tokens.
+                    llm_segment_count = 0
+                    in_llm_segment = False
+                    async for chunk in graph.astream(
+                        _input,
+                        stream_mode=["updates", "messages"],
+                        version="v2",
+                    ):
+                        if chunk["type"] == "messages":
+                            msg, metadata = chunk["data"]
+                            # Stream tokens only from the call_llm node.
+                            # msg.content can be str or list (Anthropic
+                            # content blocks) — extract text only.
+                            node = metadata.get("langgraph_node")
+                            if msg.content and node == "call_llm":
+                                text = msg.content
+                                if isinstance(text, list):
+                                    text = "".join(
+                                        b.get("text", "")
+                                        for b in text
+                                        if isinstance(b, dict)
+                                    )
+                                if text:
+                                    if not in_llm_segment:
+                                        in_llm_segment = True
+                                        # Insert separator between
+                                        # successive LLM segments
+                                        # (i.e. after a tool call).
+                                        if llm_segment_count > 0:
+                                            sep = "\n\n"
+                                            streamed_reply += sep
+                                            await websocket.send_json(
+                                                {"type": "token", "token": sep}
+                                            )
+                                        llm_segment_count += 1
+                                    streamed_reply += text
+                                    await websocket.send_json(
+                                        {"type": "token", "token": text}
+                                    )
+                        elif chunk["type"] == "updates":
+                            # Each update is {node_name: state_update}
+                            for node_name, state_update in chunk["data"].items():
+                                if isinstance(state_update, dict):
+                                    final_state.update(state_update)
+                                # When a non-LLM node completes, mark
+                                # that we left the LLM segment.
+                                if node_name != "call_llm":
+                                    in_llm_segment = False
+                    return final_state
+
                 result = await asyncio.wait_for(
-                    graph.ainvoke(initial_state),
+                    _run_stream(),
                     timeout=GRAPH_TIMEOUT_SECONDS,
                 )
+            except WebSocketDisconnect:
+                return
             except TimeoutError:
                 logger.error(
                     "chat: graph timed out after %ds for user_id=%s session=%s",
@@ -238,13 +300,16 @@ async def chat_websocket(
                     user_id,
                     session_id,
                 )
-                await websocket.send_json(
-                    {
-                        "type": "chat_response",
-                        "reply": "The request took too long. Please try again.",
-                        "session_id": session_id,
-                    }
-                )
+                try:
+                    await websocket.send_json(
+                        {
+                            "type": "chat_response",
+                            "reply": "The request took too long. Please try again.",
+                            "session_id": session_id,
+                        }
+                    )
+                except (WebSocketDisconnect, RuntimeError):
+                    return
                 continue
             except Exception:
                 logger.exception(
@@ -252,13 +317,16 @@ async def chat_websocket(
                     user_id,
                     session_id,
                 )
-                await websocket.send_json(
-                    {
-                        "type": "chat_response",
-                        "reply": "Something went wrong. Please try again.",
-                        "session_id": session_id,
-                    }
-                )
+                try:
+                    await websocket.send_json(
+                        {
+                            "type": "chat_response",
+                            "reply": "Something went wrong. Please try again.",
+                            "session_id": session_id,
+                        }
+                    )
+                except (WebSocketDisconnect, RuntimeError):
+                    return
                 continue
 
             # ── Extract reply ───────────────────────────────────────
@@ -266,10 +334,16 @@ async def chat_websocket(
                 reply = result["error"]
                 structured_data = None
             else:
-                ai_messages = [m for m in result["messages"] if isinstance(m, AIMessage)]
-                reply = (
-                    (ai_messages[-1].content or "") if ai_messages else ""
-                ) or "I couldn't generate a response. Please try again."
+                # Prefer the streamed reply we accumulated token-by-token;
+                # fall back to extracting from the final state messages.
+                if streamed_reply:
+                    reply = streamed_reply
+                else:
+                    all_msgs = result.get("messages", [])
+                    ai_messages = [m for m in all_msgs if isinstance(m, AIMessage)]
+                    reply = (
+                        (ai_messages[-1].content or "") if ai_messages else ""
+                    ) or "I couldn't generate a response. Please try again."
                 structured_data = result.get("structured_data") or None
 
             if result.get("pii_detected"):
@@ -307,7 +381,10 @@ async def chat_websocket(
             if structured_data:
                 response["structured_data"] = structured_data
 
-            await websocket.send_json(response)
+            try:
+                await websocket.send_json(response)
+            except (WebSocketDisconnect, RuntimeError):
+                return
 
             # ── Summarize if buffer exceeded threshold (MEM-002) ────
             # Fired as a background task so the response ships first.

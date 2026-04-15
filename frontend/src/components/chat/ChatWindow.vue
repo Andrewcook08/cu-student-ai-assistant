@@ -1,16 +1,67 @@
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted } from 'vue'
+import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import { MessageCircle, X } from 'lucide-vue-next'
 import ChatInput from './ChatInput.vue'
 import ChatMessage from './ChatMessage.vue'
 import type { Action } from '@/types/index'
 import { useChatStore } from '@/stores/chatStore'
+import { useAuthStore } from '@/stores/authStore'
 import { useChat } from '@/composables/useChat'
 
 const isOpen = ref(false)
 const messagesEnd = ref<HTMLElement | null>(null)
+const panelEl = ref<HTMLElement | null>(null)
 const store = useChatStore()
+const auth = useAuthStore()
 const { connect, send } = useChat()
+
+// ── Resize by dragging the header bar upward/leftward ────────
+let resizing = false
+let dragged = false
+let startX = 0
+let startY = 0
+let startW = 0
+let startH = 0
+
+function onResizeStart(e: MouseEvent) {
+  // Ignore clicks on the close button
+  if ((e.target as HTMLElement).closest('.chat-panel__close')) return
+  if (!panelEl.value) return
+  e.preventDefault()
+  dragged = false
+  startX = e.clientX
+  startY = e.clientY
+  startW = panelEl.value.offsetWidth
+  startH = panelEl.value.offsetHeight
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup', onResizeEnd)
+}
+
+function onResizeMove(e: MouseEvent) {
+  if (!panelEl.value) return
+  const dx = startX - e.clientX
+  const dy = startY - e.clientY
+  if (!resizing && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+    resizing = true
+    dragged = true
+  }
+  if (!resizing) return
+  panelEl.value.style.width = `${Math.max(300, startW + dx)}px`
+  panelEl.value.style.height = `${Math.max(320, startH + dy)}px`
+}
+
+function onResizeEnd() {
+  resizing = false
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeEnd)
+  // If no drag occurred, treat as a click → toggle
+  if (!dragged) toggle()
+}
+
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeEnd)
+})
 
 function toggle() {
   isOpen.value = !isOpen.value
@@ -23,8 +74,15 @@ function handleActionSelected(action: Action) {
 }
 
 onMounted(() => {
-  if (localStorage.getItem('token')) connect()
+  if (auth.isAuthenticated) connect()
 })
+
+watch(
+  () => auth.isAuthenticated,
+  (loggedIn) => {
+    if (loggedIn) connect()
+  },
+)
 
 watch(
   () => store.messages.length,
@@ -42,8 +100,8 @@ watch(
   </div>
 
   <!-- Expanded: full chat panel -->
-  <div v-else class="chat-panel">
-    <div class="chat-panel__header" @click="toggle">
+  <div v-else ref="panelEl" class="chat-panel">
+    <div class="chat-panel__header" @mousedown="onResizeStart">
       <span class="chat-panel__title">CU AI Advisor</span>
       <button class="chat-panel__close" title="Close chat" @click.stop="toggle">
         <X :size="16" />
@@ -59,14 +117,14 @@ watch(
         :message="msg"
         @action-selected="handleActionSelected"
       />
-      <div v-if="store.isTyping" class="chat-msg chat-msg--ai chat-msg--typing">
+      <div v-if="store.isTyping && !store.isStreaming" class="chat-msg chat-msg--ai chat-msg--typing">
         <span></span><span></span><span></span>
       </div>
       <div ref="messagesEnd" />
     </div>
 
     <ChatInput
-      :disabled="store.isTyping || !!store.connectionError"
+      :disabled="store.isTyping || store.isStreaming || !!store.connectionError"
       @send="send"
     />
   </div>
@@ -101,8 +159,12 @@ watch(
   position: fixed;
   bottom: 24px;
   right: 24px;
-  width: 360px;
-  height: 520px;
+  width: 400px;
+  height: 560px;
+  min-width: 300px;
+  min-height: 320px;
+  max-width: 90vw;
+  max-height: 85vh;
   background: #fff;
   border: 1px solid #ddd;
   border-radius: 8px;
@@ -119,8 +181,9 @@ watch(
   height: 48px;
   background: #000;
   color: #CFB87C;
-  cursor: pointer;
+  cursor: nw-resize;
   flex-shrink: 0;
+  user-select: none;
 }
 .chat-panel__title {
   flex: 1;
