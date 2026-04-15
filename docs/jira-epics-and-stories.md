@@ -173,9 +173,9 @@
 - **Assignee**: Person B
 - **Labels**: `critical-path`
 - **Status**: ✅ Done (Sprint 1)
-- **Description**: Write `scripts/test_tool_calling.py`. Define 7 tool schemas matching the architecture. Write 20+ representative student questions with expected tool names. Test the chosen Ollama model. Report pass rate. If < 80%, test alternative models and document recommendation.
+- **Description**: Write `scripts/test_tool_calling.py`. Define 7 tool schemas matching the architecture. Write 20+ representative student questions with expected tool names. Test tool calling against the Anthropic API (Claude Sonnet). Report pass rate. If < 80%, test alternative models and document recommendation.
 - **Acceptance criteria**:
-  - [x] Test script runs against Ollama and produces pass/fail per question
+  - [x] Test script runs against the Anthropic API and produces pass/fail per question
   - [x] Overall pass rate ≥ 80%
   - [x] If fail: recommendation for alternative model documented
   - [x] Model choice decision recorded (resolves open question #2)
@@ -321,17 +321,16 @@
   - [ ] *(security ADR-33)* All Cypher queries use parameterized bindings — never f-string interpolation of user input. Enforce via code review and a test that asserts query strings do not contain `{` inside `MATCH`/`WHERE` clauses.
   - [ ] *(security ADR-33)* Queries are read-only by default; any write query is behind an explicit `write=True` flag on the helper.
 
-### CHAT-003: Ollama service + embedding generation
+### CHAT-003: LLM service + embedding generation
 - **Points**: 2
 - **Phase**: 2 (Day 7-8)
-- **Blocked by**: INFRA-001 (Ollama from Docker Compose)
+- **Blocked by**: INFRA-001 (Ollama from Docker Compose for embeddings)
 - **Assignee**: Person C
 - **Status**: 📋 Planned
-- **Description**: Create `services/ollama_service.py`. Async HTTP client (`httpx.AsyncClient`) to Ollama API. Functions: `get_embedding(text)`, `chat_completion(messages, tools, *, format, options)`. `format` enables Ollama structured-output mode (JSON Schema) and `options` forwards sampler params like `temperature=0`; both are kwarg-only and default to None for back-compat. 120s timeout with graceful error handling.
+- **Description**: `services/ollama_service.py` handles embeddings via Ollama (nomic-embed-text, 768-dim). A new `services/llm_service.py` (or updated `ollama_service.py`) handles chat completion via the Anthropic SDK — `chat_completion()` calls `anthropic.AsyncAnthropic().messages.create()` instead of Ollama `/api/chat`. Functions: `get_embedding(text)` (still Ollama), `chat_completion(messages, tools)` (Anthropic SDK). Anthropic API has its own timeout handling via SDK configuration.
 - **Acceptance criteria**:
   - [ ] `get_embedding("data science")` returns 768-dim vector
-  - [ ] `chat_completion(messages, tools, *, format, options)` returns model response with tool calls; `format` and `options` are forwarded only when non-None
-  - [ ] Timeout at 120s returns user-friendly error message
+  - [ ] `chat_completion(messages, tools)` returns model response with tool calls via Anthropic API
   - [ ] Connection errors are handled gracefully
 
 ### CHAT-004: Redis service (sessions + inference queue)
@@ -359,7 +358,7 @@
 - **Description**: Create `core/tools.py`. Define 7 tools with `@tool` decorator: search_courses, lookup_course, check_prerequisites, get_degree_requirements, get_student_profile, find_schedule_conflicts, save_decision. Each tool has a clear docstring for the LLM and calls the appropriate service layer. The search_courses/lookup_course split (fuzzy search by name → exact lookup by code) was validated by the CUAI-32 LangGraph spike.
 - **Acceptance criteria**:
   - [ ] All 7 tools defined with typed parameters and descriptive docstrings
-  - [ ] Each tool calls the correct service (Neo4j, PostgreSQL, Ollama)
+  - [ ] Each tool calls the correct service (Neo4j, PostgreSQL, Ollama for embeddings)
   - [ ] Tools return structured dicts (not raw database rows)
   - [ ] Tools are importable and can be bound to the LLM
 
@@ -392,7 +391,7 @@
   - [x] "Can you check my schedule for conflicts?" → `schedule_help`
   - [x] "What is your favorite color?" → `general_question`
   - [x] Classification is fast (< 500ms) — use heuristics or single LLM call
-  - [x] LLM fallback uses Ollama structured output (`format=<enum schema>`) so the model literally cannot emit anything outside the five labels
+  - [x] LLM fallback uses Anthropic API with JSON prompt instructions so the model cannot emit anything outside the five labels
   - [x] `classify_intent()` never raises — timeouts, malformed JSON, and unknown labels all collapse to `GENERAL_QUESTION`
 
 ### CHAT-008: LangGraph conversation engine
@@ -402,7 +401,7 @@
 - **Assignee**: Person C
 - **Labels**: `critical-path`
 - **Status**: ✅ Done (Sprint 2)
-- **Implementation**: LangGraph StateGraph with 5 nodes (classify_intent, build_context, call_llm, tool_node, respond). ChatOllama with `reasoning=False` + `temperature=0`. Retry-without-tools fallback, parallel tool execution, 180s graph timeout, atomic Redis persist, CourseCard extraction.
+- **Implementation**: LangGraph StateGraph with 5 nodes (classify_intent, build_context, call_llm, tool_node, respond). ChatAnthropic with `temperature=0`. Retry-without-tools fallback, parallel tool execution, 180s graph timeout, atomic Redis persist, CourseCard extraction.
 - **Files**: `core/llm_engine.py` (new), `routes/chat.py` (modified), `main.py` (modified)
 - **Tests**: 50 unit tests + 7 WebSocket tests, 309 total passing
 - **Description**: Create `core/llm_engine.py`. LangGraph StateGraph with nodes: classify_intent → build_context → call_llm → maybe_call_tools (loop) → validate_output → respond. Bind tools to the LLM. Handle the tool-calling loop (LLM generates tool calls → executor runs them → results fed back → LLM generates final response). Wire into the WebSocket endpoint (replace echo stub).
@@ -452,11 +451,11 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
 - **Status**: 📋 Planned
-- **Description**: Write pytest tests for the chat service. Test: tool executor auth enforcement (user_id override), tool calling with mock LLM responses, Neo4j service queries, Redis session storage, WebSocket connect/disconnect, intent classification accuracy. Mock Ollama responses so tests run without GPU.
+- **Description**: Write pytest tests for the chat service. Test: tool executor auth enforcement (user_id override), tool calling with mock LLM responses, Neo4j service queries, Redis session storage, WebSocket connect/disconnect, intent classification accuracy. Mock LLM responses so tests run without API calls.
 - **Acceptance criteria**:
   - [ ] `uv run pytest services/chat-service/tests/ -v` passes
   - [ ] Tests cover: tool executor user_id override, rate limiting, session persistence, intent classification
-  - [ ] Test fixtures mock Ollama responses (no GPU needed in CI)
+  - [ ] Test fixtures mock LLM responses (no API calls in CI)
   - [ ] WebSocket connect with valid JWT and reject with invalid JWT tested
   - [ ] At least 80% coverage on `core/` modules
   - [ ] *(security ADR-33)* Test that the `user_id` override in `tool_executor` rejects a tool call carrying a different `user_id` (covers ADR-14).
@@ -949,17 +948,20 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Phase**: 4 (Day 21)
 - **Blocked by**: DEPLOY-001, DEPLOY-002 (needs Redis for queue)
 - **Assignee**: Person A
-- **Status**: 📋 Planned
-- **Description**: Build a custom GCE image (via Packer) with Docker, NVIDIA drivers, Ollama, and models (`gpt-oss:20b`, `nomic-embed-text`) pre-installed. Create `infra/packer/ollama-worker.pkr.hcl`. Create `infra/ollama-mig.tf` — instance template (spot g2-standard-4, L4 GPU, boots from custom image), MIG with min 0 / max 3, autoscaler on custom metric (Redis queue depth). Create `infra/monitoring.tf` (custom metric definition). Create `infra/scripts/ollama-worker-startup.sh` (lightweight — starts Redis queue worker only, no provisioning) and `infra/scripts/queue-depth-exporter.py`.
-- **Acceptance criteria**:
-  - [ ] Custom GCE image built with gpt-oss:20b and nomic-embed-text pre-loaded
-  - [ ] Packer template (`infra/packer/ollama-worker.pkr.hcl`) exists and is documented
-  - [ ] Instance template references custom image family, creates with GPU
-  - [ ] MIG starts with target_size 0
-  - [ ] Manual resize to 1 boots a GPU worker ready to serve (no model download)
-  - [ ] Worker pulls inference requests from Redis queue
-  - [ ] queue-depth-exporter publishes metric to Cloud Monitoring
-  - [ ] Autoscaler responds to metric changes
+- **Status**: ❌ Cancelled
+
+**Status: Cancelled** — GPU VM infrastructure eliminated by migration to Anthropic API (CUAI-87). Ollama for embeddings runs on the data-services VM; no separate MIG needed.
+
+- **Description**: ~~Build a custom GCE image (via Packer) with Docker, NVIDIA drivers, Ollama, and models (`gpt-oss:20b`, `nomic-embed-text`) pre-installed. Create `infra/packer/ollama-worker.pkr.hcl`. Create `infra/ollama-mig.tf` — instance template (spot g2-standard-4, L4 GPU, boots from custom image), MIG with min 0 / max 3, autoscaler on custom metric (Redis queue depth). Create `infra/monitoring.tf` (custom metric definition). Create `infra/scripts/ollama-worker-startup.sh` (lightweight — starts Redis queue worker only, no provisioning) and `infra/scripts/queue-depth-exporter.py`.~~
+- **Acceptance criteria** (N/A — cancelled):
+  - ~~[ ] Custom GCE image built with gpt-oss:20b and nomic-embed-text pre-loaded~~
+  - ~~[ ] Packer template (`infra/packer/ollama-worker.pkr.hcl`) exists and is documented~~
+  - ~~[ ] Instance template references custom image family, creates with GPU~~
+  - ~~[ ] MIG starts with target_size 0~~
+  - ~~[ ] Manual resize to 1 boots a GPU worker ready to serve (no model download)~~
+  - ~~[ ] Worker pulls inference requests from Redis queue~~
+  - ~~[ ] queue-depth-exporter publishes metric to Cloud Monitoring~~
+  - ~~[ ] Autoscaler responds to metric changes~~
 
 ### DEPLOY-004: Terraform — Cloud Run services
 - **Points**: 3
@@ -996,11 +998,11 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocked by**: DEPLOY-002, DATA-005
 - **Assignee**: Person A
 - **Status**: 📋 Planned
-- **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Verify Ollama models are present on GPU worker (from baked image). Verify data counts.
+- **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Verify data counts.
 - **Acceptance criteria**:
   - [ ] All courses, programs, requirements in GCP databases
   - [ ] Embeddings generated and vector index created
-  - [ ] Ollama models verified present on GPU worker (from baked image)
+  - [ ] Anthropic API key configured in Cloud Run environment variables
   - [ ] All validation counts match local
 
 ### DEPLOY-007: End-to-end GCP verification
@@ -1040,7 +1042,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
   - [x] Status check shown on PR page
   - [x] Branch protection on main requires CI green before merge
   - [x] Python job commands run from repo root (not from a service dir) so `uv run pytest` auto-discovers all workspace test directories
-  - [x] Does NOT gate CI on scripts that need external services (e.g. `scripts/test_tool_calling.py` which needs Ollama running) — those stay as manual QA
+  - [x] Does NOT gate CI on scripts that need external services (e.g. `scripts/test_tool_calling.py` which needs an Anthropic API key) — those stay as manual QA
   - [x] Documented in `docs/development-workflow.md § How CI Discovers Tests` (this is the maintenance reference for future service additions)
 
 ### CICD-002: GitHub Actions deploy pipeline
@@ -1106,7 +1108,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
   - [ ] Each team member knows their part
   - [ ] Demo rehearsed at least twice
   - [ ] Backup video recorded
-  - [ ] Pre-warm script ready (resize MIG, send warmup message)
+  - [ ] Anthropic API connectivity verified before demo (no pre-warm needed)
 
 ### DEMO-003: Presentation slides
 - **Points**: 3
@@ -1143,9 +1145,9 @@ INFRA-001 (Andrew) ──→ INFRA-002 (Scott) ──→ INFRA-003 (Scott)
     │                       └──→ API-005 ──→ MEM-003
     │
     │  (Docker Compose provides data services)
-    ├──→ DATA-004 (needs Ollama)
-    ├──→ DATA-006 (needs Ollama)
-    ├──→ CHAT-003 (needs Ollama)
+    ├──→ DATA-004 (needs Ollama for embeddings)
+    ├──→ DATA-006 (needs Anthropic API key)
+    ├──→ CHAT-003 (needs Ollama for embeddings + Anthropic API key)
     └──→ CHAT-004 (needs Redis)
 
 FE-001 ──→ FE-002 ──→ FE-003 ──→ FE-004

@@ -26,7 +26,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 Prefer `scripts/dev.sh up --seed` for day-to-day startup (see Data ingestion). Raw `docker compose` below is the escape hatch.
 ```bash
 docker compose up -d                       # Start all 7 services
-docker compose up -d postgres neo4j redis ollama  # Data services only
+docker compose up -d postgres neo4j redis ollama  # Data services only (ollama = embeddings)
 docker compose down                        # Stop (keep data)
 docker compose down -v                     # Stop + delete all data
 docker compose logs -f chat-service        # Tail logs for one service
@@ -44,7 +44,7 @@ cd frontend && npm run dev
 ```
 
 ### Data ingestion
-Ollama models (`gpt-oss:20b`, `nomic-embed-text`) are pre-provisioned on the dev host's disk — no runtime pulls needed. `scripts/dev.sh` is the canonical orchestrator: starts containers, waits for health, seeds data.
+The Ollama embedding model (`nomic-embed-text`) runs in Docker for vector search. LLM inference uses the Anthropic API (`ANTHROPIC_API_KEY` in `.env`). `scripts/dev.sh` is the canonical orchestrator: starts containers, waits for health, seeds data.
 ```bash
 scripts/dev.sh up --seed                   # Start containers + wait for health + seed (primary entry point)
 scripts/dev.sh down                        # Stop containers (keep data)

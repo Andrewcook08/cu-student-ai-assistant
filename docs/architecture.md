@@ -64,16 +64,16 @@ CU Boulder has no personalized tool for degree planning — just static websites
 │  - GET /students/me/   │  │  - Input/output validation      │
 │    decisions            │  │                                 │
 │                        │  │  Talks to: PostgreSQL, Neo4j,   │
-│  Talks to: PostgreSQL  │  │  Redis, Ollama                  │
+│  Talks to: PostgreSQL  │  │  Redis, Ollama (embeddings)     │
 └────────────────────────┘  └──────────┬──────────────────────┘
                                        │
                                        ▼
                             ┌─────────────────────┐
-                            │  Ollama Workers      │
-                            │  (GPU VMs)           │
+                            │  Anthropic API       │
+                            │  (external)          │
                             │                      │
                             │  - LLM inference     │
-                            │  - Embeddings        │
+                            │    (Claude Sonnet)   │
                             └─────────────────────┘
                                        │
    ┌───────────────────────────────────┼──────────────────┐
@@ -96,7 +96,7 @@ CU Boulder has no personalized tool for degree planning — just static websites
 
 ## Service Architecture
 
-The backend is split into **two services** plus the Ollama inference cluster. This is the only microservice boundary — everything else stays together within its respective service. See [ADR-1](decisions.md#adr-1-service-architecture) for the full rationale.
+The backend is split into **two services**. This is the only microservice boundary — everything else stays together within its respective service. See [ADR-1](decisions.md#adr-1-service-architecture) for the full rationale.
 
 ### Course Search API
 - Simple, stateless REST API over PostgreSQL
@@ -108,15 +108,12 @@ The backend is split into **two services** plus the Ollama inference cluster. Th
 ### Chat Service
 - Stateful AI orchestration via a compiled LangGraph `StateGraph` with 5 nodes: `classify_intent` → `build_context` → `call_llm` ←→ `tool_node` → `respond`
 - Holds long-lived WebSocket connections for streaming
-- Slow responses (seconds — waiting on Ollama inference)
+- Slow responses (seconds — waiting on Anthropic API inference)
 - Owns: intent classification, context building (Graph RAG + student profile), tool calling (7 tools via `ToolExecutor`), conversation history (Redis), input sanitization
 - Graph compiled once at startup on `app.state.conversation_graph`; each `ainvoke()` operates on an independent state copy (concurrent WebSocket sessions are safe)
 - **Scales independently**: add instances as chat demand grows, without affecting course search
 
-### Ollama Workers
-- GPU VMs running Ollama, accessed via Redis queue
-- Pull inference requests, return results
-- Scale by adding GPU VMs — no code changes
+LLM inference is handled by the **Anthropic API** (external). The Chat Service calls Anthropic directly via HTTPS — no in-VPC inference infrastructure.
 
 ### Why this split (and nothing more)
 - **Different scaling profiles**: the course search API and chat service have fundamentally different performance characteristics. The search API is fast CRUD; the chat service is slow, stateful AI orchestration. Coupling them means one bottleneck affects both.
@@ -128,7 +125,7 @@ The backend is split into **two services** plus the Ollama inference cluster. Th
 ### Communication
 - Frontend → Course Search API: REST (HTTP)
 - Frontend → Chat Service: WebSocket (streaming) + REST (non-streaming fallback)
-- Chat Service → Ollama Workers: `ChatOllama` via HTTP (local dev); Redis queue planned for GCP auto-scaling
+- Chat Service → Anthropic API: `ChatAnthropic` via HTTPS (Anthropic Python SDK)
 - Both services → PostgreSQL/Neo4j/Redis: direct connections (shared data layer)
 
 ---
@@ -140,15 +137,15 @@ The backend is split into **two services** plus the Ollama inference cluster. Th
 | **Frontend** | Vue 3 + TypeScript + Vite | Composition API, strong typing, team familiarity |
 | **UI Components** | Tailwind CSS + shadcn-vue | Rapid styling, easy CU branding (black/gold) |
 | **Backend (both services)** | Python 3.12 + FastAPI | Best for AI backends — async, typed, auto-generated docs |
-| **LLM** | Ollama (gpt-oss:20b) | Self-hosted, gpt-oss:20b validated by CUAI-32 extended spike for reliable tool calling with two-tool pattern. Model is swappable via `OLLAMA_MODEL` env var. |
-| **LLM Orchestration** | LangChain + LangGraph | Manual `StateGraph` (NOT `create_react_agent`) per [ADR-5](decisions.md#adr-5-langchain--langgraph-for-orchestration) — `ConversationState` extends `MessagesState`, `ChatOllama` with `bind_tools()`, 5-node graph compiled once at startup |
+| **LLM** | Anthropic API (Claude Sonnet) | Reliable tool calling + response generation, no inference infrastructure to manage. Model is configured via `ANTHROPIC_MODEL` env var. |
+| **LLM Orchestration** | LangChain + LangGraph | Manual `StateGraph` (NOT `create_react_agent`) per [ADR-5](decisions.md#adr-5-langchain--langgraph-for-orchestration) — `ConversationState` extends `MessagesState`, `ChatAnthropic` with `bind_tools()`, 5-node graph compiled once at startup |
 | **Graph DB + Vectors** | Neo4j (native vector indexes) | Graph RAG + vector search in one system |
 | **Relational DB** | PostgreSQL 16 | Structured queries, user accounts, persistent decision history |
 | **Session/Cache** | Redis | Conversation history (last 20 messages, 2h TTL, atomic persist via pipeline), rate limiting (slowapi) |
 | **Embeddings** | Ollama (nomic-embed-text, 768 dims) | Self-hosted embeddings, no external API needed |
 | **Auth** | JWT (future: CU SSO/SAML) | Identify students for persistent decision history |
 | **Containers** | Docker + Docker Compose | All services containerized, local dev parity |
-| **Cloud** | GCP (Cloud Run + Compute Engine) | Cloud Run for apps (scale-to-zero), VMs for data + Ollama |
+| **Cloud** | GCP (Cloud Run + Compute Engine) | Cloud Run for apps (scale-to-zero), VM for data services |
 | **IaC** | Terraform | Industry-standard, reproducible infra, GCS state backend |
 | **Python Tooling** | uv workspaces | Single lockfile, fast installs, workspace-aware path deps |
 | **Linting/Formatting** | ruff | Fast, replaces flake8 + isort + black in one tool |
@@ -169,7 +166,6 @@ Every layer of the system scales independently. For our class demo, everything r
 | **Frontend** | 0-1 Cloud Run instances | Cloud Run built-in (HTTP request count) | 0-10 instances |
 | **Course Search API** | 0-1 Cloud Run instances | Cloud Run built-in (HTTP request count) | 0-20 instances |
 | **Chat Service** | 0-1 Cloud Run instances | Cloud Run built-in (concurrent connections) | 0-10 instances |
-| **Ollama GPU Workers** | 0-1 spot GPU VMs | GCP Managed Instance Group (Redis queue depth) | 0-N GPU VMs |
 | **PostgreSQL** | Docker on VM | N/A (single instance) | Cloud SQL + read replicas |
 | **Neo4j** | Docker on VM | N/A (single instance) | AuraDB or self-hosted cluster |
 | **Redis** | Docker on VM | N/A (single instance) | Memorystore (clustered) |
@@ -184,7 +180,7 @@ min_instances  = 0    # scale to zero when idle (saves budget)
 max_instances  = 5    # budget cap
 concurrency    = 80   # requests per instance before spawning another
 
-# chat-service: stateful WebSocket, slow (waiting on Ollama) — low concurrency
+# chat-service: stateful WebSocket, slow (waiting on Anthropic API) — low concurrency
 # min_instances=1 avoids cold start delays (5-10s) that kill chat UX.
 # Cost is ~$3-5/mo — worth it to avoid the first user waiting 10s for a response.
 min_instances  = 1
@@ -198,130 +194,6 @@ concurrency    = 200
 ```
 
 No custom metrics needed — Cloud Run watches request count and concurrent connections natively. Scale-to-zero means we pay nothing when nobody is using the system.
-
-### Ollama GPU Auto-Scaling (Managed Instance Group)
-
-This is the only layer that requires custom auto-scaling infrastructure. See [ADR-7](decisions.md#adr-7-redis-queue-for-ollama-inference) for why we use a Redis queue, and [ADR-21](decisions.md#adr-21-ollama-auto-scaling-via-managed-instance-group) for the MIG decision.
-
-```
-                                    Cloud Monitoring
-                                    (watches queue depth metric)
-                                           │
-                                           ▼
-                                    GCP Autoscaler
-                                    (scales MIG up/down)
-                                           │
-                                           ▼
-Chat Service ──► Redis Queue ──► Managed Instance Group
-                     │              ├── Ollama Worker 1 (spot GPU VM)
-                     │              ├── Ollama Worker 2 (spot GPU VM)  ← added automatically
-                     │              └── Ollama Worker N
-                     │
-                 queue-depth-exporter
-                 (cron on data VM, publishes
-                  Redis LLEN → Cloud Monitoring)
-```
-
-**How it works:**
-1. Chat Service pushes inference requests to a Redis list
-2. A **queue-depth-exporter** (20-line Python script, cron every 30s on the data VM) reads `LLEN` on the Redis queue and publishes it to Cloud Monitoring as a custom metric
-3. A GCP **Autoscaler** watches the custom metric and scales the MIG:
-   - Scale up when queue depth > 5 per instance
-   - Scale down when queue depth < 2 per instance
-   - Cooldown: 60 seconds (GPU VMs boot in ~30-40s from pre-baked image, model loads from local disk in ~10-20s)
-4. New VMs are created from an **instance template** that boots a **custom GCE image** with Docker, NVIDIA drivers, Ollama, and models (`gpt-oss:20b`, `nomic-embed-text`) pre-installed. The startup script only starts the Redis queue worker — no downloads at boot.
-5. Workers only remove a request from the queue **after completing it** — if a spot VM is reclaimed mid-inference, the request stays in the queue and another worker picks it up
-
-**MIG Configuration (Terraform):**
-
-```hcl
-# Instance template — defines what each GPU worker looks like
-resource "google_compute_instance_template" "ollama_worker" {
-  machine_type = "g2-standard-4"
-  scheduling {
-    preemptible = true   # spot instances — ~60% cheaper, may be reclaimed
-  }
-  guest_accelerator {
-    type  = "nvidia-l4"
-    count = 1
-  }
-  # Custom image with Docker, NVIDIA drivers, Ollama, and models pre-baked.
-  # Built via: packer build infra/packer/ollama-worker.pkr.hcl
-  # Rebuild only when changing Ollama version or swapping models.
-  disk {
-    source_image = data.google_compute_image.ollama_worker.self_link
-  }
-  # Lightweight startup script: starts the Ollama Redis queue worker (no provisioning)
-  metadata_startup_script = file("scripts/ollama-worker-startup.sh")
-}
-
-# Managed Instance Group — manages worker pool
-resource "google_compute_instance_group_manager" "ollama_mig" {
-  base_instance_name = "ollama-worker"
-  version {
-    instance_template = google_compute_instance_template.ollama_worker.id
-  }
-  target_size = 0  # autoscaler controls this
-}
-
-# Autoscaler — scales based on Redis queue depth
-resource "google_compute_autoscaler" "ollama" {
-  target = google_compute_instance_group_manager.ollama_mig.id
-  autoscaling_policy {
-    min_replicas = 0   # scale to zero when no chat traffic
-    max_replicas = 3   # budget cap
-    metric {
-      name   = "custom.googleapis.com/redis/ollama_queue_depth"
-      target = 5       # scale up when queue > 5 per instance
-    }
-    cooldown_period = 60   # no model download — just VM boot + load from disk
-  }
-}
-```
-
-**Spot VM reclamation — why it's safe:**
-- GCP can reclaim spot VMs with 30 seconds notice
-- The Redis queue acts as a buffer — requests are not lost
-- Worker only ACKs (removes) a request after completing inference
-- If a worker dies mid-inference, the request remains in the queue
-- Another worker (or a newly spawned one) picks it up automatically
-- The user sees the typing indicator for longer (~60-90s extra), but gets their response
-- No errors, no lost data
-
-**Queue-depth-exporter script** (runs on data VM via cron):
-
-```python
-#!/usr/bin/env python3
-"""Publishes Redis queue depth to GCP Cloud Monitoring every 30s."""
-import redis
-from google.cloud import monitoring_v3
-
-r = redis.from_url("redis://localhost:6379/0")
-depth = r.llen("ollama:inference_queue")
-
-client = monitoring_v3.MetricServiceClient()
-# ... publish depth as custom.googleapis.com/redis/ollama_queue_depth
-```
-
-### Ollama Worker Image Build Pipeline
-
-Models are **baked into a custom GCE image** so that new workers boot ready to serve — no multi-minute model downloads at scale-up time. The image is built with [Packer](https://www.packer.io/) and stored in a GCE image family.
-
-**What the image contains:**
-- Ubuntu 22.04 LTS base
-- Docker + NVIDIA Container Toolkit + NVIDIA L4 drivers
-- `ollama/ollama:latest` Docker image (pre-pulled)
-- Models pre-loaded: `gpt-oss:20b` (~13GB) and `nomic-embed-text` (~274MB)
-
-**Build command:**
-```bash
-# Run from infra/ directory — produces a GCE image in the "ollama-worker" family
-packer build packer/ollama-worker.pkr.hcl
-```
-
-**When to rebuild:** Only when changing the Ollama version or swapping/adding models. Model updates are infrequent — this is not part of the regular deploy pipeline.
-
-**How it connects:** The instance template in `ollama-mig.tf` references `source_image_family = "ollama-worker"`, so MIG instances always boot from the latest baked image. The lightweight `ollama-worker-startup.sh` only starts the Redis queue worker process — no provisioning.
 
 ### Database Scaling Path
 
@@ -337,13 +209,13 @@ For our demo, all databases run in Docker on a single Compute Engine VM ([ADR-19
 
 ### Capacity Estimates
 
-| Scenario | Concurrent Users | Ollama Workers | Cloud Run Instances | Estimated Cost |
-|----------|-----------------|---------------|--------------------|--------------------|
-| **Class demo** | 5-10 | 1 spot GPU VM | 0-1 per service | ~$15-25 total (3.5 weeks) |
-| **Department pilot** (100 students) | 20-30 | 1-2 GPU VMs | 1-2 per service | ~$200-400/mo |
-| **University-wide** (10K students) | 500-1000 | 10-20 GPU VMs | 5-10 per service | ~$5K-10K/mo |
+| Scenario | Concurrent Users | Cloud Run Instances | Estimated Cost |
+|----------|-----------------|--------------------|--------------------|
+| **Class demo** | 5-10 | 0-1 per service | ~$15-25 total (3.5 weeks) + Anthropic API (~$0.01/turn) |
+| **Department pilot** (100 students) | 20-30 | 1-2 per service | ~$50-100/mo infra + Anthropic API costs |
+| **University-wide** (10K students) | 500-1000 | 5-10 per service | ~$500-1K/mo infra + Anthropic API costs |
 
-Assumptions: ~10% of users are actively waiting for an LLM response at any given time. Each L4 GPU handles ~10 concurrent inferences. Cloud Run auto-scales linearly with request count.
+Assumptions: ~10% of users are actively waiting for an LLM response at any given time. Cloud Run auto-scales linearly with request count. Anthropic API costs scale with token usage (~$0.01/turn at typical conversation length).
 
 ---
 
@@ -587,7 +459,7 @@ For the POC, students create an account and **self-report their profile**:
 
 **Status**: Implemented (CHAT-005/006/008 — CUAI-37/38/40).
 
-The LLM accesses databases via **tools** (LangChain tool calling with Ollama) rather than raw RAG context injection. The model decides when to call each tool based on the conversation. See [ADR-6](decisions.md#adr-6-tool-calling-over-raw-rag) for why tool calling over pure RAG. The first two tools implement the **two-tool pattern** (validated by CUAI-32 spike): `search_courses` handles fuzzy/vector search by name or keyword, while `lookup_course` handles exact code-based retrieval. This split is necessary because even 8B models can't reliably map course names to exact codes.
+The LLM accesses databases via **tools** (LangChain tool calling with ChatAnthropic) rather than raw RAG context injection. The model decides when to call each tool based on the conversation. See [ADR-6](decisions.md#adr-6-tool-calling-over-raw-rag) for why tool calling over pure RAG. The first two tools implement the **two-tool pattern** (validated by CUAI-32 spike): `search_courses` handles fuzzy/vector search by name or keyword, while `lookup_course` handles exact code-based retrieval. This split is necessary because even 8B models can't reliably map course names to exact codes.
 
 ```python
 @tool
@@ -640,7 +512,7 @@ def save_decision(user_id: str, course_code: str, decision_type: str,
 
 The architecture includes several safeguards for reliable tool calling:
 
-1. **Retry-without-tools fallback**: In `call_llm_node`, the LLM is first invoked with `bind_tools()`. If the model produces a malformed tool call (common with smaller OSS models that emit "thinking" text before the JSON — gpt-oss:20b has a thinking mode that leaks into tool call JSON if `reasoning=True`), the node retries once with the bare LLM (no tools bound) so the user still gets a text response rather than an error.
+1. **Retry-without-tools fallback**: In `call_llm_node`, the LLM is first invoked with `bind_tools()`. If the model produces a malformed tool call, the node retries once with the bare LLM (no tools bound) so the user still gets a text response rather than an error. This is a resilience measure that ensures the user gets a text response even if tool-call parsing fails.
 
 2. **Strict Pydantic validation**: Every tool call is validated against its schema by `ToolExecutor` before execution. Bad parameters never reach the database. The executor also enforces JWT `user_id` override (the LLM cannot access another user's data), parameter whitelisting, and audit logging.
 
@@ -650,7 +522,7 @@ The architecture includes several safeguards for reliable tool calling:
 
 5. **Tool descriptions are the prompt**: `@tool` docstrings are short, concrete, and example-rich. The LLM picks tools based on the docstring, so clarity matters more than cleverness.
 
-6. **Model flexibility**: The current model is gpt-oss:20b, configured via `OLLAMA_MODEL`. `ChatOllama` is initialized with `temperature=0` and `reasoning=False` (disabling thinking mode prevents leaked reasoning text from corrupting tool call JSON). The architecture is model-agnostic — to swap models, update `OLLAMA_MODEL` and adjust the GPU VM instance type if needed. No code changes required.
+6. **Model flexibility**: The current model is Claude Sonnet, configured via `ANTHROPIC_MODEL`. `ChatAnthropic` is initialized with `temperature=0`. The architecture is model-agnostic — to swap Anthropic models, update `ANTHROPIC_MODEL`. No infrastructure changes required.
 
 ### Example Flow
 1. Student: *"What CS electives can I take?"*
@@ -684,7 +556,7 @@ The Chat Service sets a **180-second timeout** on each LangGraph invocation via 
 - **Atomic persist**: After each turn, `redis_service.append_messages()` persists both the user message and assistant reply in a single Redis pipeline (all RPUSHes + EXPIRE in one round-trip), so either both are saved or neither is — no partial history.
 - **Graceful degradation**: If Redis is unavailable, the handler proceeds with empty history (logs a warning) and still attempts to persist after the response (failure is also logged but non-fatal).
 - **Session TTL**: 2 hours in Redis
-- **Compression** (planned — MEM-001): When buffer exceeds threshold, Ollama generates a running summary capturing: selected major, completed courses, decisions made, preferences. Summary prepended as system context.
+- **Compression** (planned — MEM-001): When buffer exceeds threshold, the LLM generates a running summary capturing: selected major, completed courses, decisions made, preferences. Summary prepended as system context.
 
 ### Across Sessions (PostgreSQL)
 - The student's profile (program + completed courses) persists across all sessions
@@ -713,7 +585,7 @@ The Chat Service sets a **180-second timeout** on each LangGraph invocation via 
 
 Note: the implemented `GET /api/courses` accepts a `q=` parameter that performs a PostgreSQL `ILIKE` text search over title and description. It also accepts a `level=` parameter (`undergrad-lower` for 1xxx–2xxx, `undergrad-upper` for 3xxx–4xxx, `graduate` for 5xxx–8xxx) that filters on the numeric portion of `Course.code`; invalid values return 400. Course responses include an aggregate `status` field derived from their sections (Open > Waitlist > Closed > null). True semantic search via Neo4j vector embeddings is a separate endpoint (`/api/courses/search`) and is planned under API-003.
 
-**Chat Service** (stateful, slow — depends on Ollama):
+**Chat Service** (stateful, slow — depends on Anthropic API):
 
 | Method | Path | Purpose | Status |
 |--------|------|---------|--------|
@@ -843,7 +715,7 @@ cu-student-ai-assistant/
 ├── .env.local.example              # Template for local dev overrides
 ├── CLAUDE.md                       # Project instructions for Claude Code
 │
-├── docker-compose.yml              # Local dev: postgres, redis, neo4j, ollama,
+├── docker-compose.yml              # Local dev: postgres, redis, neo4j, ollama (embeddings only),
 │                                   #   course-search-api, chat-service, frontend
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  INFRASTRUCTURE  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
@@ -875,7 +747,8 @@ cu-student-ai-assistant/
 │       │                           #   Requirement, StudentDecision, ToolAuditLog
 │       └── config.py               # pydantic-settings: Settings class reading env vars
 │                                   #   (DATABASE_URL, NEO4J_URI, REDIS_URL, JWT_SECRET_KEY,
-│                                   #    CORS_ORIGINS, OLLAMA_URL, OLLAMA_MODEL, etc.)
+│                                   #    CORS_ORIGINS, ANTHROPIC_API_KEY, ANTHROPIC_MODEL,
+│                                   #    OLLAMA_URL, OLLAMA_EMBED_MODEL, etc.)
 │
 │── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  SERVICES  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
 │
@@ -911,12 +784,12 @@ cu-student-ai-assistant/
 │       │                           #   RUN uv sync --package chat-service
 │       ├── pyproject.toml          # name = "chat-service"
 │       │                           #   dependencies: fastapi, uvicorn[standard], shared,
-│       │                           #   langchain, langgraph, neo4j, redis, ollama
+│       │                           #   langchain, langgraph, langchain-anthropic, neo4j, redis, httpx
 │       │                           #   [tool.uv.sources] shared = { workspace = true }
 │       ├── chat_service/
 │       │   ├── __init__.py
 │       │   ├── main.py             # FastAPI app: CORS, lifespan (initializes Neo4j driver,
-│       │   │                       #   httpx Ollama client, Redis, async Postgres engine,
+│       │   │                       #   Anthropic client, Redis, async Postgres engine,
 │       │   │                       #   ToolExecutor, compiled conversation_graph), GET /api/chat/health
 │       │   ├── dependencies.py     # FastAPI Depends: get_current_user, get_redis, get_neo4j
 │       │   ├── routes/
@@ -930,7 +803,7 @@ cu-student-ai-assistant/
 │       │   │   ├── __init__.py
 │       │   │   ├── llm_engine.py   # IMPLEMENTED (CHAT-008): LangGraph StateGraph —
 │       │   │   │                   #   5 nodes (classify_intent → build_context → call_llm
-│       │   │   │                   #   ←→ tool_node → respond), ChatOllama with bind_tools(),
+│       │   │   │                   #   ←→ tool_node → respond), ChatAnthropic with bind_tools(),
 │       │   │   │                   #   retry-without-tools fallback, CourseCard extraction
 │       │   │   ├── intent_classifier.py  # IMPLEMENTED (CHAT-007): keyword + LLM fallback
 │       │   │   ├── context_builder.py    # IMPLEMENTED (CHAT-003 + CHAT-010): RAG context assembly
@@ -945,7 +818,7 @@ cu-student-ai-assistant/
 │       │       ├── neo4j_service.py    # IMPLEMENTED (CHAT-002)
 │       │       ├── redis_service.py    # IMPLEMENTED (CHAT-004 + CHAT-008): session history,
 │       │       │                       #   append_messages() atomic batch persist via pipeline
-│       │       ├── ollama_service.py   # IMPLEMENTED (CHAT-002): embeddings + health check
+│       │       ├── ollama_service.py   # IMPLEMENTED (CHAT-002): embeddings (nomic-embed-text)
 │       │       └── postgres_service.py # IMPLEMENTED (CHAT-002): async engine + session factory
 │       └── tests/
 │           └── conftest.py         # Fixtures placeholder — test_chat.py, test_graph_rag.py,
@@ -955,7 +828,7 @@ cu-student-ai-assistant/
 │
 ├── data/
 │   ├── pyproject.toml              # name = "data-ingest"
-│   │                               #   dependencies: shared, neo4j, ollama
+│   │                               #   dependencies: shared, neo4j, httpx
 │   │                               #   [tool.uv.sources] shared = { workspace = true }
 │   ├── raw/                        # Source JSON datasets
 │   │   ├── cu_classes.json         # ~200K lines, 152 depts, 3,410 courses, 9,470 sections
@@ -1086,7 +959,7 @@ cu-student-ai-assistant/
     ├── check.sh                    # Local mirror of CI: ruff + mypy + pytest + vitest
     ├── seed_db.sh                  # Runs data ingestion: uv run --package data-ingest
     │                               #   python -m data.ingest.run_all
-    ├── test_tool_calling.py        # Standalone Ollama tool-calling smoke test (CUAI-32 spike)
+    ├── test_tool_calling.py        # Standalone tool-calling smoke test (CUAI-32 spike)
     └── spikes/                     # One-off exploration scripts
 ```
 
@@ -1235,7 +1108,7 @@ JWT_SECRET_KEY=
 
 A new `docker-compose.prod.yml` override will be layered on top of the base compose file. It introduces three changes:
 
-1. The `ports:` mapping on `postgres`, `neo4j`, `redis`, and `ollama` is cleared, so the host machine binds no ports — services still reach each other by service name on the internal bridge network.
+1. The `ports:` mapping on `postgres`, `neo4j`, `redis`, and `ollama` (embeddings) is cleared, so the host machine binds no ports — services still reach each other by service name on the internal bridge network.
 2. Required secrets use the `${VAR:?error message}` form so the stack refuses to start if `NEO4J_PASSWORD`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, or `JWT_SECRET_KEY` are unset.
 3. App services receive `ENVIRONMENT=production`, which trips the SEC-006 validator at boot.
 
@@ -1279,14 +1152,16 @@ All backend infrastructure runs in a private VPC subnet with no public IPs. The 
 ```
 ┌─────────────────────────── Internet ────────────────────────────┐
 │                                                                  │
-│   Users (browsers)                                               │
-│       │                                                          │
-│       ▼ HTTPS only (TLS terminated by GCP)                       │
+│   Users (browsers)          Anthropic API (external)            │
+│       │                           ▲                              │
+│       ▼ HTTPS only (TLS           │ HTTPS (Claude Sonnet)        │
+│         terminated by GCP)        │                              │
 │   ┌─────────────────────────────────────────────────────────┐    │
 │   │  Cloud Run (public endpoints, GCP-managed TLS)          │    │
 │   │  ├── frontend           (HTTPS → nginx)                 │    │
 │   │  ├── course-search-api  (HTTPS → FastAPI)               │    │
-│   │  └── chat-service       (HTTPS/WSS → FastAPI)           │    │
+│   │  └── chat-service  ─────────────────────────────────────┼──► │
+│   │      (HTTPS/WSS → FastAPI)                              │    │
 │   └────────────────────┬────────────────────────────────────┘    │
 │                        │                                         │
 │                        │ Serverless VPC Connector                 │
@@ -1296,13 +1171,13 @@ All backend infrastructure runs in a private VPC subnet with no public IPs. The 
 │   │  VPC Private Subnet (10.0.0.0/24)                        │   │
 │   │  NO public IPs — unreachable from internet               │   │
 │   │                                                          │   │
-│   │  ┌──────────────────────┐  ┌──────────────────────────┐  │   │
-│   │  │ data-services VM     │  │ ollama-workers MIG       │  │   │
-│   │  │ (10.0.0.10)          │  │ (10.0.0.x, dynamic)     │  │   │
-│   │  │ • PostgreSQL :5432   │  │ • Ollama :11434          │  │   │
-│   │  │ • Neo4j :7687        │  │                          │  │   │
-│   │  │ • Redis :6379        │  │                          │  │   │
-│   │  └──────────────────────┘  └──────────────────────────┘  │   │
+│   │  ┌──────────────────────────────────────────────────┐    │   │
+│   │  │ data-services VM (10.0.0.10)                     │    │   │
+│   │  │ • PostgreSQL :5432                               │    │   │
+│   │  │ • Neo4j :7687                                    │    │   │
+│   │  │ • Redis :6379                                    │    │   │
+│   │  │ • Ollama :11434 (embeddings only)                │    │   │
+│   │  └──────────────────────────────────────────────────┘    │   │
 │   │                                                          │   │
 │   └──────────────────────────────────────────────────────────┘   │
 │                        ▲                                         │
@@ -1321,8 +1196,8 @@ Default deny all ingress, then allow only what's needed:
 
 | Rule (resource) | Priority | Source | Destination | Ports | Purpose |
 |-----------------|----------|--------|-------------|-------|---------|
-| `allow_vpc_connector` | 1000 | Serverless VPC Connector IP range | data-services VM, ollama workers | 5432, 7687, 6379, 11434 | Cloud Run → databases + Ollama |
-| `allow_internal` | 1100 | VPC subnet (10.0.0.0/24) | VPC subnet | All | VM-to-VM (data VM ↔ ollama workers, queue-depth-exporter → Redis) |
+| `allow_vpc_connector` | 1000 | Serverless VPC Connector IP range | data-services VM | 5432, 7687, 6379, 11434 | Cloud Run → databases + Ollama (embeddings) |
+| `allow_internal` | 1100 | VPC subnet (10.0.0.0/24) | VPC subnet | All | data VM internal traffic |
 | `allow_iap_ssh` | 1200 | Google IAP IP range (35.235.240.0/20) | All VMs | 22 | Developer SSH access via IAP tunnel |
 | `default_deny` | 65534 | 0.0.0.0/0 | All VMs | All | Block everything else |
 
@@ -1348,9 +1223,8 @@ All four rules are `google_compute_network_firewall_policy_rule` resources insid
 
 4. **Least-privilege service accounts.** Each Cloud Run service runs with its own GCP service account that has only the permissions it needs:
    - `course-search-api-sa`: Artifact Registry reader, VPC access
-   - `chat-service-sa`: Artifact Registry reader, VPC access
-   - `ollama-worker-sa`: Artifact Registry reader, Monitoring metric writer
-   - `data-vm-sa`: Monitoring metric writer (for queue-depth-exporter)
+   - `chat-service-sa`: Artifact Registry reader, VPC access, Secret Manager reader (for `ANTHROPIC_API_KEY`)
+   - `data-vm-sa`: Artifact Registry reader, VPC access
 
 5. **Database credentials are not in the network.** Connection strings (with passwords) are injected via Terraform as Cloud Run environment variables and VM metadata. They never traverse the network unencrypted — connections to PostgreSQL, Neo4j, and Redis happen within the private VPC over internal IPs.
 
@@ -1383,10 +1257,10 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 │  │ course-search-api│ │ chat-service │ │   frontend    │  │
 │  │ (container)      │ │ (container)  │ │ (nginx+static)│  │
 │  └────────┬─────────┘ └──────┬───────┘ └───────────────┘  │
-│           │                  │                             │
-│           ▼                  ▼                             │
+│           │                  │ │                           │
+│           ▼                  ▼ └──► Anthropic API          │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │  VPC Network (private)                              │   │
+│  │  VPC Network (private)           (external HTTPS)   │   │
 │  │                                                     │   │
 │  │  Compute Engine VM: "data-services"                 │   │
 │  │  (e2-medium, ~$25/mo)                               │   │
@@ -1394,13 +1268,11 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 │  │  │ PostgreSQL │ │  Neo4j   │ │    Redis      │     │   │
 │  │  │ (Docker)   │ │ (Docker) │ │  (Docker)     │     │   │
 │  │  └────────────┘ └──────────┘ └───────────────┘     │   │
-│  │                                                     │   │
-│  │  Managed Instance Group: "ollama-workers"            │   │
-│  │  (spot g2-standard-4 + L4 GPU, auto-scaled 0-3)    │   │
-│  │  ┌──────────────────┐  ┌──────────────────┐        │   │
-│  │  │ Ollama Worker 1  │  │ Ollama Worker N  │  ...   │   │
-│  │  └──────────────────┘  └──────────────────┘        │   │
-│  │  Autoscaler: custom metric (Redis queue depth)      │   │
+│  │  ┌──────────────────────────┐                       │   │
+│  │  │ Ollama (Docker)          │                       │   │
+│  │  │ embeddings only          │                       │   │
+│  │  │ (nomic-embed-text)       │                       │   │
+│  │  └──────────────────────────┘                       │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                            │
 │  Artifact Registry                                         │
@@ -1413,18 +1285,17 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 
 | Resource | Type | Purpose | Cost |
 |----------|------|---------|------|
-| `data-services` VM | `e2-medium` (2 vCPU, 4GB) | PostgreSQL + Neo4j + Redis in Docker Compose | ~$25/mo |
-| `ollama-workers` MIG | Spot `g2-standard-4` + L4 GPU (0-3 instances) | Ollama inference + embeddings, auto-scaled on queue depth | ~$0.28/hr per instance (spot) |
+| `data-services` VM | `e2-medium` (2 vCPU, 4GB) | PostgreSQL + Neo4j + Redis + Ollama (embeddings) in Docker Compose | ~$25/mo |
 | `course-search-api` | Cloud Run (0-5 instances, concurrency 80) | Stateless REST API container | ~$0-2/mo (scale-to-zero) |
 | `chat-service` | Cloud Run (0-5 instances, concurrency 15) | Chat engine container | ~$0-3/mo (scale-to-zero) |
 | `frontend` | Cloud Run (0-3 instances, concurrency 200) | nginx serving static Vue build | ~$0-1/mo (scale-to-zero) |
 | Artifact Registry | Docker repo | Stores container images for Cloud Run | ~$1/mo |
 | VPC + Connector | Networking | Private subnet (no public IPs), Network Firewall Policy (`cu-assistant-fw-policy`) with default-deny + allow rules, Serverless VPC Connector | ~$7/mo |
 | IAP | SSH access | Identity-Aware Proxy TCP tunneling — developer SSH to private VMs, no bastion needed | ~$0/mo (free) |
-| Cloud Monitoring | Custom metric | `ollama_queue_depth` — scaling signal for MIG autoscaler | ~$0/mo (free tier) |
 | GCS Bucket | Storage | Terraform state backend (versioned, access-restricted) | ~$0/mo |
+| Anthropic API | External API | Claude Sonnet for LLM inference — pay-per-token | ~$5-15/mo (usage-dependent) |
 
-**Estimated total for 3.5 weeks: ~$15-25** out of $150 budget. Most cost comes from the GPU workers (~$0.28/hr spot × ~20 hours of actual testing/demoing). Cloud Run and the data VM are negligible. MIG scales to zero when nobody is chatting — no GPU cost when idle.
+**Estimated total for 3.5 weeks: ~$15-25** out of $150 budget (infra) plus Anthropic API usage (~$5-15/mo depending on chat volume). Cloud Run and the data VM are the main infrastructure costs. No GPU VM costs.
 
 ### Infrastructure-as-Code (Terraform)
 
@@ -1452,38 +1323,21 @@ infra/
 │                            #   - Startup script: install Docker, docker-compose up
 │                            #   - Persistent disk for database data (survives VM restarts)
 │                            #   - Static internal IP within VPC
-├── ollama-mig.tf            # Ollama auto-scaling infrastructure:
-│                            #   - Instance template: spot g2-standard-4 + L4 GPU,
-│                            #     boots from custom image (models pre-baked)
-│                            #   - Managed Instance Group (MIG): pool of workers
-│                            #   - Autoscaler: scales on custom metric (Redis queue depth)
-│                            #   - Min 0 (scale to zero), max 3 (budget cap)
 ├── cloud-run.tf             # 3 Cloud Run services, each pulling from Artifact Registry
-│                            #   - Env vars injected: DATABASE_URL, NEO4J_URI, REDIS_URL, etc.
+│                            #   - Env vars injected: DATABASE_URL, NEO4J_URI, REDIS_URL,
+│                            #     ANTHROPIC_API_KEY, ANTHROPIC_MODEL, etc.
 │                            #   - VPC connector attached for private network access
 │                            #   - Auto-scaling: min 0 (scale to zero), max 3-5, concurrency limits
-├── monitoring.tf            # Custom Cloud Monitoring metric definition
-│                            #   (custom.googleapis.com/redis/ollama_queue_depth)
 ├── iam.tf                   # Least-privilege service accounts:
 │                            #   - course-search-api-sa: Artifact Registry reader, VPC access
-│                            #   - chat-service-sa: Artifact Registry reader, VPC access
-│                            #   - ollama-worker-sa: Artifact Registry reader, Monitoring writer
-│                            #   - data-vm-sa: Monitoring writer (queue-depth-exporter)
+│                            #   - chat-service-sa: Artifact Registry reader, VPC access,
+│                            #     Secret Manager reader (ANTHROPIC_API_KEY)
+│                            #   - data-vm-sa: Artifact Registry reader, VPC access
 │                            #   - IAP tunnel access: roles/iap.tunnelResourceAccessor for devs
 │
-├── packer/
-│   └── ollama-worker.pkr.hcl   # Packer template: builds custom GCE image with
-│                                #   Docker, NVIDIA drivers, Ollama, and models
-│                                #   (gpt-oss:20b, nomic-embed-text) pre-installed.
-│                                #   Rebuild only when changing Ollama version or models.
-│
 └── scripts/
-    ├── data-vm-startup.sh       # Cloud-init: install Docker Compose, pull images,
-    │                            #   mount persistent disk, start postgres + neo4j + redis,
-    │                            #   install queue-depth-exporter cron job
-    ├── ollama-worker-startup.sh # Lightweight startup: starts Ollama Redis queue worker
-    │                            #   (all provisioning is baked into the custom image)
-    └── queue-depth-exporter.py  # Cron script (every 30s): Redis LLEN → Cloud Monitoring
+    └── data-vm-startup.sh       # Cloud-init: install Docker Compose, pull images,
+                                 #   mount persistent disk, start postgres + neo4j + redis + ollama
 ```
 
 ### Deployment Workflow
@@ -1505,9 +1359,6 @@ GitHub Actions (deploy.yml)
 
 ### Key Operational Notes
 
-- **GPU workers scale to zero automatically** when the Redis queue is empty — no manual intervention needed to save credits
-- **Force pre-warm for demo**: send a test chat message ~2 minutes before presenting so the MIG spins up a GPU worker
-- **Manual override** if needed: `gcloud compute instance-groups managed resize ollama-workers --size=1 --zone=us-central1-a`
 - **Data VM persistent disk**: Database data is on a separate persistent disk, so the VM can be stopped/restarted without data loss
 - **Terraform state**: Stored in a GCS bucket so all team members can run `terraform plan/apply` without state conflicts
 - **Secrets**: Database passwords and JWT secret stored as Cloud Run environment variables (set via Terraform, values in `terraform.tfvars` which is gitignored)
@@ -1568,7 +1419,7 @@ Build the two main user-facing features in parallel.
   - **Blocked by**: Person C's Phase 1 (SQLAlchemy models, schema, ingested data) for API work
   - **Blocked by**: Person C's stub WebSocket endpoint (~day 7) for chat UI integration
   - **Unblock strategy**: Start Phase 2 by building the frontend filter UI + table components against mock data. Build chat UI components (message list, input box, markdown renderer, course card component) in isolation first.
-- **Person C (Andrew)**: LangGraph conversation engine + tool calling (search, prereqs, requirements); embeddings pipeline (Ollama → Neo4j vector indexes) + Graph RAG retrieval logic
+- **Person C (Andrew)**: LangGraph conversation engine + tool calling (search, prereqs, requirements); embeddings pipeline (nomic-embed-text → Neo4j vector indexes) + Graph RAG retrieval logic
   - **Priority**: Stand up a **stub Chat Service WebSocket endpoint** early (day 6-7) that echoes messages back — this unblocks Person B's chat UI integration
   - Then build the real LangGraph engine behind it
 - **Person A (Scott)**: Available for Docker verification, bug fixes, and Terraform prep (0 story points this sprint)
@@ -1592,7 +1443,7 @@ Wire everything together, add memory, harden. Phase 2 should be substantially co
 
 GCP deployment and presentation prep.
 
-- **Person A (Scott)**: Terraform — VPC, data VM, Ollama MIG (auto-scaling), Cloud Run services, data ingestion on GCP, end-to-end GCP verification
+- **Person A (Scott)**: Terraform — VPC, data VM, Cloud Run services, data ingestion on GCP, end-to-end GCP verification
   ([ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.md#adr-18-terraform-for-iac))
   - Mostly independent — needs service configs but not working code
 - **Person B (Rohan)**: GitHub Actions CI + deploy pipelines, CU branding polish, responsive design fixes
@@ -1624,7 +1475,7 @@ GCP deployment and presentation prep.
 
 ### Should resolve before Phase 2
 
-~~2. **Ollama model choice**: Resolved — Extended spike validated gpt-oss:20b for superior tool calling and fuzzy search (`OLLAMA_MODEL=gpt-oss:20b`). Same GCP instance type (L4 24GB VRAM fits 13GB Q4 model).~~
+~~2. **LLM choice**: Resolved — migrated from self-hosted Ollama (gpt-oss:20b) to Anthropic API (Claude Sonnet) for reliable tool calling and no GPU infrastructure overhead. Configured via `ANTHROPIC_MODEL` env var.~~
 5. **Embedding model**: nomic-embed-text (768 dims) via Ollama vs. other options — need to test quality on course descriptions. Affects vector index dimensions in Neo4j.
 9. **WebSocket message protocol**: Define the exact JSON format for WebSocket messages between frontend and Chat Service. Need request format (message, session_id, context), response format (streaming chunks vs. full response), and error format.
 10. **Error handling strategy**: How do errors surface to the frontend? Separate error response schema? Toast notifications? Inline error messages in chat? Needs agreement before frontend and backend are built in parallel.
