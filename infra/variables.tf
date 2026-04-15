@@ -20,3 +20,9 @@ variable "vpc_connector_range" {
   type        = string
   default     = "10.8.0.0/28"
 }
+
+variable "data_disk_size_gb" {
+  description = "Size in GB of the persistent data disk attached to the data-services VM"
+  type        = number
+  default     = 50
+}

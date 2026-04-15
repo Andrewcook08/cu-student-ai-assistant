@@ -5,3 +5,18 @@ project_id          = "your-gcp-project-id"
 region              = "us-central1"
 zone                = "us-central1-a"
 vpc_connector_range = "10.8.0.0/28"
+data_disk_size_gb   = 50
+
+# ── Secret Manager prereqs ────────────────────────────────────────────────────
+# Before running `terraform apply`, populate secret values so the VM startup
+# script can fetch them. The secret shells are created by Terraform; only the
+# values must be added manually (so passwords never enter Terraform state).
+#
+#   gcloud secrets versions add data-vm-postgres-password \
+#     --data-file=<(openssl rand -hex 20)
+#   gcloud secrets versions add data-vm-neo4j-password \
+#     --data-file=<(openssl rand -hex 20)
+#   gcloud secrets versions add data-vm-redis-password \
+#     --data-file=<(openssl rand -hex 20)
+#   gcloud secrets versions add data-vm-jwt-secret-key \
+#     --data-file=<(python3 -c "import secrets; print(secrets.token_hex(32), end='')")
