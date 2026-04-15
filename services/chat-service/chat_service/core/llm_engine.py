@@ -352,18 +352,51 @@ def build_graph(
 
         return {"messages": list(results), "call_count": call_count + num_calls}
 
+    async def final_response_node(state: ConversationState) -> dict[str, Any]:
+        """Call the LLM without tools to generate a closing response.
+
+        Invoked when the tool call limit is reached so the model can
+        synthesize tool results into a coherent final answer instead
+        of leaving the response hanging mid-sentence.
+        """
+        system_prompt = _build_system_prompt(state["intent"], state["context_text"])
+        if state.get("injection_warning"):
+            system_prompt = state["injection_warning"] + "\n\n" + system_prompt
+        system_msg = SystemMessage(
+            content=system_prompt,
+            additional_kwargs={"cache_control": {"type": "ephemeral"}},
+        )
+        conversation = [
+            m for m in state["messages"] if isinstance(m, (HumanMessage, AIMessage, ToolMessage))
+        ]
+        try:
+            response = await llm.ainvoke([system_msg] + conversation)
+            return {"messages": [response]}
+        except Exception:
+            logger.exception(
+                "llm_engine: final response failed for user_id=%s",
+                state["user_id"],
+            )
+            return {
+                "error": "The AI service is temporarily unavailable. Please try again in a moment.",
+            }
+
     def should_continue(
         state: ConversationState,
-    ) -> Literal["tool_node", "respond"]:
-        """Route: tool_calls → tool_node; otherwise → respond."""
+    ) -> Literal["tool_node", "final_response", "respond"]:
+        """Route: tool_calls → tool_node; limit reached → final_response; otherwise → respond."""
         if state.get("error"):
             return "respond"
 
-        if state.get("call_count", 0) >= MAX_TOOL_CALLS_PER_TURN:
-            return "respond"
-
         last_message = state["messages"][-1]
-        if isinstance(last_message, AIMessage) and getattr(last_message, "tool_calls", None):
+        has_tool_calls = isinstance(last_message, AIMessage) and getattr(
+            last_message, "tool_calls", None
+        )
+
+        if state.get("call_count", 0) >= MAX_TOOL_CALLS_PER_TURN:
+            return "final_response" if has_tool_calls else "respond"
+
+        if has_tool_calls:
             return "tool_node"
 
         return "respond"
@@ -430,14 +463,18 @@ def build_graph(
     builder.add_node("build_context", build_context_node)
     builder.add_node("call_llm", call_llm_node)
     builder.add_node("tool_node", tool_node)
+    builder.add_node("final_response", final_response_node)
     builder.add_node("respond", respond_node)
     builder.add_node("validate_output", validate_output_node)
 
     builder.add_edge(START, "classify_intent")
     builder.add_edge("classify_intent", "build_context")
     builder.add_edge("build_context", "call_llm")
-    builder.add_conditional_edges("call_llm", should_continue, ["tool_node", "respond"])
+    builder.add_conditional_edges(
+        "call_llm", should_continue, ["tool_node", "final_response", "respond"]
+    )
     builder.add_edge("tool_node", "call_llm")
+    builder.add_edge("final_response", "respond")
     builder.add_edge("respond", "validate_output")
     builder.add_edge("validate_output", END)
 

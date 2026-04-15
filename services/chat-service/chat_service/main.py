@@ -1,7 +1,13 @@
 """Chat Service — stateful AI orchestration."""
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 import anthropic
 import httpx

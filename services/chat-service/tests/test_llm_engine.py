@@ -125,7 +125,12 @@ class _GraphCtx:
         llm_with_tools = MagicMock()
         llm_with_tools.ainvoke = AsyncMock(side_effect=self._llm_responses)
         llm_instance.bind_tools = MagicMock(return_value=llm_with_tools)
+        # final_response_node uses the bare llm (no tools) — needs async ainvoke.
+        llm_instance.ainvoke = AsyncMock(
+            return_value=AIMessage(content="I've gathered the results above.")
+        )
         self.llm = llm_with_tools
+        self.llm_bare = llm_instance
 
         context_result = ContextResult(text=self._build_context_text, token_estimate=0)
 
@@ -913,9 +918,10 @@ async def test_should_continue_error_routes_to_respond() -> None:
 
 
 @pytest.mark.asyncio
-async def test_should_continue_rate_limit_routes_to_respond() -> None:
-    """When call_count >= MAX_TOOL_CALLS_PER_TURN, routing must go to respond."""
-    # Provide a response with tool_calls — routing should still skip tool_node.
+async def test_should_continue_rate_limit_routes_to_final_response() -> None:
+    """When call_count >= MAX_TOOL_CALLS_PER_TURN, routing must go to final_response."""
+    # Provide a response with tool_calls — routing should skip tool_node
+    # and instead go to final_response for a closing LLM response.
     tool_call = {
         "id": "call-rl",
         "name": "search_courses",
@@ -929,7 +935,7 @@ async def test_should_continue_rate_limit_routes_to_respond() -> None:
         llm_responses=[ai_with_tool_calls],
         tool_executor=executor,
     ) as ctx:
-        # Pre-seed call_count to the limit so routing goes to respond.
+        # Pre-seed call_count to the limit so routing goes to final_response.
         final_state = await ctx.graph.ainvoke(_base_state(call_count=MAX_TOOL_CALLS_PER_TURN))
 
     # Tool executor must NOT have been called.
@@ -937,6 +943,10 @@ async def test_should_continue_rate_limit_routes_to_respond() -> None:
     # No ToolMessages were added.
     tool_msgs = [m for m in final_state["messages"] if isinstance(m, ToolMessage)]
     assert len(tool_msgs) == 0
+    # final_response_node produced a text-only closing response.
+    ai_msgs = [m for m in final_state["messages"] if isinstance(m, AIMessage)]
+    assert ai_msgs[-1].content  # non-empty final response
+    assert not getattr(ai_msgs[-1], "tool_calls", None)  # no tool calls
 
 
 @pytest.mark.asyncio

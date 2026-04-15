@@ -9,7 +9,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useChat } from '@/composables/useChat'
 
 const isOpen = ref(false)
-const messagesEnd = ref<HTMLElement | null>(null)
+const messagesEl = ref<HTMLElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 const store = useChatStore()
 const auth = useAuthStore()
@@ -88,11 +88,13 @@ watch(
   () => {
     const msgs = store.messages
     const last = msgs[msgs.length - 1]
-    return [msgs.length, last?.reply?.length ?? 0]
+    return [msgs.length, last?.reply?.length ?? 0, store.toolStatus]
   },
   async () => {
     await nextTick()
-    messagesEnd.value?.scrollIntoView({ behavior: 'smooth' })
+    if (messagesEl.value) {
+      messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+    }
   },
 )
 </script>
@@ -114,7 +116,7 @@ watch(
 
     <div v-if="store.isReconnecting" class="chat-reconnecting">Reconnecting...</div>
 
-    <div class="chat-panel__messages">
+    <div ref="messagesEl" class="chat-panel__messages">
       <ChatMessage
         v-for="(msg, i) in store.messages"
         :key="i"
@@ -127,7 +129,6 @@ watch(
       <div v-else-if="store.isTyping && !store.isStreaming" class="chat-msg chat-msg--ai chat-msg--typing">
         <span></span><span></span><span></span>
       </div>
-      <div ref="messagesEnd" />
     </div>
 
     <ChatInput
