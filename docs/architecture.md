@@ -169,8 +169,9 @@ Every layer of the system scales independently. For our class demo, everything r
 | **PostgreSQL** | Docker on VM | N/A (single instance) | Cloud SQL + read replicas |
 | **Neo4j** | Docker on VM | N/A (single instance) | AuraDB or self-hosted cluster |
 | **Redis** | Docker on VM | N/A (single instance) | Memorystore (clustered) |
+| **Ollama Embeddings** | Docker on VM | N/A (single instance) | Cloud Run (prebaked image, request-based autoscaling) |
 
-### Cloud Run Auto-Scaling (Frontend, Course Search API, Chat Service)
+### Cloud Run Auto-Scaling (Frontend, Course Search API, Chat Service, Embeddings)
 
 Cloud Run handles scaling automatically. We configure it in Terraform:
 
@@ -194,6 +195,15 @@ concurrency    = 200
 ```
 
 No custom metrics needed — Cloud Run watches request count and concurrent connections natively. Scale-to-zero means we pay nothing when nobody is using the system.
+
+```hcl
+# ollama-embed: CPU-only, fast embeddings (~10-50ms) — prebaked model image
+min_instances  = 0    # scale to zero when idle
+max_instances  = 3    # budget cap
+concurrency    = 50   # embedding requests per instance
+```
+
+The Ollama embedding service uses a **prebaked Docker image** with `nomic-embed-text` baked in at build time ([ADR-42](decisions.md#adr-42-prebaked-ollama-embed-image-on-cloud-run)). This eliminates the ~274MB model download on cold start and ensures deterministic deployments. See [CUAI-88](https://andrewcode8.atlassian.net/browse/CUAI-88).
 
 ### Database Scaling Path
 

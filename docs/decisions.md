@@ -39,6 +39,7 @@
 - [ADR-38: Atomic Redis Message Persistence (CUAI-40 / CHAT-008)](#adr-38-atomic-redis-message-persistence-cuai-40--chat-008)
 - [ADR-39: Graph Invocation Timeout (CUAI-40 / CHAT-008)](#adr-39-graph-invocation-timeout-cuai-40--chat-008)
 - [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference)
+- [ADR-42: Prebaked Ollama Embed Image on Cloud Run](#adr-42-prebaked-ollama-embed-image-on-cloud-run)
 
 ---
 
@@ -1110,7 +1111,7 @@ The `infra/infra.sh` script (`plan` / `up` / `down` subcommands) provides a loca
 - **Reduces operational complexity**: No spot VM reclamation handling, no custom Cloud Monitoring metrics, no cold-start model loading.
 - **Cost trade-off**: Moves from fixed infrastructure cost (~$0.28/hr per GPU VM) to per-token pricing (~$0.01/conversation turn). For a class project with intermittent usage, API pricing is cheaper than keeping a GPU VM running.
 
-**What stays**: Ollama continues to run for embedding generation via `nomic-embed-text` (768-dim). The embedding model is small (~274MB) and runs efficiently on CPU, so it stays on the data-services VM alongside PostgreSQL, Neo4j, and Redis. The Neo4j vector index, `build_embeddings.py` pipeline, and `search_courses` tool embedding calls are unchanged.
+**What stays**: Ollama continues to run for embedding generation via `nomic-embed-text` (768-dim). The embedding model is small (~274MB) and runs efficiently on CPU. For production, it deploys as a Cloud Run service with a prebaked Docker image ([ADR-42](#adr-42-prebaked-ollama-embed-image-on-cloud-run)). The Neo4j vector index, `build_embeddings.py` pipeline, and `search_courses` tool embedding calls are unchanged.
 
 **What changes**:
 - `ChatOllama` → `ChatAnthropic` (from `langchain-anthropic`)
@@ -1122,3 +1123,37 @@ The `infra/infra.sh` script (`plan` / `up` / `down` subcommands) provides a loca
 - `scripts/ollama-gpu-test.sh` deleted
 
 **Supersedes**: [ADR-2](#adr-2-self-hosted-llm-via-ollama), [ADR-7](#adr-7-redis-queue-for-ollama-inference), [ADR-21](#adr-21-ollama-auto-scaling-via-managed-instance-group), [ADR-26](#adr-26-gpt-oss20b-as-default-llm), [ADR-35](#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008).
+
+---
+
+## ADR-42: Prebaked Ollama Embed Image on Cloud Run
+
+**Decision**: Deploy the Ollama embedding service (nomic-embed-text) as a Cloud Run service using a custom Docker image with the model prebaked at build time. Use Cloud Run's native autoscaling instead of a custom MIG.
+
+**Alternatives considered**:
+1. **Pull model at container startup** — rejected. Adds ~274MB download on every cold start, increasing spin-up time from <10s to 30-60s depending on network. Non-deterministic — model registry availability becomes a runtime dependency.
+2. **Persistent VM with Ollama** — rejected for production. No autoscaling, no scale-to-zero, fixed cost even when idle. Fine for dev/demo but not production-ready.
+3. **Prebaked Cloud Run image** (chosen) — model weights baked into the Docker image at build time. Cloud Run autoscales on request concurrency and scales to zero when idle.
+4. **MIG auto-scaling** (original DEPLOY-003 approach) — rejected. MIG was designed for GPU-bound LLM inference. Embedding generation is CPU-only and fast (~10-50ms per request), making MIG unnecessary overhead. Cloud Run's request-based autoscaling is a better fit.
+
+**Rationale**: The embedding model (nomic-embed-text, ~274MB) is small and CPU-only — it doesn't need GPU VMs or custom scaling infrastructure. Prebaking it into the Docker image ensures:
+- **Fast cold starts**: No model download at runtime; container is ready to serve immediately
+- **Deterministic deployments**: Model version is pinned at build time, not pulled from a registry at runtime
+- **Cost efficiency**: Cloud Run scales to zero when idle; no fixed VM costs
+- **Operational simplicity**: No Packer images, no custom Cloud Monitoring metrics, no queue-depth exporters
+
+**Cloud Run configuration**:
+- `min_instances = 0` (scale to zero — saves cost during idle periods)
+- `max_instances = 3` (budget cap; embedding requests are fast so 3 instances handles significant load)
+- `concurrency = 50` (embedding requests are non-blocking and complete in ~10-50ms)
+- CPU-only (no GPU allocation needed)
+- VPC connector attached for database access
+
+**Dockerfile approach**:
+```dockerfile
+FROM ollama/ollama:latest
+# Prebake the embedding model at build time
+RUN ollama serve & sleep 5 && ollama pull nomic-embed-text && pkill ollama
+```
+
+**What this replaces**: The cancelled [DEPLOY-003](#deploy-003) MIG approach. That was designed for GPU-bound LLM inference (gpt-oss:20b) which is now handled by the Anthropic API ([ADR-41](#adr-41-anthropic-api-for-llm-inference)).

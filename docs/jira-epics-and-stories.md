@@ -1005,6 +1005,24 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
   - [ ] Anthropic API key configured in Cloud Run environment variables
   - [ ] All validation counts match local
 
+### DEPLOY-008: Prebaked Ollama Embed Image + Cloud Run Deployment
+- **Points**: 3
+- **Phase**: 4 (Day 21-22)
+- **Blocked by**: DEPLOY-001, DEPLOY-005 (Artifact Registry)
+- **Assignee**: Person A
+- **Jira**: [CUAI-88](https://andrewcode8.atlassian.net/browse/CUAI-88)
+- **Status**: 📋 Planned
+- **Description**: Build a custom Docker image extending `ollama/ollama` with `nomic-embed-text` prebaked at build time. Deploy as a Cloud Run service with native autoscaling. Eliminates model download on cold start. See [ADR-42](../docs/decisions.md#adr-42-prebaked-ollama-embed-image-on-cloud-run).
+- **Acceptance criteria**:
+  - [ ] Custom Dockerfile bakes `nomic-embed-text` into the image at build time
+  - [ ] Image builds in CI and pushes to Artifact Registry
+  - [ ] Cloud Run service deployed behind VPC connector
+  - [ ] Cloud Run autoscaling configured (min 0, max 3, concurrency 50)
+  - [ ] Embedding endpoint accessible from chat-service and course-search-api
+  - [ ] Health check endpoint configured
+  - [ ] Terraform resource definitions in `infra/cloud-run.tf`
+  - [ ] Startup time under 10s (no model download at runtime)
+
 ### DEPLOY-007: End-to-end GCP verification
 - **Points**: 2
 - **Phase**: 4 (Day 22-23)
@@ -1178,11 +1196,11 @@ AUTH-001 ──→ AUTH-002
 AUTH-001 ──→ AUTH-003
 AUTH-002 ──→ AUTH-004
 
-DEPLOY-001 ──→ DEPLOY-002 ──→ DEPLOY-003
-    │                  │
-    │                  └──→ DEPLOY-006 (+ DATA-005) ──→ DEPLOY-007
+DEPLOY-001 ──→ DEPLOY-002 ──→ DEPLOY-006 (+ DATA-005) ──→ DEPLOY-007
     │
     ├──→ DEPLOY-005 ──→ DEPLOY-004 ──→ DEPLOY-007
+    │         │
+    │         └──→ DEPLOY-008 (prebaked embed image)
     │
     └──→ DEPLOY-004
 
@@ -1285,8 +1303,9 @@ CHAT-008 ──→ DEMO-001 ──→ DEMO-002
 |-------|--------|----------|-----|
 | DEPLOY-001 | 5 | Person A | 20 |
 | DEPLOY-002 | 3 | Person A | 20-21 |
-| DEPLOY-003 | 5 | Person A | 21 |
+| ~~DEPLOY-003~~ | ~~5~~ | ~~Person A~~ | ~~21~~ |
 | DEPLOY-004 | 3 | Person A | 21-22 |
+| DEPLOY-008 | 3 | Person A | 21-22 |
 | DEPLOY-005 | 1 | Person A | 20 |
 | DEPLOY-006 | 2 | Person A | 22 |
 | DEPLOY-007 | 2 | Person A | 22-23 |
