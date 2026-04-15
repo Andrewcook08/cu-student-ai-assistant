@@ -1,39 +1,56 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { HelpCircle, ShoppingCart, LogIn, LogOut } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/authStore'
+import RegisterModal from '@/components/auth/RegisterModal.vue'
 
 const auth = useAuthStore()
+const showRegisterModal = ref(false)
 </script>
 
 <template>
   <header class="banner" role="banner">
     <h1 class="banner__title">CU STUDENT ASSISTANT</h1>
     <div class="banner__icons">
-      <a href="https://www.colorado.edu/registrar" class="header-icon" target="_blank" title="Help">
+      <a
+        href="https://www.colorado.edu/registrar"
+        class="header-icon"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Help"
+      >
         <HelpCircle :size="18" aria-hidden="true" />
         <span class="sr-only">Help</span>
       </a>
-      <a href="#" class="header-icon" title="Cart">
+      <button type="button" class="header-icon" title="Cart" aria-label="Cart">
         <ShoppingCart :size="18" aria-hidden="true" />
         <span class="sr-only">Cart</span>
-      </a>
+      </button>
     </div>
     <div class="banner__auth">
-      <a v-if="!auth.isAuthenticated" href="#" class="anon-only" @click.prevent="() => {}">
+      <button
+        v-if="!auth.isAuthenticated"
+        type="button"
+        class="anon-only"
+        aria-haspopup="dialog"
+        @click.prevent="showRegisterModal = true"
+      >
         <LogIn :size="16" aria-hidden="true" />
         Login
-      </a>
+      </button>
       <div v-else class="banner__auth-welcome">
         Welcome, <span class="user-name" style="margin-left: 4px;">{{ auth.userName }}</span>
       </div>
     </div>
     <div v-if="auth.isAuthenticated" class="banner__logout_icon">
-      <a href="#" class="header-icon logout-btn" @click.prevent="auth.logout()" title="Logout">
+      <button type="button" class="header-icon logout-btn" @click="auth.logout()" title="Logout">
         <LogOut :size="16" aria-hidden="true" />
         Logout
-      </a>
+      </button>
     </div>
   </header>
+
+  <RegisterModal v-if="showRegisterModal" @close="showRegisterModal = false" />
 </template>
 
 <style scoped>
