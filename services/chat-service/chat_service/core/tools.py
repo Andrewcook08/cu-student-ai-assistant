@@ -1,7 +1,7 @@
 """LangChain tool definitions for the CU chat service (CHAT-005 / CUAI-37).
 
 Exposes a single public entry point — :func:`make_tools` — which builds the
-seven ``@tool``-decorated async functions and returns them as a
+eight ``@tool``-decorated async functions and returns them as a
 :class:`ToolSet`.  No module-level state lives here; all service handles are
 injected by the factory so this module is trivially unit-testable.
 
@@ -14,10 +14,11 @@ Tool roster (order matches architecture.md § Tool Calling):
 5. ``get_student_profile``   — student data from Postgres (user_id injected)
 6. ``find_schedule_conflicts``— time-conflict detection in Postgres
 7. ``save_decision``         — append decision row in Postgres (user_id injected)
+8. ``remove_decision``       — delete decision rows in Postgres (user_id injected)
 
 ``user_id`` is annotated with :class:`~langchain_core.tools.InjectedToolArg`
-on tools 5 and 7.  That annotation causes LangChain to strip ``user_id`` from
-the JSON schema it sends to the LLM, so the model literally cannot supply or
+on tools 5, 7, and 8.  That annotation causes LangChain to strip ``user_id``
+from the JSON schema it sends to the LLM, so the model literally cannot supply or
 forge it.  The tool executor (CHAT-006) injects the authenticated JWT subject
 at call time via LangChain's standard injection mechanism.
 
@@ -110,6 +111,11 @@ def make_tools(
         (Neo4j structured filtering is future work): ``department`` matches
         the ``code`` prefix (e.g. "CSCI"), ``instruction_mode`` matches the
         course mode (e.g. "In-Person").  Omit any filter you don't need.
+
+        Results include course code, title, credits, description, and instruction
+        mode, but NOT prerequisites or section-level availability.  Follow up
+        with ``lookup_course`` for full section details and ``check_prerequisites``
+        before recommending any result to the student.
         """
         embedding = await ollama_service.get_embedding(ollama_client, query)
         results: list[dict[str, Any]] = await neo4j_service.vector_search(
@@ -122,6 +128,15 @@ def make_tools(
             results = [r for r in results if (r.get("code") or "").startswith(department)]
         if instruction_mode is not None:
             results = [r for r in results if r.get("instruction_mode") == instruction_mode]
+
+        # Trim descriptions to reduce context window usage — the LLM
+        # only needs a snippet to decide which courses to investigate
+        # further via lookup_course.
+        for r in results:
+            desc = r.get("description") or ""
+            if len(desc) > 120:
+                r["description"] = desc[:120] + "…"
+            r.pop("score", None)
 
         return results
 
@@ -136,13 +151,51 @@ def make_tools(
         If you only have a course name or topic, use ``search_courses`` first
         to obtain the code.  Returns an error dict (not an exception) if the
         code is not found — you can try ``search_courses`` in that case.
+
+        The returned sections include a ``status`` field (e.g. "Open", "Closed",
+        "Waitlisted").  Check section status before recommending a course — a
+        course with all sections Closed or Cancelled may not be available.
+        The ``meets`` field shows meeting times (days + time range).
+
+        Sections have a ``type`` field: LEC (lecture), REC (recitation), LAB,
+        SEM (seminar), etc.  Students typically register for one LEC section
+        plus one REC or LAB section.  When recommending, group LEC + REC/LAB
+        together and check conflicts for both.  Don't list recitation sections
+        as standalone course options.
         """
         async with postgres_sessionmaker() as session:
             result = await postgres_service.lookup_course(session, course_code=course_code)
 
         if result is None:
             return {"error": "Course not found", "course_code": course_code}
-        return result
+
+        # Trim the result to reduce context window usage.  The LLM needs
+        # code, title, credits, prereq text, and section availability —
+        # not full descriptions, topic lists, or gen-ed attributes.
+        sections = result.get("sections") or []
+        open_sections = [s for s in sections if s.get("status") == "Open"]
+        trimmed: dict[str, Any] = {
+            "code": result["code"],
+            "title": result["title"],
+            "credits": result["credits"],
+            "prerequisites_raw": result.get("prerequisites_raw"),
+            "instruction_mode": result.get("instruction_mode"),
+            "total_sections": len(sections),
+            "open_sections": len(open_sections),
+        }
+        # Include meeting times for up to 3 open sections so the LLM
+        # can mention availability without the full section dump.
+        if open_sections:
+            trimmed["sample_sections"] = [
+                {
+                    "section": s["section_number"],
+                    "type": s.get("type", ""),
+                    "meets": s["meets"],
+                    "instructor": s["instructor"],
+                }
+                for s in open_sections[:3]
+            ]
+        return trimmed
 
     # ── 3. check_prerequisites ──────────────────────────────────────────
 
@@ -154,6 +207,12 @@ def make_tools(
         up to five hops deep, along with the raw prerequisite text for any
         edge whose type is ambiguous.  Use this to verify whether the student
         has satisfied all requirements before recommending the course.
+
+        Each edge in the returned chain includes a ``min_grade`` field (e.g. "C").
+        Compare this against the student's actual grade from ``get_student_profile``
+        — a grade below ``min_grade`` means the prerequisite is NOT met.  Grade
+        ordering: A > A- > B+ > B > B- > C+ > C > C- > D+ > D > D- > F.
+        A "D" does NOT satisfy a "C" minimum.
         """
         return await neo4j_service.get_prerequisite_chain(neo4j_driver, course_code)
 
@@ -168,8 +227,20 @@ def make_tools(
         or-alternatives, choose-N groups, and the courses that satisfy each
         requirement.  Pair with ``get_student_profile`` to see which
         requirements the student has already completed.
+
+        This is typically the starting point for a planning conversation.  After
+        identifying remaining requirements, use ``search_courses`` to find courses
+        that satisfy them, then ``check_prerequisites`` to verify eligibility.
         """
-        return await neo4j_service.get_degree_requirements(neo4j_driver, program)
+        result = await neo4j_service.get_degree_requirements(neo4j_driver, program)
+
+        # Trim raw_text from each requirement to reduce context window
+        # usage.  The structured fields (name, type, credits, courses)
+        # are sufficient for planning; raw_text is verbose catalog prose.
+        for req in result.get("requirements") or []:
+            req.pop("raw_text", None)
+
+        return result
 
     # ── 5. get_student_profile ──────────────────────────────────────────
 
@@ -183,6 +254,11 @@ def make_tools(
         checking prerequisite minimums), and prior planning decisions.
         The ``user_id`` is injected from the authenticated session — do not
         include it in your tool call.
+
+        Call this tool EARLY in any advising conversation — before making course
+        recommendations, checking prerequisites, or building schedules.  The
+        student's completed courses and grades are essential for determining
+        prerequisite eligibility and remaining degree requirements.
         """
         async with postgres_sessionmaker() as session:
             return await postgres_service.get_student_data(session, user_id=int(user_id))
@@ -198,6 +274,15 @@ def make_tools(
         days and raw ``meets`` strings.  An empty list means no conflicts
         were detected.  Sections with unparseable or unscheduled meeting
         times are silently skipped.
+
+        IMPORTANT: Always include the student's currently planned/saved courses
+        (from get_student_profile decisions) in the list along with any new
+        candidates.  The goal is to check new courses against the student's
+        existing schedule, not just against each other.
+
+        Call this as a final validation step after selecting a set of courses for
+        a schedule.  If conflicts are found, suggest removing one of the
+        conflicting courses or choosing a different section.
         """
         async with postgres_sessionmaker() as session:
             return await postgres_service.get_schedule_conflicts(session, course_codes=course_codes)
@@ -221,6 +306,10 @@ def make_tools(
         include it in your tool call.  Decisions are append-only; calling
         this again with the same course records a new entry rather than
         overwriting the previous one.
+
+        Offer to call this when the student explicitly commits to a course
+        (e.g. "yes, I'll take that" or "add it to my plan").  Do NOT call this
+        speculatively — only when the student has clearly decided.
         """
         async with postgres_sessionmaker() as session:
             return await postgres_service.save_student_decision(
@@ -229,6 +318,31 @@ def make_tools(
                 course_code=course_code,
                 decision_type=decision_type,
                 notes=notes,
+            )
+
+    # ── 8. remove_decision ─────────────────────────────────────────────
+
+    @lc_tool
+    async def remove_decision(
+        course_code: str,
+        *,
+        user_id: Annotated[str, InjectedToolArg],
+    ) -> dict[str, Any]:
+        """Remove a student's saved decision for a course.
+
+        Deletes all decision records for *course_code* belonging to the
+        authenticated student.  The ``user_id`` is injected from the
+        session — do not include it in your tool call.
+
+        Call this when the student explicitly asks to remove a course from
+        their plan (e.g. "remove CSCI 3104" or "I don't want that one
+        anymore").  Do NOT call this unless the student clearly asks.
+        """
+        async with postgres_sessionmaker() as session:
+            return await postgres_service.remove_student_decision(
+                session,
+                user_id=int(user_id),
+                course_code=course_code,
             )
 
     # ── Assemble ToolSet ─────────────────────────────────────────────────
@@ -241,6 +355,7 @@ def make_tools(
         get_student_profile,
         find_schedule_conflicts,
         save_decision,
+        remove_decision,
     ]
     registry: dict[str, BaseTool] = {t.name: t for t in tool_list}
     return ToolSet(tools=tool_list, registry=registry)

@@ -213,7 +213,14 @@ def build_graph(
     # ChatOllama for the LangGraph tool-calling loop.  bind_tools()
     # converts LangChain tool schemas to Ollama's tool format and
     # produces AIMessage.tool_calls on the response.
-    llm = ChatOllama(model=ollama_model, base_url=ollama_base_url, temperature=0, reasoning=False)
+    llm = ChatOllama(
+        model=ollama_model,
+        base_url=ollama_base_url,
+        temperature=0,
+        reasoning=False,
+        num_ctx=8192,
+        keep_alive=-1,
+    )
     llm_with_tools = llm.bind_tools(tools)
 
     # ── Node functions (closures over dependencies) ─────────────────

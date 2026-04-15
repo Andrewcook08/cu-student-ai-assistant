@@ -2,7 +2,7 @@ services:
   # ── Data Services ──────────────────────────────────────────
   postgres:
     image: postgres:16
-    ports: ["5433:5432"]
+    ports: ["5432:5432"]
     environment:
       POSTGRES_DB: cu_assistant
       POSTGRES_PASSWORD: postgres
