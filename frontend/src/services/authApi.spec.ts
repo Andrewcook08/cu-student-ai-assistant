@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { register, fetchPrograms, fetchProgramRequirements, updateCompletedCourses } from '@/services/authApi'
+import { register, login, fetchPrograms, fetchProgramRequirements, updateCompletedCourses } from '@/services/authApi'
 import type { CompletedCoursePayload } from '@/types/index'
 
 function mockFetch(body: unknown, status = 200): void {
@@ -45,6 +45,29 @@ describe('authApi', () => {
       await expect(
         register({ email: 'a@b.com', password: 'secure-pass-12', name: 'Alice' }),
       ).rejects.toThrow('Unknown program_id')
+    })
+  })
+
+  describe('login', () => {
+    it('POSTs to /api/auth/login and returns token', async () => {
+      mockFetch({ token: 'jwt-tok' })
+      const result = await login('a@b.com', 'p4ssword')
+      const [url, requestInit] = getLastFetchCall()
+      expect(url).toBe('/api/auth/login')
+      expect(requestInit?.method).toBe('POST')
+      const body = JSON.parse(String(requestInit?.body))
+      expect(body).toEqual({ email: 'a@b.com', password: 'p4ssword' })
+      expect(result).toEqual({ token: 'jwt-tok' })
+    })
+
+    it('throws with server detail message on 401', async () => {
+      mockFetch({ detail: 'Invalid credentials' }, 401)
+      await expect(login('a@b.com', 'wrong')).rejects.toThrow('Invalid credentials')
+    })
+
+    it('falls back to status-based message when detail is missing', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 500 }))
+      await expect(login('a@b.com', 'p')).rejects.toThrow('Login failed: 500')
     })
   })
 

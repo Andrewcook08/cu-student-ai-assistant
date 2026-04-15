@@ -1,5 +1,6 @@
 import type {
   AuthRegisterResponse,
+  AuthLoginResponse,
   RegisterFormData,
   Program,
   CompletedCoursePayload,
@@ -38,6 +39,18 @@ export async function register(data: RegisterFormData): Promise<AuthRegisterResp
   })
   if (!res.ok) {
     throw new Error(await getErrorMessage(res, 'Registration failed'))
+  }
+  return res.json()
+}
+
+export async function login(email: string, password: string): Promise<AuthLoginResponse> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) {
+    throw new Error(await getErrorMessage(res, 'Login failed'))
   }
   return res.json()
 }
