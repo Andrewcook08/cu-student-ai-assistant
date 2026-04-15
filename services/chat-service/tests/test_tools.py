@@ -67,9 +67,9 @@ def _default_toolset() -> ToolSet:
 # ─── ToolSet shape ───────────────────────────────────────────────────────
 
 
-def test_make_tools_returns_exactly_seven_tools() -> None:
+def test_make_tools_returns_exactly_eight_tools() -> None:
     toolset = _default_toolset()
-    assert len(toolset.tools) == 7
+    assert len(toolset.tools) == 8
 
 
 def test_make_tools_registry_has_expected_names() -> None:
@@ -82,6 +82,7 @@ def test_make_tools_registry_has_expected_names() -> None:
         "get_student_profile",
         "find_schedule_conflicts",
         "save_decision",
+        "remove_decision",
     }
     assert set(toolset.registry.keys()) == expected
 
@@ -215,7 +216,17 @@ async def test_lookup_course_returns_course_dict_on_hit() -> None:
         result = await toolset.registry["lookup_course"].ainvoke({"course_code": "CSCI 2270"})
 
     mock_lookup.assert_awaited_once_with(session, course_code="CSCI 2270")
-    assert result == course_data
+    # Tool trims the result for LLM context efficiency
+    assert result["code"] == "CSCI 2270"
+    assert result["title"] == "Data Structures"
+    assert result["credits"] == "4"
+    assert result["prerequisites_raw"] == "CSCI 1300"
+    assert result["instruction_mode"] == "In-Person"
+    assert result["total_sections"] == 0
+    assert result["open_sections"] == 0
+    # Full fields like description, campus, attributes are trimmed out
+    assert "description" not in result
+    assert "campus" not in result
 
 
 @pytest.mark.asyncio
