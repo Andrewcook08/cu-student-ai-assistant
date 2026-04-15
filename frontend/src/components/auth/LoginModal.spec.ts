@@ -83,6 +83,7 @@ describe('LoginModal', () => {
     await nextTick()
     expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
     resolve({ token: validJwt })
+    await flushPromises()
   })
 
   it('emits switch-to-register when the register link is clicked', async () => {
