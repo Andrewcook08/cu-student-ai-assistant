@@ -5,7 +5,7 @@ Redis client is mocked — tests assert:
 - get_conversation_state returns messages + summary (or None on missing/error)
 - save_messages delegates to redis_service and returns correct threshold signal
 - save_summary writes summary + trims message buffer atomically
-- generate_summary calls ollama with correct prompt structure and returns text
+- generate_summary calls the LLM with correct prompt structure and returns text
 - error propagation / graceful degradation matches the documented contract
 """
 
@@ -25,7 +25,7 @@ from chat_service.core.memory import (
     save_messages,
     save_summary,
 )
-from chat_service.services.ollama_service import OllamaError
+from chat_service.services.llm_service import LLMError
 from chat_service.services.redis_service import (
     RedisServiceError,
     RedisTimeoutError,
@@ -281,22 +281,22 @@ async def test_save_summary_connection_error_raises_redis_service_error() -> Non
 # ─── generate_summary ─────────────────────────────────────────────────────
 
 
-def _make_ollama_client(summary_text: str = "Student is CS major.") -> MagicMock:
-    """Mock httpx.AsyncClient whose ollama_service.chat_completion returns summary_text."""
-    return MagicMock()  # actual Ollama call is patched at module level
+def _make_anthropic_client() -> MagicMock:
+    """Mock anthropic.AsyncAnthropic — actual LLM call is patched at module level."""
+    return MagicMock()
 
 
 @pytest.mark.asyncio
 async def test_generate_summary_returns_llm_output() -> None:
     """generate_summary returns the content field from the LLM response."""
     msgs = [_msg("user", "I'm a CS major"), _msg("assistant", "Got it!")]
-    mock_client = _make_ollama_client()
+    mock_client = _make_anthropic_client()
 
     with patch(
-        "chat_service.core.memory.ollama_service.chat_completion",
+        "chat_service.core.memory.llm_service.chat_completion",
         new=AsyncMock(return_value={"content": "Student is a CS major."}),
     ):
-        result = await generate_summary(msgs, existing_summary=None, ollama_client=mock_client)
+        result = await generate_summary(msgs, existing_summary=None, anthropic_client=mock_client)
 
     assert result == "Student is a CS major."
 
@@ -305,16 +305,16 @@ async def test_generate_summary_returns_llm_output() -> None:
 async def test_generate_summary_includes_existing_summary_in_prompt() -> None:
     """When an existing summary is supplied it appears in the user message."""
     msgs = [_msg("user", "Also interested in CSCI 3104")]
-    mock_client = _make_ollama_client()
+    mock_client = _make_anthropic_client()
 
     with patch(
-        "chat_service.core.memory.ollama_service.chat_completion",
+        "chat_service.core.memory.llm_service.chat_completion",
         new=AsyncMock(return_value={"content": "Updated summary."}),
     ) as mock_call:
         await generate_summary(
             msgs,
             existing_summary="CS major, completed CSCI 1300",
-            ollama_client=mock_client,
+            anthropic_client=mock_client,
         )
 
     call_messages = mock_call.call_args.kwargs["messages"]
@@ -326,13 +326,13 @@ async def test_generate_summary_includes_existing_summary_in_prompt() -> None:
 @pytest.mark.asyncio
 async def test_generate_summary_uses_summarize_system_prompt() -> None:
     """The system message sent to the LLM matches _SUMMARIZE_SYSTEM."""
-    mock_client = _make_ollama_client()
+    mock_client = _make_anthropic_client()
 
     with patch(
-        "chat_service.core.memory.ollama_service.chat_completion",
+        "chat_service.core.memory.llm_service.chat_completion",
         new=AsyncMock(return_value={"content": "x"}),
     ) as mock_call:
-        await generate_summary([], existing_summary=None, ollama_client=mock_client)
+        await generate_summary([], existing_summary=None, anthropic_client=mock_client)
 
     call_messages = mock_call.call_args.kwargs["messages"]
     assert call_messages[0]["role"] == "system"
@@ -342,41 +342,41 @@ async def test_generate_summary_uses_summarize_system_prompt() -> None:
 @pytest.mark.asyncio
 async def test_generate_summary_uses_temperature_zero() -> None:
     """Temperature is pinned to 0 for deterministic summarization."""
-    mock_client = _make_ollama_client()
+    mock_client = _make_anthropic_client()
 
     with patch(
-        "chat_service.core.memory.ollama_service.chat_completion",
+        "chat_service.core.memory.llm_service.chat_completion",
         new=AsyncMock(return_value={"content": "x"}),
     ) as mock_call:
-        await generate_summary([], existing_summary=None, ollama_client=mock_client)
+        await generate_summary([], existing_summary=None, anthropic_client=mock_client)
 
-    assert mock_call.call_args.kwargs.get("options") == {"temperature": 0}
+    assert mock_call.call_args.kwargs.get("temperature") == 0
 
 
 @pytest.mark.asyncio
-async def test_generate_summary_propagates_ollama_error() -> None:
-    """OllamaError from the LLM propagates so the caller can log + skip."""
-    mock_client = _make_ollama_client()
+async def test_generate_summary_propagates_llm_error() -> None:
+    """LLMError from the LLM propagates so the caller can log + skip."""
+    mock_client = _make_anthropic_client()
 
     with (
         patch(
-            "chat_service.core.memory.ollama_service.chat_completion",
-            new=AsyncMock(side_effect=OllamaError("LLM down")),
+            "chat_service.core.memory.llm_service.chat_completion",
+            new=AsyncMock(side_effect=LLMError("LLM down")),
         ),
-        pytest.raises(OllamaError),
+        pytest.raises(LLMError),
     ):
-        await generate_summary([], existing_summary=None, ollama_client=mock_client)
+        await generate_summary([], existing_summary=None, anthropic_client=mock_client)
 
 
 @pytest.mark.asyncio
 async def test_generate_summary_strips_whitespace() -> None:
     """Leading/trailing whitespace in the LLM response is stripped."""
-    mock_client = _make_ollama_client()
+    mock_client = _make_anthropic_client()
 
     with patch(
-        "chat_service.core.memory.ollama_service.chat_completion",
+        "chat_service.core.memory.llm_service.chat_completion",
         new=AsyncMock(return_value={"content": "  Summary text.  \n"}),
     ):
-        result = await generate_summary([], existing_summary=None, ollama_client=mock_client)
+        result = await generate_summary([], existing_summary=None, anthropic_client=mock_client)
 
     assert result == "Summary text."

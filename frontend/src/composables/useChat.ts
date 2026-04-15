@@ -44,21 +44,32 @@ export function useChat() {
         return // malformed frame — skip, don't crash
       }
 
-      if (data.type === 'typing') {
+      if (data.type === 'token') {
+        store.setStreaming(true)
+        store.setToolStatus(null)
+        store.appendToken(data.token ?? '')
+      } else if (data.type === 'typing') {
         store.setTyping(true)
       } else if (data.type === 'progress') {
-        store.addMessage({
-          role: 'system',
-          content: data.message ?? 'Still working on your response...',
-        })
+        store.setToolStatus(data.message ?? 'Working...')
       } else if (data.type === 'chat_response') {
         store.setTyping(false)
-        store.addMessage({
-          role: 'assistant',
-          reply: data.reply,
-          structured_data: data.structured_data,
-          suggested_actions: data.suggested_actions,
-        })
+        store.setStreaming(false)
+        store.setToolStatus(null)
+        // If we already streamed tokens into the last message, update it
+        // with the final reply + structured data instead of adding a duplicate.
+        const last = store.messages[store.messages.length - 1]
+        if (last && last.role === 'assistant' && last.reply) {
+          last.structured_data = data.structured_data
+          last.suggested_actions = data.suggested_actions
+        } else {
+          store.addMessage({
+            role: 'assistant',
+            reply: data.reply,
+            structured_data: data.structured_data,
+            suggested_actions: data.suggested_actions,
+          })
+        }
       } else if (data.type === 'error') {
         store.setTyping(false)
         store.addMessage({

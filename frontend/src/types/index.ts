@@ -102,8 +102,9 @@ export interface WsClientMessage {
 }
 
 export interface WsServerMessage {
-  type: 'chat_response' | 'typing' | 'error' | 'progress'
+  type: 'chat_response' | 'typing' | 'error' | 'progress' | 'token'
   reply?: string
+  token?: string
   structured_data?: CourseCard[]
   suggested_actions?: Action[]
   session_id?: string

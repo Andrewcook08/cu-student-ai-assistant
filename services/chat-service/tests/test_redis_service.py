@@ -3,7 +3,7 @@
 The redis.asyncio.Redis client is mocked — these tests assert the wire
 shape (keys, TTLs, payloads), the user_id scoping, and the inference
 queue's progress / timeout / cleanup contract without spinning up a real
-Redis. Mirrors the AsyncMock/MagicMock pattern from test_ollama_service
+Redis. Mirrors the AsyncMock/MagicMock pattern from test_llm_service
 and test_neo4j_service; no new test deps (no fakeredis, no pytest-redis).
 """
 

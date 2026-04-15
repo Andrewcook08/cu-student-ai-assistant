@@ -35,10 +35,13 @@ describe('ChatWindow', () => {
     expect(wrapper.find('.chat-panel').exists()).toBe(true)
   })
 
-  it('collapses again when header is clicked', async () => {
+  it('collapses again when header is clicked (mousedown + mouseup without drag)', async () => {
     const { wrapper } = mountWindow()
     await wrapper.find('.chat-bubble').trigger('click')
-    await wrapper.find('.chat-panel__header').trigger('click')
+    await wrapper.find('.chat-panel__header').trigger('mousedown')
+    // No mousemove — triggers toggle on mouseup
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    await wrapper.vm.$nextTick()
     expect(wrapper.find('.chat-panel').exists()).toBe(false)
   })
 

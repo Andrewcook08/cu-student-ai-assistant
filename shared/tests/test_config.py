@@ -14,8 +14,9 @@ def _prod_settings(**overrides: str) -> Settings:
         "neo4j_password": "str0ng-neo4j-password",
         "redis_url": "redis://redis:6379/0",
         "ollama_url": "http://ollama:11434",
-        "ollama_model": "gpt-oss:20b",
         "ollama_embed_model": "nomic-embed-text",
+        "anthropic_api_key": "sk-ant-test-key",
+        "anthropic_model": "claude-sonnet-4-20250514",
         "jwt_secret_key": "a" * 32,
         "cors_origins": "https://cu-assistant.example.com",
     }

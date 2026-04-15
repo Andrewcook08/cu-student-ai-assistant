@@ -1,7 +1,7 @@
 """Unit tests for chat_service.core.tools (CHAT-005 / CUAI-37).
 
-All seven tools are tested against mocked service layers — no live database,
-Neo4j, or Ollama instance is required.  The fixture pattern mirrors
+All eight tools are tested against mocked service layers — no live database,
+Neo4j, or LLM instance is required.  The fixture pattern mirrors
 ``test_postgres_service.py`` and ``test_neo4j_service.py``: AsyncMock for
 I/O calls, MagicMock for context managers.
 
@@ -459,7 +459,7 @@ async def test_search_courses_calls_embedding_then_vector_search() -> None:
 
     with (
         patch(
-            "chat_service.core.tools.ollama_service.get_embedding",
+            "chat_service.core.tools.llm_service.get_embedding",
             new=AsyncMock(return_value=fake_embedding),
         ) as mock_embed,
         patch(
@@ -506,7 +506,7 @@ async def test_search_courses_post_filters_by_department() -> None:
 
     with (
         patch(
-            "chat_service.core.tools.ollama_service.get_embedding",
+            "chat_service.core.tools.llm_service.get_embedding",
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
@@ -548,7 +548,7 @@ async def test_search_courses_no_filter_returns_all() -> None:
 
     with (
         patch(
-            "chat_service.core.tools.ollama_service.get_embedding",
+            "chat_service.core.tools.llm_service.get_embedding",
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(
@@ -586,7 +586,7 @@ async def test_search_courses_post_filters_by_instruction_mode() -> None:
 
     with (
         patch(
-            "chat_service.core.tools.ollama_service.get_embedding",
+            "chat_service.core.tools.llm_service.get_embedding",
             new=AsyncMock(return_value=[0.1]),
         ),
         patch(

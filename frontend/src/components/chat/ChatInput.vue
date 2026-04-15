@@ -33,16 +33,25 @@ function handleKeydown(e: KeyboardEvent) {
 
 <template>
   <div class="chat-input-bar">
-    <textarea
-      v-model="input"
-      class="chat-input__textarea"
-      aria-label="Message input"
-      maxlength="2000"
-      :placeholder="disabled ? 'AI is thinking...' : 'Ask me anything about courses...'"
-      :disabled="disabled"
-      rows="1"
-      @keydown="handleKeydown"
-    />
+    <div class="chat-input__field">
+      <textarea
+        v-model="input"
+        class="chat-input__textarea"
+        aria-label="Message input"
+        maxlength="2000"
+        :placeholder="disabled ? 'AI is thinking...' : 'Ask me anything about courses...'"
+        :disabled="disabled"
+        rows="1"
+        @keydown="handleKeydown"
+      />
+      <span
+        v-if="charCount > 0"
+        class="chat-input__counter"
+        :class="{ 'chat-input__counter--over': isOverLimit }"
+      >
+        {{ charCount }}/{{ MAX_CHARS }}
+      </span>
+    </div>
     <button
       class="chat-input__send"
       :disabled="!canSend"
@@ -51,24 +60,26 @@ function handleKeydown(e: KeyboardEvent) {
     >
       <Send :size="16" />
     </button>
-    <div class="chat-input__counter" :class="{ 'chat-input__counter--over': isOverLimit }">
-      {{ charCount }}/{{ MAX_CHARS }}
-    </div>
   </div>
 </template>
 
 <style scoped>
 .chat-input-bar {
   display: flex;
-  align-items: flex-end;
+  align-items: start;
   gap: 6px;
   padding: 8px 12px;
   border-top: 1px solid #ddd;
   background: #fff;
+  flex-shrink: 0;
+}
+.chat-input__field {
+  flex: 1;
   position: relative;
 }
 .chat-input__textarea {
-  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
   resize: none;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -116,10 +127,11 @@ function handleKeydown(e: KeyboardEvent) {
 }
 .chat-input__counter {
   position: absolute;
-  bottom: 4px;
-  right: 52px;
+  top: 10px;
+  right: 8px;
   font-size: 10px;
   color: #bbb;
+  pointer-events: none;
 }
 .chat-input__counter--over {
   color: #c62828;

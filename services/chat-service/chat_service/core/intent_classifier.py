@@ -7,12 +7,12 @@ retrieval strategy.
 Approach: hybrid heuristic-first, optional LLM fallback.
 
 - A pure regex/keyword pass runs first.  It is instant, deterministic,
-  trivially testable, and has no Ollama dependency.  All five Jira
+  trivially testable, and has no LLM dependency.  All five Jira
   acceptance examples must hit this path so unit tests don't need
-  Ollama.
+  an API key.
 - If the heuristic returns :data:`Intent.GENERAL_QUESTION` and an
-  ``ollama_client`` was supplied, a single LLM call is made to
-  ``ollama_service.chat_completion`` as a fallback.  Any failure (timeout,
+  ``anthropic_client`` was supplied, a single LLM call is made to
+  ``llm_service.chat_completion`` as a fallback.  Any failure (timeout,
   malformed response, unknown label) collapses back to
   :data:`Intent.GENERAL_QUESTION` — :func:`classify_intent` never raises.
 
@@ -22,15 +22,12 @@ into LangGraph state and JSON.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from enum import StrEnum
-from typing import Any
 
-import httpx
-
-from chat_service.services.ollama_service import OllamaError, chat_completion
+import anthropic
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -116,32 +113,23 @@ _FALLBACK_SYSTEM_PROMPT = (
     "- schedule_help: time conflicts, overlaps, or scheduling specific course "
     "sections (e.g. 'do these two classes conflict?').\n"
     "- general_question: anything else, including off-topic or chit-chat.\n"
-    "Respond with a JSON object matching the provided schema."
+    'Respond ONLY with a JSON object like {"intent": "<label>"}. Do not include any other text.'
 )
 
-
-def _build_intent_schema() -> dict[str, Any]:
-    """Build the JSON schema Ollama uses for constrained decoding.
-
-    Single source of truth: derived from :class:`Intent` so adding a new
-    intent automatically updates the schema. The ``enum`` constraint is
-    what Ollama applies as a logit mask, guaranteeing the model can only
-    emit one of the five labels.
-    """
-    return {
+_INTENT_TOOL = {
+    "name": "classify_intent",
+    "description": "Record the intent label for the user message.",
+    "input_schema": {
         "type": "object",
         "properties": {
             "intent": {
                 "type": "string",
-                "enum": [intent.value for intent in Intent],
+                "enum": [i.value for i in Intent],
             },
         },
         "required": ["intent"],
-    }
-
-
-_INTENT_SCHEMA = _build_intent_schema()
-_DETERMINISTIC_OPTIONS = {"temperature": 0}
+    },
+}
 
 
 def _heuristic_classify(message: str) -> Intent:
@@ -212,7 +200,7 @@ def _parse_llm_label(content: str) -> Intent:
 async def classify_intent(
     message: str,
     *,
-    ollama_client: httpx.AsyncClient | None = None,
+    anthropic_client: anthropic.AsyncAnthropic | None = None,
 ) -> Intent:
     """Classify *message* into one of the five :class:`Intent` values.
 
@@ -221,7 +209,7 @@ async def classify_intent(
     other I/O nodes.
 
     Empty or whitespace-only input always returns
-    :data:`Intent.GENERAL_QUESTION`.  When *ollama_client* is provided and
+    :data:`Intent.GENERAL_QUESTION`.  When *anthropic_client* is provided and
     the heuristic returns :data:`Intent.GENERAL_QUESTION`, a single LLM
     call is made as a fallback; any failure collapses back to
     :data:`Intent.GENERAL_QUESTION`.  This function never raises.
@@ -233,35 +221,26 @@ async def classify_intent(
     if intent is not Intent.GENERAL_QUESTION:
         return intent
 
-    if ollama_client is None:
+    if anthropic_client is None:
         return Intent.GENERAL_QUESTION
 
     try:
-        response = await chat_completion(
-            ollama_client,
-            [
-                {"role": "system", "content": _FALLBACK_SYSTEM_PROMPT},
-                {"role": "user", "content": message},
-            ],
-            format=_INTENT_SCHEMA,
-            options=_DETERMINISTIC_OPTIONS,
+        response = await anthropic_client.messages.create(
+            model=settings.anthropic_model,
+            system=_FALLBACK_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": message}],
+            tools=[_INTENT_TOOL],
+            tool_choice={"type": "tool", "name": "classify_intent"},
+            max_tokens=64,
+            temperature=0,
         )
-        content = response.get("content") or ""
-        if not content:
-            return Intent.GENERAL_QUESTION
-        # Happy path: structured output yields {"intent": "<label>"}.
-        # Fall back to the lenient text parser if the JSON shape is wrong
-        # so a misbehaving Ollama version (or a future schema mismatch)
-        # still degrades gracefully instead of dropping the request.
-        try:
-            payload = json.loads(content)
-            label = payload.get("intent", "") if isinstance(payload, dict) else ""
-            if isinstance(label, str) and label:
-                return _parse_llm_label(label)
-        except (json.JSONDecodeError, TypeError):
-            pass
-        return _parse_llm_label(content)
-    except OllamaError as exc:
+        # tool_choice forces a tool call — extract the enum-constrained label.
+        tool_block = response.content[0]
+        label = tool_block.input.get("intent", "")
+        if isinstance(label, str) and label:
+            return _parse_llm_label(label)
+        return Intent.GENERAL_QUESTION
+    except (anthropic.APITimeoutError, anthropic.APIError) as exc:
         logger.debug("LLM intent fallback failed: %s", exc)
         return Intent.GENERAL_QUESTION
     except Exception as exc:  # pragma: no cover - defensive last resort

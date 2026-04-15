@@ -1,8 +1,10 @@
 """Chat Service — stateful AI orchestration."""
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import anthropic
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +23,10 @@ from chat_service.services.redis_service import build_redis_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     settings.validate_production()
     # Long-lived singleton — the driver owns a connection pool and must
     # outlive individual requests. Tool handlers pull it off app.state.
@@ -28,13 +34,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         settings.neo4j_uri,
         auth=(settings.neo4j_user, settings.neo4j_password),
     )
-    # Long-lived httpx client for Ollama. Timeout is split per phase so
-    # that the generous inference budget doesn't also apply to connect /
-    # write / pool — an unreachable Ollama should surface in seconds, not
-    # minutes. Read timeout is the inference budget: chat completions on
-    # larger models can run ~60s, 120s leaves headroom.
+    # Long-lived httpx client for Ollama embeddings only. Timeout is
+    # split per phase so that the generous inference budget doesn't also
+    # apply to connect / write / pool — an unreachable Ollama should
+    # surface in seconds, not minutes.
     app.state.ollama_client = httpx.AsyncClient(
         base_url=settings.ollama_url,
+        timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0),
+    )
+    # Anthropic SDK client for LLM inference (chat completions, intent
+    # classification fallback, summary generation).
+    app.state.anthropic_client = anthropic.AsyncAnthropic(
+        api_key=settings.anthropic_api_key,
         timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0),
     )
     # Long-lived Redis client. Owns its own connection pool internally,
@@ -71,8 +82,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # startup; each ainvoke() operates on an independent state copy so
     # concurrent WebSocket sessions are safe.
     app.state.conversation_graph = build_graph(
-        ollama_base_url=settings.ollama_url,
-        ollama_model=settings.ollama_model,
+        anthropic_api_key=settings.anthropic_api_key,
+        anthropic_model=settings.anthropic_model,
+        anthropic_client=app.state.anthropic_client,
         tools=app.state.tools,
         tool_executor=app.state.tool_executor,
         ollama_client=app.state.ollama_client,
@@ -91,9 +103,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 await app.state.ollama_client.aclose()
             finally:
                 try:
-                    await app.state.redis.aclose()
+                    await app.state.anthropic_client.close()
                 finally:
-                    await app.state.postgres_engine.dispose()
+                    try:
+                        await app.state.redis.aclose()
+                    finally:
+                        await app.state.postgres_engine.dispose()
 
 
 app = FastAPI(title="CU Chat Service", lifespan=lifespan)
