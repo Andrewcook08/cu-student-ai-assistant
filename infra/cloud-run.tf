@@ -39,6 +39,10 @@ locals {
   image_course_search_api = var.image_tag != "" ? "${local.image_base}/course-search-api:${var.image_tag}" : local.placeholder_image
   image_chat_service      = var.image_tag != "" ? "${local.image_base}/chat-service:${var.image_tag}" : local.placeholder_image
   image_frontend          = var.image_tag != "" ? "${local.image_base}/frontend:${var.image_tag}" : local.placeholder_image
+
+  # CUAI-88 wiring: prefer explicit override (var.ollama_embed_url) if set, otherwise
+  # fall back to the live embed service URL. Enables single-apply bootstrap.
+  ollama_embed_url_effective = var.ollama_embed_url != "" ? var.ollama_embed_url : google_cloud_run_v2_service.ollama_embed.uri
 }
 
 # ─────────────────────────────────────────────
@@ -276,7 +280,7 @@ resource "google_cloud_run_v2_service" "course_search_api" {
       }
       env {
         name  = "OLLAMA_URL"
-        value = var.ollama_embed_url
+        value = local.ollama_embed_url_effective
       }
       env {
         name  = "OLLAMA_EMBED_MODEL"
@@ -435,7 +439,7 @@ resource "google_cloud_run_v2_service" "chat_service" {
       }
       env {
         name  = "OLLAMA_URL"
-        value = var.ollama_embed_url
+        value = local.ollama_embed_url_effective
       }
       env {
         name  = "OLLAMA_EMBED_MODEL"

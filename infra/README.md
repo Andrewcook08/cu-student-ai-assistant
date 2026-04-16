@@ -114,13 +114,14 @@ Any other drift (env vars, concurrency, probes, IAM) should round-trip through T
 |---|---|
 | `main.tf` | Provider + backend config |
 | `variables.tf` | `project_id`, `region`, `image_tag`, `ollama_embed_url`, etc. |
-| `outputs.tf` | `frontend_url`, `data_vm_internal_ip`, `workload_identity_provider` (CUAI-89), `deploy_sa_email` (CUAI-89) |
+| `outputs.tf` | `frontend_url`, `ollama_embed_url`, `data_vm_internal_ip`, `workload_identity_provider` (CUAI-89), `deploy_sa_email` (CUAI-89) |
 | `apis.tf` | Enables required Google APIs |
 | `network.tf` | VPC + subnet + serverless VPC connector + firewall policy |
 | `data-vm.tf` | Compute Engine VM + persistent disk + snapshot policy + startup script |
 | `scripts/data-vm-startup.sh` | Runs on VM boot; pulls secrets, brings up docker-compose stack |
 | `artifact-registry.tf` | `cu-assistant` Docker repo |
-| `cloud-run.tf` | Three Cloud Run services + Secret Manager shells + IAM bindings |
+| `cloud-run.tf` | Three app Cloud Run services (frontend, course-search-api, chat-service) + Secret Manager shells + IAM bindings |
+| `ollama-embed.tf` | Prebaked Ollama embed Cloud Run service + SA + scoped invoker IAM (CUAI-88) |
 | `iam.tf` | Runtime service accounts + AR reader + (CUAI-89) WIF pool/provider + `deploy-sa` |
 | `infra.sh` | `plan` / `up` / `down` / `status` / `secrets` wrapper |
 | `terraform.tfvars.example` | Copy to `terraform.tfvars` and fill in `project_id` + secret-population commands |
