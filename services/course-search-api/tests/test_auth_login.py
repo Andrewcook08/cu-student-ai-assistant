@@ -48,7 +48,7 @@ def _login(client, *, email: str = "login@colorado.edu", password: str = "Secure
 
 
 def test_login_returns_200_with_correct_shape(client, db_session):
-    """Valid credentials return 200 with access_token, token_type='bearer', expires_in, user_id, name."""
+    """Valid login returns access_token, token_type='bearer', expires_in, user_id, name."""
     user = _create_user(db_session, email="shape@colorado.edu")
     resp = _login(client, email="shape@colorado.edu")
     assert resp.status_code == 200

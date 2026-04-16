@@ -24,7 +24,7 @@ async function handleSubmit() {
 
 <template>
   <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title">
-    <div class="modal">
+    <div class="modal-box">
       <h2 id="login-title" class="modal__title">Log In</h2>
 
       <form @submit.prevent="handleSubmit" novalidate>
@@ -104,7 +104,7 @@ async function handleSubmit() {
   z-index: 1000;
 }
 
-.modal {
+.modal-box {
   background: #fff;
   border-radius: 4px;
   padding: 24px;
