@@ -132,7 +132,6 @@ describe('useAuth', () => {
       await updateCompletedCourses([{ course_code: 'CSCI1300', grade: 'A' }])
       expect(authApi.updateCompletedCourses).toHaveBeenCalledWith(
         [{ course_code: 'CSCI1300', grade: 'A' }],
-        'tok',
       )
     })
 

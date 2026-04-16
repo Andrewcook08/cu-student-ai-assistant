@@ -6,15 +6,9 @@ import type {
   CompletedCoursePayload,
   ProgramRequirementsResponse,
 } from '@/types/index'
+import { apiFetch } from '@/services/api'
 
 const API_BASE = '/api'
-
-function authHeaders(token: string): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  }
-}
 
 async function getErrorMessage(response: Response, fallback: string): Promise<string> {
   const errorBody: unknown = await response.json().catch(() => null)
@@ -55,19 +49,16 @@ export async function login(email: string, password: string): Promise<AuthLoginR
   return res.json()
 }
 
-export async function fetchPrograms(token: string): Promise<Program[]> {
-  const res = await fetch(`${API_BASE}/programs`, { headers: authHeaders(token) })
+export async function fetchPrograms(): Promise<Program[]> {
+  const res = await apiFetch(`${API_BASE}/programs`)
   if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to fetch programs'))
   return res.json()
 }
 
 export async function fetchProgramRequirements(
   programId: number,
-  token: string,
 ): Promise<ProgramRequirementsResponse> {
-  const res = await fetch(`${API_BASE}/programs/${programId}/requirements`, {
-    headers: authHeaders(token),
-  })
+  const res = await apiFetch(`${API_BASE}/programs/${programId}/requirements`)
   if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to fetch requirements'))
   return res.json()
 }
@@ -83,11 +74,9 @@ export async function updateProgram(programId: number | null, token: string): Pr
 
 export async function updateCompletedCourses(
   courses: CompletedCoursePayload[],
-  token: string,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/students/me/completed-courses`, {
+  const res = await apiFetch(`${API_BASE}/students/me/completed-courses`, {
     method: 'PUT',
-    headers: authHeaders(token),
     body: JSON.stringify(courses),
   })
   if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to update completed courses'))

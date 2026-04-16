@@ -64,7 +64,8 @@ export function useAuth() {
     loading.value = true
     error.value = null
     try {
-      return await apiFetchPrograms(requireToken())
+      requireToken()
+      return await apiFetchPrograms()
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to load programs'
       throw e
@@ -77,7 +78,8 @@ export function useAuth() {
     loading.value = true
     error.value = null
     try {
-      return await fetchProgramRequirements(programId, requireToken())
+      requireToken()
+      return await fetchProgramRequirements(programId)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to load requirements'
       throw e
@@ -103,7 +105,8 @@ export function useAuth() {
     loading.value = true
     error.value = null
     try {
-      await apiUpdateCourses(courses, requireToken())
+      requireToken()
+      await apiUpdateCourses(courses)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to update courses'
       throw e

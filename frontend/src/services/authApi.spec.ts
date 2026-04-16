@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { useAuthStore } from '@/stores/authStore'
 import { register, login, fetchPrograms, fetchProgramRequirements, updateCompletedCourses } from '@/services/authApi'
 import type { CompletedCoursePayload } from '@/types/index'
 
@@ -18,7 +20,11 @@ function getLastFetchCall(): [RequestInfo | URL, RequestInit | undefined] {
   return [lastCall[0], lastCall[1] as RequestInit | undefined]
 }
 
-beforeEach(() => vi.restoreAllMocks())
+beforeEach(() => {
+  vi.restoreAllMocks()
+  setActivePinia(createPinia())
+  sessionStorage.clear()
+})
 
 describe('authApi', () => {
   describe('register', () => {
@@ -73,8 +79,10 @@ describe('authApi', () => {
 
   describe('fetchPrograms', () => {
     it('GETs /api/programs with Authorization header', async () => {
+      const store = useAuthStore()
+      store.setAuth('my-token', 1, 'Alice')
       mockFetch([{ id: 1, name: 'CS BS', type: 'major', total_credits: 120 }])
-      const result = await fetchPrograms('my-token')
+      const result = await fetchPrograms()
       const [url, requestInit] = getLastFetchCall()
       expect(url).toBe('/api/programs')
       expect(requestInit?.headers).toMatchObject({
@@ -86,19 +94,21 @@ describe('authApi', () => {
 
     it('surfaces the server detail message on non-ok response', async () => {
       mockFetch({ detail: 'Unauthorized' }, 401)
-      await expect(fetchPrograms('bad-tok')).rejects.toThrow('Unauthorized')
+      await expect(fetchPrograms()).rejects.toThrow('Unauthorized')
     })
 
     it('falls back to a status-based error when detail is missing', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 503 }))
-      await expect(fetchPrograms('bad-tok')).rejects.toThrow('Failed to fetch programs: 503')
+      await expect(fetchPrograms()).rejects.toThrow('Failed to fetch programs: 503')
     })
   })
 
   describe('fetchProgramRequirements', () => {
     it('GETs /api/programs/7/requirements with Authorization header', async () => {
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
       mockFetch({ program: { id: 7, name: 'CS BS', type: 'major' }, requirements: [] })
-      await fetchProgramRequirements(7, 'tok')
+      await fetchProgramRequirements(7)
       const [url, requestInit] = getLastFetchCall()
       expect(url).toBe('/api/programs/7/requirements')
       expect(requestInit?.headers).toMatchObject({
@@ -108,15 +118,17 @@ describe('authApi', () => {
 
     it('throws on non-ok response', async () => {
       mockFetch({ detail: 'Not found' }, 404)
-      await expect(fetchProgramRequirements(999, 'tok')).rejects.toThrow('Not found')
+      await expect(fetchProgramRequirements(999)).rejects.toThrow('Not found')
     })
   })
 
   describe('updateCompletedCourses', () => {
     it('PUTs /api/students/me/completed-courses with auth header and body', async () => {
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
       mockFetch({ completed_courses: [] })
       const courses: CompletedCoursePayload[] = [{ course_code: 'CSCI1300', grade: 'A' }]
-      await updateCompletedCourses(courses, 'tok')
+      await updateCompletedCourses(courses)
       const [url, requestInit] = getLastFetchCall()
       expect(url).toBe('/api/students/me/completed-courses')
       expect(requestInit?.method).toBe('PUT')
@@ -129,7 +141,7 @@ describe('authApi', () => {
 
     it('throws on non-ok response', async () => {
       mockFetch({ detail: 'Bad request' }, 400)
-      await expect(updateCompletedCourses([], 'tok')).rejects.toThrow('Bad request')
+      await expect(updateCompletedCourses([])).rejects.toThrow('Bad request')
     })
   })
 })
