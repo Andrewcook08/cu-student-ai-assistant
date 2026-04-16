@@ -27,3 +27,8 @@ output "data_vm_internal_ip" {
   description = "Internal IP of the data-services VM (use in DATABASE_URL, NEO4J_URI, REDIS_URL)"
   value       = google_compute_address.data_vm.address
 }
+
+output "frontend_url" {
+  description = "Public URL of the frontend Cloud Run service (*.run.app). Printed by ./infra.sh status."
+  value       = google_cloud_run_v2_service.frontend.uri
+}

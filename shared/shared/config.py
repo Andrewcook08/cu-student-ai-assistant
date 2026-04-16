@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     ollama_url: str
     ollama_embed_model: str
 
-    # Anthropic (LLM)
-    anthropic_api_key: str
+    # Anthropic (LLM) — only required by chat-service; other services default to empty
+    anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
 
     # Auth
