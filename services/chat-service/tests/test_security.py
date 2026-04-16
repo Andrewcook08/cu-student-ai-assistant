@@ -12,7 +12,7 @@ Organized into five test classes:
 4. ``TestMalformedOutputPipeline``   — output validation (cards, PII, scope)
 5. ``TestCombinedAttackScenarios``   — multi-vector attack compositions
 
-All tests use mocked dependencies -- no live Ollama, Neo4j, or Postgres.
+All tests use mocked dependencies -- no live Anthropic, Ollama, Neo4j, or Postgres.
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ class _GraphCtx:
     """Context manager keeping dependency patches alive during graph.ainvoke().
 
     Node closures look up ``classify_intent``, ``build_context``, and
-    ``ollama_service.get_embedding`` at *invocation* time, so patches must
+    ``llm_service.get_embedding`` at *invocation* time, so patches must
     stay active through the full graph run.
     """
 
@@ -141,7 +141,12 @@ class _GraphCtx:
         llm_with_tools = MagicMock()
         llm_with_tools.ainvoke = AsyncMock(side_effect=self._llm_responses)
         llm_instance.bind_tools = MagicMock(return_value=llm_with_tools)
+        # final_response_node uses the bare llm (no tools) — needs async ainvoke.
+        llm_instance.ainvoke = AsyncMock(
+            return_value=AIMessage(content="I've gathered the results above.")
+        )
         self.llm = llm_with_tools
+        self.llm_bare = llm_instance
 
         context_result = ContextResult(text=self._build_context_text, token_estimate=0)
 
@@ -157,7 +162,7 @@ class _GraphCtx:
         await self._stack.__aenter__()
 
         self._stack.enter_context(
-            patch("chat_service.core.llm_engine.ChatOllama", return_value=llm_instance)
+            patch("chat_service.core.llm_engine.ChatAnthropic", return_value=llm_instance)
         )
         self._stack.enter_context(
             patch("chat_service.core.llm_engine.classify_intent", new=self.classify_intent_mock)
@@ -167,14 +172,15 @@ class _GraphCtx:
         )
         self._stack.enter_context(
             patch(
-                "chat_service.core.llm_engine.ollama_service.get_embedding",
+                "chat_service.core.llm_engine.llm_service.get_embedding",
                 new=self.embedding_mock,
             )
         )
 
         self.graph = build_graph(
-            ollama_base_url="http://localhost:11434",
-            ollama_model="test-model",
+            anthropic_api_key="test-key",
+            anthropic_model="test-model",
+            anthropic_client=MagicMock(),
             tools=[],
             tool_executor=self._tool_executor,
             ollama_client=MagicMock(),
@@ -714,7 +720,7 @@ class TestCombinedAttackScenarios:
 
     @pytest.mark.asyncio
     async def test_rate_limit_plus_malformed_output(self) -> None:
-        """call_count=10 + LLM reply with PII -> routes to respond, PII redacted."""
+        """call_count=10 + LLM reply with tool_calls -> final_response -> PII redacted."""
         executor = _make_tool_executor()
         llm_responses = [
             AIMessage(
@@ -724,10 +730,17 @@ class TestCombinedAttackScenarios:
         ]
 
         async with _GraphCtx(llm_responses=llm_responses, tool_executor=executor) as ctx:
+            # Override the bare LLM response (used by final_response_node)
+            # to also contain PII so the PII redaction assertion still holds.
+            ctx.llm_bare.ainvoke = AsyncMock(
+                return_value=AIMessage(
+                    content="Contact support at support@cu.edu or call 303-555-9999."
+                )
+            )
             state = _base_state(call_count=MAX_TOOL_CALLS_PER_TURN)
             final_state = await ctx.graph.ainvoke(state)
 
-            # Rate limit -> respond (no tool execution).
+            # Rate limit -> final_response -> respond (no tool execution).
             executor.execute.assert_not_awaited()
 
             # PII in reply is still redacted by validate_output_node.

@@ -14,7 +14,7 @@ Backs three slices of the chat pipeline:
 
 The ``redis.asyncio.Redis`` connection is owned by ``main.py`` lifespan
 (constructed once via ``build_redis_client``) and injected per call,
-mirroring the dependency-injection pattern used by ``ollama_service`` and
+mirroring the dependency-injection pattern used by ``llm_service`` and
 ``neo4j_service``. There is intentionally **no** module-level pool — the
 same client/pool is reused across requests so we don't churn TCP
 connections.

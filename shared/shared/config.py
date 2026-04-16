@@ -22,10 +22,13 @@ class Settings(BaseSettings):
     redis_url: str
     redis_password: str | None = None
 
-    # Ollama
+    # Ollama (embeddings only)
     ollama_url: str
-    ollama_model: str
     ollama_embed_model: str
+
+    # Anthropic (LLM)
+    anthropic_api_key: str
+    anthropic_model: str = "claude-sonnet-4-20250514"
 
     # Auth
     jwt_secret_key: str

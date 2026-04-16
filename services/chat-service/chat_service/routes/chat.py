@@ -19,16 +19,28 @@ import re
 import time
 from typing import Any
 
-import httpx
+import anthropic
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from shared.auth import decode_access_token
 
 from chat_service.core import memory
 from chat_service.core.input_sanitizer import sanitize_message
 from chat_service.services.redis_service import RedisError
+
+# User-friendly labels for tool calls shown during streaming.
+_TOOL_PROGRESS_LABELS: dict[str, str] = {
+    "search_courses": "Searching courses...",
+    "lookup_course": "Looking up course details...",
+    "check_prerequisites": "Checking prerequisites...",
+    "get_degree_requirements": "Fetching degree requirements...",
+    "get_student_profile": "Loading your academic profile...",
+    "find_schedule_conflicts": "Checking schedule conflicts...",
+    "save_decision": "Saving your decision...",
+    "remove_decision": "Removing decision...",
+}
 
 #: Hard timeout for a single graph invocation (intent + context + LLM + tools).
 #: Prevents the WebSocket handler from stalling indefinitely if the LLM hangs
@@ -58,7 +70,7 @@ router = APIRouter()
 
 async def _summarize_and_save(
     redis_client: aioredis.Redis,
-    ollama_client: httpx.AsyncClient,
+    anthropic_client: anthropic.AsyncAnthropic,
     *,
     user_id: int,
     session_id: str,
@@ -69,7 +81,7 @@ async def _summarize_and_save(
         new_summary = await memory.generate_summary(
             messages,
             existing_summary=existing_summary,
-            ollama_client=ollama_client,
+            anthropic_client=anthropic_client,
         )
         await memory.save_summary(
             redis_client,
@@ -137,7 +149,7 @@ async def chat_websocket(
     app = websocket.app
     graph = app.state.conversation_graph
     redis_client = app.state.redis
-    ollama_client = app.state.ollama_client
+    anthropic_client = app.state.anthropic_client
 
     rate_count = 0
     rate_window_start = time.monotonic()
@@ -227,10 +239,83 @@ async def chat_websocket(
             }
 
             try:
+                result: dict[str, Any] = {}
+                streamed_reply = ""
+
+                async def _run_stream(
+                    _input: dict[str, Any] = initial_state,
+                ) -> dict[str, Any]:
+                    nonlocal streamed_reply
+                    final_state: dict[str, Any] = {}
+                    # Track how many times call_llm has emitted tokens.
+                    # If > 0, a tool call happened in between and we need
+                    # a separator before the next batch of tokens.
+                    llm_segment_count = 0
+                    in_llm_segment = False
+                    async for chunk in graph.astream(
+                        _input,
+                        stream_mode=["updates", "messages"],
+                        version="v2",
+                    ):
+                        if chunk["type"] == "messages":
+                            msg, metadata = chunk["data"]
+                            # Stream tokens only from the call_llm node.
+                            # msg.content can be str or list (Anthropic
+                            # content blocks) — extract text only.
+                            node = metadata.get("langgraph_node")
+                            if node == "call_llm":
+                                # Send progress labels for tool calls.
+                                if isinstance(msg, AIMessageChunk) and getattr(
+                                    msg, "tool_calls", None
+                                ):
+                                    for tc in msg.tool_calls:
+                                        label = _TOOL_PROGRESS_LABELS.get(
+                                            tc.get("name", ""),
+                                            "Working...",
+                                        )
+                                        await websocket.send_json(
+                                            {"type": "progress", "message": label}
+                                        )
+
+                                # Stream text tokens.
+                                if msg.content:
+                                    text = msg.content
+                                    if isinstance(text, list):
+                                        text = "".join(
+                                            b.get("text", "") for b in text if isinstance(b, dict)
+                                        )
+                                    if text:
+                                        if not in_llm_segment:
+                                            in_llm_segment = True
+                                            # Insert separator between
+                                            # successive LLM segments
+                                            # (i.e. after a tool call).
+                                            if llm_segment_count > 0:
+                                                sep = "\n\n"
+                                                streamed_reply += sep
+                                                await websocket.send_json(
+                                                    {"type": "token", "token": sep}
+                                                )
+                                            llm_segment_count += 1
+                                        streamed_reply += text
+                                        await websocket.send_json({"type": "token", "token": text})
+                        elif chunk["type"] == "updates":
+                            # Each update is {node_name: state_update}
+                            for node_name, state_update in chunk["data"].items():
+                                if isinstance(state_update, dict):
+                                    final_state.update(state_update)
+                                # When a non-LLM node completes, mark
+                                # that we left the LLM segment.
+                                if node_name != "call_llm":
+                                    in_llm_segment = False
+                    return final_state
+
                 result = await asyncio.wait_for(
-                    graph.ainvoke(initial_state),
+                    _run_stream(),
                     timeout=GRAPH_TIMEOUT_SECONDS,
                 )
+            except WebSocketDisconnect:
+                return
             except TimeoutError:
                 logger.error(
                     "chat: graph timed out after %ds for user_id=%s session=%s",
@@ -238,13 +323,16 @@ async def chat_websocket(
                     user_id,
                     session_id,
                 )
-                await websocket.send_json(
-                    {
-                        "type": "chat_response",
-                        "reply": "The request took too long. Please try again.",
-                        "session_id": session_id,
-                    }
-                )
+                try:
+                    await websocket.send_json(
+                        {
+                            "type": "chat_response",
+                            "reply": "The request took too long. Please try again.",
+                            "session_id": session_id,
+                        }
+                    )
+                except (WebSocketDisconnect, RuntimeError):
+                    return
                 continue
             except Exception:
                 logger.exception(
@@ -252,13 +340,16 @@ async def chat_websocket(
                     user_id,
                     session_id,
                 )
-                await websocket.send_json(
-                    {
-                        "type": "chat_response",
-                        "reply": "Something went wrong. Please try again.",
-                        "session_id": session_id,
-                    }
-                )
+                try:
+                    await websocket.send_json(
+                        {
+                            "type": "chat_response",
+                            "reply": "Something went wrong. Please try again.",
+                            "session_id": session_id,
+                        }
+                    )
+                except (WebSocketDisconnect, RuntimeError):
+                    return
                 continue
 
             # ── Extract reply ───────────────────────────────────────
@@ -266,10 +357,16 @@ async def chat_websocket(
                 reply = result["error"]
                 structured_data = None
             else:
-                ai_messages = [m for m in result["messages"] if isinstance(m, AIMessage)]
-                reply = (
-                    (ai_messages[-1].content or "") if ai_messages else ""
-                ) or "I couldn't generate a response. Please try again."
+                # Prefer the streamed reply we accumulated token-by-token;
+                # fall back to extracting from the final state messages.
+                if streamed_reply:
+                    reply = streamed_reply
+                else:
+                    all_msgs = result.get("messages", [])
+                    ai_messages = [m for m in all_msgs if isinstance(m, AIMessage)]
+                    reply = (
+                        (ai_messages[-1].content or "") if ai_messages else ""
+                    ) or "I couldn't generate a response. Please try again."
                 structured_data = result.get("structured_data") or None
 
             if result.get("pii_detected"):
@@ -307,7 +404,10 @@ async def chat_websocket(
             if structured_data:
                 response["structured_data"] = structured_data
 
-            await websocket.send_json(response)
+            try:
+                await websocket.send_json(response)
+            except (WebSocketDisconnect, RuntimeError):
+                return
 
             # ── Summarize if buffer exceeded threshold (MEM-002) ────
             # Fired as a background task so the response ships first.
@@ -315,7 +415,7 @@ async def chat_websocket(
                 asyncio.create_task(
                     _summarize_and_save(
                         redis_client,
-                        ollama_client,
+                        anthropic_client,
                         user_id=user_id,
                         session_id=session_id,
                         messages=conv_state["messages"],

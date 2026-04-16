@@ -1,11 +1,10 @@
 """Tests for chat_service.main lifespan wiring.
 
-These tests pin the httpx timeout configuration set up in the FastAPI
-lifespan — the 120s read timeout is the inference budget, and the tight
-connect timeout makes an unreachable Ollama surface quickly instead of
-hanging for the full inference window. The ``TestClient`` context
-manager enters the lifespan; the Neo4j driver constructor is sync and
-does not actually connect, so no live Neo4j is required.
+These tests pin the httpx timeout configuration (for the Ollama
+embeddings client) and the Anthropic SDK client set up in the FastAPI
+lifespan. The ``TestClient`` context manager enters the lifespan; the
+Neo4j driver constructor is sync and does not actually connect, so no
+live Neo4j is required.
 """
 
 from __future__ import annotations
@@ -16,14 +15,40 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-def test_lifespan_configures_ollama_client_with_120s_read_timeout() -> None:
+def test_lifespan_configures_ollama_embedding_client_timeout() -> None:
+    """Pin the Ollama httpx client timeout for embeddings."""
     from chat_service.main import app
 
     with TestClient(app):
         client = app.state.ollama_client
         assert client.timeout.read == 120.0
-        # Tight connect timeout — see Fix 2 in ollama_service hardening.
+        # Tight connect timeout — unreachable Ollama should surface quickly.
         assert client.timeout.connect == 10.0
+
+
+def test_lifespan_configures_anthropic_client_with_120s_read_timeout() -> None:
+    """Pin the Anthropic SDK timeout to match the inference budget."""
+    from chat_service.main import app
+
+    with TestClient(app):
+        client = app.state.anthropic_client
+        assert client._client.timeout.read == 120.0
+        assert client._client.timeout.connect == 10.0
+
+
+def test_lifespan_creates_anthropic_client() -> None:
+    """Pin that the lifespan wires an AsyncAnthropic client onto app.state.
+
+    This client is used for LLM inference (chat completions, intent
+    classification fallback, summary generation) after the Ollama-to-
+    Anthropic migration.
+    """
+    import anthropic
+    from chat_service.main import app
+
+    with TestClient(app):
+        client = app.state.anthropic_client
+        assert isinstance(client, anthropic.AsyncAnthropic)
 
 
 def test_lifespan_invokes_validate_production(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -187,20 +187,18 @@ describe('useChat — onmessage', () => {
     expect(store.messages[0].content).toBe('Something went wrong.')
   })
 
-  it('progress → adds system message with progress text', () => {
+  it('progress → sets toolStatus', () => {
     const { connect } = useChat()
     const store = useChatStore()
     connect()
     instance.simulateOpen()
 
-    instance.simulateMessage({ type: 'progress', message: 'Still working on your response...' })
+    instance.simulateMessage({ type: 'progress', message: 'Searching courses...' })
 
-    expect(store.messages).toHaveLength(1)
-    expect(store.messages[0].role).toBe('system')
-    expect(store.messages[0].content).toBe('Still working on your response...')
+    expect(store.toolStatus).toBe('Searching courses...')
   })
 
-  it('progress with no message → falls back to default text', () => {
+  it('progress with no message → falls back to "Working..."', () => {
     const { connect } = useChat()
     const store = useChatStore()
     connect()
@@ -208,7 +206,7 @@ describe('useChat — onmessage', () => {
 
     instance.simulateMessage({ type: 'progress' })
 
-    expect(store.messages[0].content).toBe('Still working on your response...')
+    expect(store.toolStatus).toBe('Working...')
   })
 
   it('ignores malformed JSON frames without crashing', () => {

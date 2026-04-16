@@ -5,7 +5,7 @@ import type { CompletedCoursePayload, Program, Requirement } from '@/types/index
 
 const emit = defineEmits<{ close: [] }>()
 
-const { loading, error, register, fetchPrograms, fetchRequirements, updateCompletedCourses } =
+const { loading, error, register, fetchPrograms, fetchRequirements, updateProgram, updateCompletedCourses } =
   useAuth()
 const dialogTitleId = 'register-modal-title'
 
@@ -138,6 +138,9 @@ async function submitStep2() {
   )
 
   try {
+    if (selectedProgramId.value !== null) {
+      await updateProgram(selectedProgramId.value)
+    }
     if (courses.length > 0) {
       await updateCompletedCourses(courses)
     }
