@@ -161,7 +161,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d postgres n
 log "Verifying services healthy (up to 180 s)..."
 for i in $(seq 1 18); do
   if docker compose -f docker-compose.yml -f docker-compose.prod.yml ps --format json \
-       | jq -e 'all(.[]; .Health == "healthy")' >/dev/null 2>&1; then
+       | jq -se 'all(.[]; .Health == "healthy")' >/dev/null 2>&1; then
     log "All services healthy"
     break
   fi
