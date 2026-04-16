@@ -25,9 +25,17 @@ describe('AppHeader', () => {
     expect(wrapper.text()).toContain('Login')
   })
 
-  it('clicking Login link shows RegisterModal', async () => {
+  it('clicking Login button shows LoginModal', async () => {
     const wrapper = mountHeader()
     await wrapper.find('button.anon-only').trigger('click')
+    expect(wrapper.findComponent({ name: 'LoginModal' }).exists()).toBe(true)
+  })
+
+  it('LoginModal switch-to-register event swaps to RegisterModal', async () => {
+    const wrapper = mountHeader()
+    await wrapper.find('button.anon-only').trigger('click')
+    await wrapper.findComponent({ name: 'LoginModal' }).vm.$emit('switch-to-register')
+    expect(wrapper.findComponent({ name: 'LoginModal' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'RegisterModal' }).exists()).toBe(true)
   })
 })

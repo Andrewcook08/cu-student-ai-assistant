@@ -10,7 +10,7 @@ const pinia = createPinia()
 const app = createApp(App)
 app.use(pinia).use(router)
 
-// Restore JWT auth state from localStorage before mounting
+// Restore JWT auth state from sessionStorage before mounting
 useAuthStore().initFromStorage()
 
 app.mount('#app')

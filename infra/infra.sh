@@ -6,7 +6,7 @@
 #   ./infra.sh up       # provision everything (plan → apply saved plan)
 #   ./infra.sh down     # tear everything down
 #   ./infra.sh status   # list deployed resources + show outputs
-#   ./infra.sh secrets  # populate empty data-vm-* secrets with random values
+#   ./infra.sh secrets  # populate empty data-vm-* and cloud-run-* secrets
 #
 # Assumes `terraform` is installed and `gcloud auth application-default login`
 # has been run so the GCS state backend is accessible.
@@ -58,6 +58,13 @@ check_drift() {
   fi
 }
 
+# Flips to 1 whenever populate_secrets adds a new version to any data-vm-*
+# secret. Used by reset_data_vm_if_needed to decide whether the VM boot ran
+# with empty secrets and therefore needs a reset. Never touched by the
+# cloud-run-* populator — those secrets are read by Cloud Run at revision
+# boot, not by the VM startup script.
+DATA_VM_SECRETS_ADDED=0
+
 # Populate empty data-vm-* secrets with random hex values.
 # Idempotent: skips any secret that already has a version (no rotation surprise).
 # Run after the first `./infra.sh up` — Terraform creates the secret shells,
@@ -70,6 +77,7 @@ populate_secrets() {
     else
       echo "  + $name — adding random value"
       gcloud secrets versions add "$name" --data-file=<(openssl rand -hex 20) >/dev/null
+      DATA_VM_SECRETS_ADDED=1
     fi
   done
 }
@@ -121,6 +129,20 @@ populate_cloud_run_secrets() {
   echo "    gcloud secrets versions add anthropic-api-key --data-file=<(echo -n 'sk-ant-...')"
 }
 
+# Reset the data VM so its startup script re-runs against the now-populated
+# secrets. Only needed when populate_secrets actually added versions: on a
+# fresh `./infra.sh up` the VM boots during `terraform apply` before the
+# shells have values, so its docker-compose stack fails to start. On re-apply
+# of a healthy stack, populate_secrets skips everything and this is a no-op,
+# so we don't pointlessly power-cycle the VM.
+reset_data_vm_if_needed() {
+  if [[ $DATA_VM_SECRETS_ADDED -eq 1 ]]; then
+    echo
+    echo "── Resetting data-services VM so startup script re-fetches secrets ──"
+    gcloud compute instances reset data-services --zone=us-central1-a
+  fi
+}
+
 cmd="${1:-}"
 
 case "$cmd" in
@@ -139,15 +161,13 @@ case "$cmd" in
     echo
     echo "── Populating cloud-run secrets ──"
     populate_cloud_run_secrets
-    echo
-    echo "If data-vm secrets were just populated for the first time, reset the VM so"
-    echo "startup re-fetches them:"
-    echo "  gcloud compute instances reset data-services --zone=us-central1-a"
+    reset_data_vm_if_needed
     ;;
   secrets)
     populate_secrets
     echo
     populate_cloud_run_secrets
+    reset_data_vm_if_needed
     ;;
   down)
     terraform init -input=false

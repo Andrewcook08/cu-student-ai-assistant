@@ -12,7 +12,7 @@ function mountModal() {
 
 beforeEach(() => {
   vi.restoreAllMocks()
-  localStorage.clear()
+  sessionStorage.clear()
 })
 
 describe('RegisterModal', () => {
