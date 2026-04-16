@@ -80,15 +80,12 @@ Destroys everything, including:
 
 - The Artifact Registry repo and all images in it
 - All Secret Manager secret shells **and their values** (including the Anthropic key)
-- The data VM (but its persistent disk is snapshotted daily — see `data-vm.tf`; snapshots survive destroy)
+- The data VM, its persistent disk, **and every snapshot of that disk** (the snapshot policy would normally keep snapshots after disk delete; `./infra.sh down` explicitly purges them after `terraform destroy` so nothing billable survives)
 - All Cloud Run services and their revision history
 
 After this runs, the GCP project has no paid resources. The drift check at the end of the script catches anything Terraform missed and fails loudly.
 
-**Before tearing down for the last time**, note:
-
-- Snapshots of the data VM disk persist by design. If you truly want zero residual cost, delete them manually: `gcloud compute snapshots list --filter="sourceDisk~data-services-data" --format="value(name)" | xargs -r gcloud compute snapshots delete --quiet`.
-- The GCS Terraform state bucket is not managed by this module. If you're done forever, `gsutil rm -r gs://<state-bucket>`.
+The GCS Terraform state bucket is not managed by this module — it lives separately so state survives teardowns. If you're truly done forever: `gsutil rm -r gs://<state-bucket>`.
 
 ## Manual steps, in one place
 

@@ -157,6 +157,22 @@ disable_vm_deletion_protection() {
   fi
 }
 
+# Delete all snapshots of the data-services-data disk so nothing billable
+# survives `./infra.sh down`. Terraform's snapshot policy sets
+# KEEP_AUTO_SNAPSHOTS on disk delete — useful for an ongoing project, but
+# this is a school project where "down" must reach $0. Matches by the
+# source-disk name so we only touch snapshots our stack produced.
+delete_data_vm_snapshots() {
+  local names
+  names=$(gcloud compute snapshots list \
+    --filter="sourceDisk~data-services-data" \
+    --format="value(name)" 2>/dev/null || true)
+  if [[ -n "$names" ]]; then
+    echo "── Deleting data VM snapshots ──"
+    echo "$names" | xargs -r gcloud compute snapshots delete --quiet
+  fi
+}
+
 cmd="${1:-}"
 
 case "$cmd" in
@@ -187,6 +203,8 @@ case "$cmd" in
     terraform init -input=false
     disable_vm_deletion_protection
     terraform destroy -auto-approve
+    echo
+    delete_data_vm_snapshots
     echo
     check_drift
     ;;
