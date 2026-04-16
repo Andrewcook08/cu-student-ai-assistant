@@ -143,6 +143,20 @@ reset_data_vm_if_needed() {
   fi
 }
 
+# Disable deletion protection on the data-services VM so `terraform destroy`
+# can delete it. The VM carries deletion_protection=true in Terraform as a
+# safety net against accidental destroys from the console; we flip it off
+# just-in-time during `./infra.sh down` so an intentional teardown still works.
+# No-op if the VM doesn't exist (clean state, or down already ran).
+disable_vm_deletion_protection() {
+  if gcloud compute instances describe data-services \
+      --zone=us-central1-a --format="value(name)" &>/dev/null; then
+    echo "── Disabling deletion protection on data-services VM ──"
+    gcloud compute instances update data-services \
+      --zone=us-central1-a --no-deletion-protection >/dev/null
+  fi
+}
+
 cmd="${1:-}"
 
 case "$cmd" in
@@ -171,6 +185,7 @@ case "$cmd" in
     ;;
   down)
     terraform init -input=false
+    disable_vm_deletion_protection
     terraform destroy -auto-approve
     echo
     check_drift
