@@ -6,6 +6,7 @@
 #   ./infra.sh up       # provision everything (plan → apply saved plan)
 #   ./infra.sh down     # tear everything down
 #   ./infra.sh status   # list deployed resources + show outputs
+#   ./infra.sh secrets  # populate empty data-vm-* secrets with random values
 #
 # Assumes `terraform` is installed and `gcloud auth application-default login`
 # has been run so the GCS state backend is accessible.
@@ -57,6 +58,22 @@ check_drift() {
   fi
 }
 
+# Populate empty data-vm-* secrets with random hex values.
+# Idempotent: skips any secret that already has a version (no rotation surprise).
+# Run after the first `./infra.sh up` — Terraform creates the secret shells,
+# this fills them so the VM startup script can boot the databases.
+populate_secrets() {
+  local names=(data-vm-postgres-password data-vm-neo4j-password data-vm-redis-password)
+  for name in "${names[@]}"; do
+    if gcloud secrets versions list "$name" --limit=1 --format="value(name)" 2>/dev/null | grep -q .; then
+      echo "  ✓ $name already populated — skipping"
+    else
+      echo "  + $name — adding random value"
+      gcloud secrets versions add "$name" --data-file=<(openssl rand -hex 20) >/dev/null
+    fi
+  done
+}
+
 cmd="${1:-}"
 
 case "$cmd" in
@@ -69,6 +86,16 @@ case "$cmd" in
     terraform plan -out=tfplan
     terraform apply tfplan
     rm -f tfplan
+    echo
+    echo "── Populating data-vm secrets ──"
+    populate_secrets
+    echo
+    echo "If secrets were just populated for the first time, reset the VM so"
+    echo "startup re-fetches them:"
+    echo "  gcloud compute instances reset data-services --zone=us-central1-a"
+    ;;
+  secrets)
+    populate_secrets
     ;;
   down)
     terraform init -input=false
@@ -85,7 +112,7 @@ case "$cmd" in
     terraform output
     ;;
   *)
-    echo "usage: $0 {plan|up|down|status}" >&2
+    echo "usage: $0 {plan|up|down|status|secrets}" >&2
     exit 1
     ;;
 esac
