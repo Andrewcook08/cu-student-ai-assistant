@@ -48,7 +48,7 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/cu_assistant
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD required}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY required}
 
   chat-service:
     environment:
