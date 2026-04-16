@@ -5,3 +5,33 @@ project_id          = "your-gcp-project-id"
 region              = "us-central1"
 zone                = "us-central1-a"
 vpc_connector_range = "10.8.0.0/28"
+data_disk_size_gb   = 50
+
+# ── Secret Manager prereqs ────────────────────────────────────────────────────
+# Before running `terraform apply`, populate secret values so the VM startup
+# script can fetch them. The secret shells are created by Terraform; only the
+# values must be added manually (so passwords never enter Terraform state).
+#
+#   gcloud secrets versions add data-vm-postgres-password \
+#     --data-file=<(openssl rand -hex 20)
+#   gcloud secrets versions add data-vm-neo4j-password \
+#     --data-file=<(openssl rand -hex 20)
+#   gcloud secrets versions add data-vm-redis-password \
+#     --data-file=<(openssl rand -hex 20)
+
+# ── Developer access ──────────────────────────────────────────────────────────
+# Google accounts that need IAP tunnel + OS Login access to the VM.
+# Set in terraform.tfvars (gitignored) — do NOT commit real email addresses here.
+#
+# developer_accounts = [
+#   "developer1@example.com",
+#   "developer2@example.com",
+# ]
+
+# ── Alerting ──────────────────────────────────────────────────────────────────
+# Cloud Monitoring notification channel resource names for VM down alerts.
+# Create channels in the GCP console and paste the resource names here.
+#
+# alert_notification_channels = [
+#   "projects/your-project/notificationChannels/123456789",
+# ]

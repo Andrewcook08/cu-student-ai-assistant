@@ -22,3 +22,8 @@ output "vpc_connector_name" {
   description = "Serverless VPC Connector name"
   value       = google_vpc_access_connector.connector.name
 }
+
+output "data_vm_internal_ip" {
+  description = "Internal IP of the data-services VM (use in DATABASE_URL, NEO4J_URI, REDIS_URL)"
+  value       = google_compute_address.data_vm.address
+}

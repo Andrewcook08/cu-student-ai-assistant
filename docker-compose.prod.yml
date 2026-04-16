@@ -11,8 +11,7 @@
 #   POSTGRES_PASSWORD  — strong password for PostgreSQL
 #   NEO4J_PASSWORD     — strong password for Neo4j (replaces the "development" dev default)
 #   REDIS_PASSWORD     — requirepass password for Redis
-#   JWT_SECRET_KEY     — ≥32-char random string
-#                        Generate: python -c "import secrets; print(secrets.token_hex(32))"
+#   JWT_SECRET_KEY     — injected by Cloud Run from Secret Manager; optional on the data VM
 #   CORS_ORIGINS       — comma-separated allowed origins (no localhost, no wildcard)
 #   ANTHROPIC_API_KEY  — injected by Cloud Run from Secret Manager
 
@@ -29,6 +28,9 @@ services:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
     healthcheck:
       test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD}", "RETURN 1"]
+      timeout: 30s
+      interval: 15s
+      retries: 10
 
   redis:
     ports: !reset []
