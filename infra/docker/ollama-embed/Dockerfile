@@ -3,10 +3,16 @@
 # container starts instantly without a pull on first request.
 # See ADR-42 (docs/decisions.md) for the rationale and design constraints.
 
-FROM ollama/ollama:latest
+FROM ollama/ollama:0.20.7
 
 ENV OLLAMA_HOST=0.0.0.0:11434
 
-RUN ollama serve & sleep 5 && ollama pull nomic-embed-text && pkill ollama
+# Start the daemon in the background, wait for it to accept API calls (no fixed
+# sleep — `ollama list` only succeeds once the daemon is ready), pull the model,
+# then terminate the daemon so the image commits cleanly.
+RUN ollama serve & \
+    until ollama list >/dev/null 2>&1; do sleep 0.5; done && \
+    ollama pull nomic-embed-text:v1.5 && \
+    pkill ollama
 
 EXPOSE 11434

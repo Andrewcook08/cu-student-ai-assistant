@@ -41,8 +41,11 @@ resource "google_cloud_run_v2_service" "ollama_embed" {
   ingress = "INGRESS_TRAFFIC_INTERNAL_ONLY"
 
   template {
-    service_account                  = google_service_account.ollama_embed.email
-    max_instance_request_concurrency = 50
+    service_account = google_service_account.ollama_embed.email
+    # Ollama serializes inference per-model per-process (OLLAMA_NUM_PARALLEL=1
+    # default). Setting concurrency=1 forces Cloud Run to spin up additional
+    # instances under load instead of queuing requests in one container.
+    max_instance_request_concurrency = 1
 
     vpc_access {
       connector = google_vpc_access_connector.connector.id
@@ -51,7 +54,7 @@ resource "google_cloud_run_v2_service" "ollama_embed" {
 
     scaling {
       min_instance_count = 0
-      max_instance_count = 3
+      max_instance_count = 10
     }
 
     containers {
@@ -87,6 +90,9 @@ resource "google_cloud_run_v2_service" "ollama_embed" {
           memory = "1Gi"
           cpu    = "1"
         }
+        # Double CPU during cold start to keep model-load time inside the
+        # AC-mandated <10s startup budget. Free to enable.
+        startup_cpu_boost = true
       }
     }
   }
