@@ -30,13 +30,13 @@ Without that rule, running `./infra.sh up` after a pipeline deploy reverts every
 
 ## Fresh spin-up runbook
 
-Five steps. Takes ~8 minutes total, most of it waiting for Cloud Run revisions.
+Four steps. Takes ~8 minutes total, most of it waiting for Cloud Run revisions.
 
 ### 1. `./infra.sh up`
 
-Creates everything: VM, VPC, connector, AR repo, Cloud Run service shells (on placeholder image), secret shells. Auto-populates `data-vm-*` and `cloud-run-*` secrets with random values and derived connection strings. Prints a reminder about the Anthropic key.
+Creates everything: VM, VPC, connector, AR repo, Cloud Run service shells (on placeholder image), secret shells. Auto-populates `data-vm-*` and `cloud-run-*` secrets with random values and derived connection strings. If any `data-vm-*` secret was newly populated this run, auto-resets the data VM so its startup script re-fires against the now-filled secrets and brings the Postgres / Neo4j / Redis docker-compose stack up. Prints a reminder about the Anthropic key.
 
-Expected end state: three Cloud Run services alive and serving the GCP hello page at their `.run.app` URLs. `ollama-embed` fails to pull (no image yet) — that's fine, the pipeline will fix it in step 4.
+Expected end state: three Cloud Run services alive and serving the GCP hello page at their `.run.app` URLs, data VM running with all three databases healthy. `ollama-embed` fails to pull (no image yet) — that's fine, the pipeline will fix it in step 3.
 
 ### 2. Paste the Anthropic key
 
@@ -49,17 +49,7 @@ Only Andrew needs to do this. `chat-service-sa` is the only identity with `roles
 
 Until this step runs, the pipeline's real `chat-service` revision will boot-fail at `validate_production()`. The placeholder hello revision is unaffected (it doesn't read `shared.config`).
 
-### 3. Reset the data VM so it re-fetches its secrets
-
-```bash
-gcloud compute instances reset data-services --zone=us-central1-a
-```
-
-**Required on every fresh `./infra.sh up`.** Terraform creates the VM and the secret shells in the same apply, so the VM boots and runs its startup script *before* step 1's `populate_*_secrets` helpers have filled in any values. The startup script fails to pull `data-vm-postgres-password` / `-neo4j-password` / `-redis-password` and exits without bringing up the docker-compose stack. The reset re-runs the startup script now that the secrets exist, and Postgres / Neo4j / Redis come up.
-
-Skipping this step leaves all three databases down. The Cloud Run services will still look healthy (their own startup probes pass) but every query to the data VM fails.
-
-### 4. Trigger the deploy pipeline
+### 3. Trigger the deploy pipeline
 
 ```bash
 gh workflow run deploy.yml
@@ -69,7 +59,7 @@ The pipeline (CUAI-72) builds the four images, pushes them to `us-central1-docke
 
 Typical wall-clock: ~4 minutes for the full pipeline.
 
-### 5. Verify
+### 4. Verify
 
 ```bash
 terraform output frontend_url
@@ -106,7 +96,7 @@ These cannot be scripted away by design — they're the only things between the 
 
 1. **First-time setup only** — `gcloud auth application-default login` and point `backend.tf` at your Terraform state bucket.
 2. **Every fresh spin-up** — paste the Anthropic key (step 2 above).
-3. **Every fresh spin-up** — trigger `deploy.yml` (step 4 above).
+3. **Every fresh spin-up** — trigger `deploy.yml` (step 3 above).
 
 ## Drift, state, and the image field
 
