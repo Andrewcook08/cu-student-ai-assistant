@@ -37,3 +37,13 @@ output "ollama_embed_url" {
   description = "Internal URL of the ollama-embed Cloud Run service (CUAI-88). Reachable only via VPC connector from course-search-api and chat-service."
   value       = google_cloud_run_v2_service.ollama_embed.uri
 }
+
+output "workload_identity_provider" {
+  description = "Full WIF provider resource name — set as WIF_PROVIDER secret in GitHub Actions."
+  value       = google_iam_workload_identity_pool_provider.github.name
+}
+
+output "deploy_sa_email" {
+  description = "deploy-sa email — set as WIF_SA secret in GitHub Actions."
+  value       = google_service_account.deploy.email
+}
