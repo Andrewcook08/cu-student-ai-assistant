@@ -124,8 +124,20 @@ populate_cloud_run_secrets() {
       --data-file=<(openssl rand -hex 32) >/dev/null
   fi
 
+  # anthropic-api-key needs a version so Cloud Run chat-service can create
+  # its revision (the env block references versions/latest). Seed a placeholder
+  # only — Andrew must overwrite with the real key before chat-service can
+  # pass validate_production() on a real image.
+  if gcloud secrets versions list "anthropic-api-key" --limit=1 --format="value(name)" 2>/dev/null | grep -q .; then
+    echo "  ✓ anthropic-api-key already populated — skipping"
+  else
+    echo "  + anthropic-api-key — seeding placeholder (Andrew must overwrite)"
+    gcloud secrets versions add "anthropic-api-key" \
+      --data-file=<(echo -n "PLACEHOLDER_REPLACE_WITH_REAL_KEY") >/dev/null
+  fi
+
   echo
-  echo "  ⚠ anthropic-api-key must be populated manually (Andrew's key):"
+  echo "  ⚠ anthropic-api-key placeholder must be replaced with Andrew's real key:"
   echo "    gcloud secrets versions add anthropic-api-key --data-file=<(echo -n 'sk-ant-...')"
 }
 
