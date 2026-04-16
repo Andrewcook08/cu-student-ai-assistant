@@ -169,6 +169,46 @@ disable_vm_deletion_protection() {
   fi
 }
 
+# GCP soft-deletes WIF pool + provider on `terraform destroy` (30-day
+# retention, no purge option). Re-running `./infra.sh up` within that window
+# fails with `Error 409: Requested entity already exists` because the name
+# is reserved. This helper detects the DELETED state, undeletes, and imports
+# into Terraform state so the subsequent apply sees them as managed and
+# unchanged. No-op when the resources don't exist or are already ACTIVE.
+recover_wif_soft_deletes() {
+  local project pool_state provider_state
+  project=$(gcloud config get-value project 2>/dev/null || true)
+  if [[ -z "$project" ]]; then
+    echo "  ⚠ Could not determine GCP project — skipping WIF soft-delete check"
+    return 0
+  fi
+
+  pool_state=$(gcloud iam workload-identity-pools describe github-actions \
+    --location=global --format="value(state)" 2>/dev/null || true)
+  if [[ "$pool_state" == "DELETED" ]]; then
+    echo "── Recovering soft-deleted WIF pool ──"
+    gcloud iam workload-identity-pools undelete github-actions \
+      --location=global --quiet
+    if ! terraform state list 2>/dev/null | grep -q '^google_iam_workload_identity_pool\.github$'; then
+      terraform import google_iam_workload_identity_pool.github \
+        "projects/${project}/locations/global/workloadIdentityPools/github-actions"
+    fi
+  fi
+
+  provider_state=$(gcloud iam workload-identity-pools providers describe github-actions-provider \
+    --workload-identity-pool=github-actions --location=global \
+    --format="value(state)" 2>/dev/null || true)
+  if [[ "$provider_state" == "DELETED" ]]; then
+    echo "── Recovering soft-deleted WIF provider ──"
+    gcloud iam workload-identity-pools providers undelete github-actions-provider \
+      --workload-identity-pool=github-actions --location=global --quiet
+    if ! terraform state list 2>/dev/null | grep -q '^google_iam_workload_identity_pool_provider\.github$'; then
+      terraform import google_iam_workload_identity_pool_provider.github \
+        "projects/${project}/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider"
+    fi
+  fi
+}
+
 # Delete all snapshots of the data-services-data disk so nothing billable
 # survives `./infra.sh down`. Terraform's snapshot policy sets
 # KEEP_AUTO_SNAPSHOTS on disk delete — useful for an ongoing project, but
@@ -218,6 +258,7 @@ case "$cmd" in
 
     echo
     echo "── Phase 3: provisioning VM + Cloud Run + IAM ──"
+    recover_wif_soft_deletes
     terraform apply -auto-approve
 
     reset_data_vm_if_needed

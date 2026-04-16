@@ -1,0 +1,257 @@
+# CUAI-72 (CICD-002) — App deploy pipeline.
+#
+# Builds the four app images, pushes to Artifact Registry, and rolls new
+# revisions onto the Terraform-provisioned Cloud Run services.
+#
+# See infra/README.md for the end-to-end spin-up runbook.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Concurrency: serialise deploys on the same ref so a rapid succession of
+# pushes to main doesn't result in out-of-order image updates on Cloud Run.
+# cancel-in-progress: false — we never want to abandon a deploy mid-flight
+# (partial image swaps would leave services on different revisions). Manual
+# workflow_dispatch runs are also protected from cancellation by this choice.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  REPO: cu-assistant
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 1: build-and-push
+  # Builds all four Docker images in parallel via a strategy matrix and pushes
+  # them to Artifact Registry. Each matrix leg is independent — no shared state.
+  # ──────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & push — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    # Bound the blast radius: a stuck docker push or auth hang would otherwise
+    # hold the concurrency slot for the GitHub default of 6h.
+    timeout-minutes: 20
+
+    permissions:
+      id-token: write
+      contents: read
+
+    strategy:
+      matrix:
+        include:
+          # Repo root is the build context because the Dockerfile copies shared/
+          # from the workspace root (COPY shared/ shared/).
+          - service: course-search-api
+            dockerfile: services/course-search-api/Dockerfile
+            context: .
+          - service: chat-service
+            dockerfile: services/chat-service/Dockerfile
+            context: .
+          # frontend and ollama-embed are self-contained; their context is the
+          # directory that contains the Dockerfile.
+          - service: frontend
+            dockerfile: frontend/Dockerfile
+            context: frontend/
+          - service: ollama-embed
+            dockerfile: infra/docker/ollama-embed/Dockerfile
+            context: infra/docker/ollama-embed/
+
+    steps:
+      # Workflow_dispatch has no branch restriction at the trigger level; the
+      # WIF provider rejects non-main OIDC tokens, but the resulting error
+      # looks like an auth misconfiguration. Fail fast with a clear message.
+      - name: Enforce main branch
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Deploy workflow can only run on refs/heads/main. Got: ${{ github.ref }}"
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SA }}
+
+      # Pins the gcloud SDK version explicitly. The runner image's preinstalled
+      # gcloud works, but pinning protects us from silent CLI behaviour changes
+      # when GitHub rotates the ubuntu-latest image.
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # buildx + GHA cache: each service caches its own layers under a per-
+      # service scope so a change to one service's Dockerfile doesn't bust the
+      # cache for the others. Big win for ollama-embed (274MB model layer) and
+      # the Python services (uv sync layer).
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 2: deploy
+  # Waits for all four images to be pushed, then updates each Cloud Run service
+  # to the new image. Terraform owns the full service template (env vars,
+  # secrets, probes, IAM, VPC connector) — this job ONLY swaps the image tag
+  # via `gcloud run services update --image=`. No template flags are passed, so
+  # Terraform's configuration is never overwritten.
+  # ──────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    timeout-minutes: 15
+
+    permissions:
+      id-token: write
+      contents: read
+
+    strategy:
+      # Run deployments sequentially so a failure in one service doesn't race
+      # with others — easier to diagnose and avoids partial-fleet updates.
+      # Order: producers before consumers (ollama-embed is called by the two
+      # Python services); frontend last because it's the user-facing surface
+      # and any backend-breaking change should be visible to users only after
+      # the backends are ready.
+      max-parallel: 1
+      matrix:
+        include:
+          - service: ollama-embed
+            # INGRESS_TRAFFIC_INTERNAL_ONLY — GitHub runners cannot reach this
+            # service. We verify the new revision instead (see smoke-test step).
+            health_path: ""
+            internal: true
+            validate_env: false
+          # validate_env: only the two Python services import shared/config.py,
+          # which is what enforces the ENVIRONMENT=production guard tied to the
+          # JWT-secret fail-fast check. The frontend (nginx + static SPA) and
+          # ollama-embed (upstream Ollama image) do not read ENVIRONMENT and
+          # have no env vars defined in Terraform — the assertion would always
+          # fail for them.
+          - service: course-search-api
+            # /api/health is the liveness probe path registered in Terraform.
+            health_path: /api/health
+            internal: false
+            validate_env: true
+          - service: chat-service
+            health_path: /api/chat/health
+            internal: false
+            validate_env: true
+          - service: frontend
+            # nginx serves the Vue SPA at /; a 200 proves nginx started cleanly.
+            health_path: /
+            internal: false
+            validate_env: false
+
+    steps:
+      - name: Enforce main branch
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Deploy workflow can only run on refs/heads/main. Got: ${{ github.ref }}"
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Update ${{ matrix.service }} image on Cloud Run
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}"
+          # `services update --image=` is an image-only patch — Cloud Run merges
+          # the new image into the existing template without touching any other
+          # field. Terraform's env vars, secrets, probes, and IAM bindings are
+          # preserved exactly as configured.
+          gcloud run services update ${{ matrix.service }} \
+            --image="$IMAGE" \
+            --region=${{ env.REGION }} \
+            --quiet
+
+      # ── Smoke test: assert ENVIRONMENT=production is set ──────────────────
+      # This guards against a broken config bootstrap: shared/config.py raises
+      # RuntimeError at startup when ENVIRONMENT=production and JWT_SECRET_KEY
+      # is weak (< 32 chars or contains "local-development"). A service that
+      # boots successfully with ENVIRONMENT=production has therefore passed
+      # validate_production() and is NOT running with a default JWT secret.
+      #
+      # We use --format=json and jq because Cloud Run v2 services expose env
+      # vars under template.containers[].env (not spec.template.spec.containers)
+      # and the structured JSON is more reliable to parse than the flattened
+      # value() output across gcloud SDK versions.
+      - name: Assert ENVIRONMENT=production is configured
+        if: ${{ matrix.validate_env }}
+        run: |
+          ENV_JSON=$(gcloud run services describe ${{ matrix.service }} \
+            --region=${{ env.REGION }} \
+            --format='json(template.containers[0].env)')
+
+          # jq exits 1 (non-zero) if the select() produces no output, which
+          # causes the step to fail — no explicit exit 1 needed.
+          echo "$ENV_JSON" | jq --exit-status \
+            '.template.containers[0].env
+             | map(select(.name == "ENVIRONMENT" and .value == "production"))
+             | length > 0' \
+            || { echo "ERROR: ENVIRONMENT=production not found in ${{ matrix.service }} env config"; exit 1; }
+
+      # ── Smoke test: hit health endpoint (public services only) ────────────
+      # --retry-connrefused retries on connection refused in addition to
+      # transient HTTP errors, covering the brief window where Cloud Run is
+      # still routing traffic to the new revision.
+      - name: Health check — ${{ matrix.service }}
+        if: ${{ !matrix.internal }}
+        run: |
+          SVC_URL=$(gcloud run services describe ${{ matrix.service }} \
+            --region=${{ env.REGION }} \
+            --format='value(status.url)')
+
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 5 --retry-connrefused \
+            "${SVC_URL}${{ matrix.health_path }}"
+
+      # ── Smoke test: verify revision Ready=True (ollama-embed only) ────────
+      # Because ollama-embed is INGRESS_TRAFFIC_INTERNAL_ONLY, GitHub runners
+      # cannot reach it with curl. Instead we poll the service conditions via
+      # gcloud and assert the first (most-recent) condition is Ready=True.
+      #
+      # We use `gcloud run services describe --format=json` and parse with jq
+      # rather than the conditions[] value() shorthand, because the value()
+      # output for repeated fields is not guaranteed to be ordered consistently
+      # across gcloud SDK versions.
+      - name: Verify revision ready — ${{ matrix.service }}
+        if: ${{ matrix.internal }}
+        run: |
+          STATUS_JSON=$(gcloud run services describe ${{ matrix.service }} \
+            --region=${{ env.REGION }} \
+            --format='json(status.conditions)')
+
+          echo "$STATUS_JSON" | jq --exit-status \
+            '.status.conditions
+             | map(select(.type == "Ready" and .status == "True"))
+             | length > 0' \
+            || { echo "ERROR: ${{ matrix.service }} revision is not Ready=True after image update"; exit 1; }
