@@ -55,7 +55,9 @@ Until this step runs, the pipeline's real `chat-service` revision will boot-fail
 gcloud compute instances reset data-services --zone=us-central1-a
 ```
 
-Only needed on the **first** spin-up of a new GCP project, or after rotating `data-vm-*` secrets. Subsequent teardown/up cycles reuse the same VM image so the startup script re-fetches on every boot anyway.
+**Required on every fresh `./infra.sh up`.** Terraform creates the VM and the secret shells in the same apply, so the VM boots and runs its startup script *before* step 1's `populate_*_secrets` helpers have filled in any values. The startup script fails to pull `data-vm-postgres-password` / `-neo4j-password` / `-redis-password` and exits without bringing up the docker-compose stack. The reset re-runs the startup script now that the secrets exist, and Postgres / Neo4j / Redis come up.
+
+Skipping this step leaves all three databases down. The Cloud Run services will still look healthy (their own startup probes pass) but every query to the data VM fails.
 
 ### 4. Trigger the deploy pipeline
 
