@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAuthStore } from '@/stores/authStore'
-import { register, login, fetchPrograms, fetchProgramRequirements, updateCompletedCourses } from '@/services/authApi'
+import {
+  register,
+  login,
+  fetchPrograms,
+  fetchProgramRequirements,
+  updateProgram,
+  updateCompletedCourses,
+} from '@/services/authApi'
 import type { CompletedCoursePayload } from '@/types/index'
 
 function mockFetch(body: unknown, status = 200): void {
@@ -55,15 +62,22 @@ describe('authApi', () => {
   })
 
   describe('login', () => {
-    it('POSTs to /api/auth/login and returns token', async () => {
-      mockFetch({ token: 'jwt-tok' })
+    it('POSTs to /api/auth/login and returns the full backend response shape', async () => {
+      const backendResp = {
+        access_token: 'jwt-tok',
+        token_type: 'bearer',
+        expires_in: 3600,
+        user_id: 42,
+        name: 'Alice',
+      }
+      mockFetch(backendResp)
       const result = await login('a@b.com', 'p4ssword')
       const [url, requestInit] = getLastFetchCall()
       expect(url).toBe('/api/auth/login')
       expect(requestInit?.method).toBe('POST')
       const body = JSON.parse(String(requestInit?.body))
       expect(body).toEqual({ email: 'a@b.com', password: 'p4ssword' })
-      expect(result).toEqual({ token: 'jwt-tok' })
+      expect(result).toEqual(backendResp)
     })
 
     it('throws with server detail message on 401', async () => {
@@ -119,6 +133,36 @@ describe('authApi', () => {
     it('throws on non-ok response', async () => {
       mockFetch({ detail: 'Not found' }, 404)
       await expect(fetchProgramRequirements(999)).rejects.toThrow('Not found')
+    })
+  })
+
+  describe('updateProgram', () => {
+    it('PUTs /api/students/me/program with Authorization header and program_id body', async () => {
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
+      mockFetch({ ok: true })
+      await updateProgram(7)
+      const [url, requestInit] = getLastFetchCall()
+      expect(url).toBe('/api/students/me/program')
+      expect(requestInit?.method).toBe('PUT')
+      expect(requestInit?.headers).toMatchObject({ Authorization: 'Bearer tok' })
+      const body = JSON.parse(String(requestInit?.body))
+      expect(body).toEqual({ program_id: 7 })
+    })
+
+    it('sends program_id: null when called with null', async () => {
+      const store = useAuthStore()
+      store.setAuth('tok', 1, 'Alice')
+      mockFetch({ ok: true })
+      await updateProgram(null)
+      const [, requestInit] = getLastFetchCall()
+      const body = JSON.parse(String(requestInit?.body))
+      expect(body).toEqual({ program_id: null })
+    })
+
+    it('throws on non-ok response', async () => {
+      mockFetch({ detail: 'Unknown program_id' }, 422)
+      await expect(updateProgram(999)).rejects.toThrow('Unknown program_id')
     })
   })
 

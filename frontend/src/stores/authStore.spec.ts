@@ -85,31 +85,4 @@ describe('authStore', () => {
     expect(store.token).toBeNull()
   })
 
-  describe('parseTokenSub', () => {
-    it('extracts numeric sub from a valid JWT', () => {
-      const store = useAuthStore()
-      // payload = {"sub":42} → btoa('{"sub":42}') = eyJzdWIiOjQyfQ==
-      const jwt = 'h.eyJzdWIiOjQyfQ.s'
-      expect(store.parseTokenSub(jwt)).toBe(42)
-    })
-
-    it('extracts string sub that is a valid integer', () => {
-      const store = useAuthStore()
-      // payload = {"sub":"7"}
-      const jwt = 'h.' + btoa(JSON.stringify({ sub: '7' })).replace(/=/g, '') + '.s'
-      expect(store.parseTokenSub(jwt)).toBe(7)
-    })
-
-    it('returns null for a malformed token', () => {
-      const store = useAuthStore()
-      expect(store.parseTokenSub('bad')).toBeNull()
-    })
-
-    it('returns null when sub is missing', () => {
-      const store = useAuthStore()
-      // payload = {"exp":9999}
-      const jwt = 'h.' + btoa(JSON.stringify({ exp: 9999 })).replace(/=/g, '') + '.s'
-      expect(store.parseTokenSub(jwt)).toBeNull()
-    })
-  })
 })

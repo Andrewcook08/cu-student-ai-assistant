@@ -14,7 +14,7 @@ const messagesEl = ref<HTMLElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 const store = useChatStore()
 const auth = useAuthStore()
-const { connect, send } = useChat()
+const { connect, disconnect, send } = useChat()
 const showLoginModal = ref(false)
 
 // ── Resize by dragging the header bar upward/leftward ────────
@@ -82,7 +82,15 @@ onMounted(() => {
 watch(
   () => auth.isAuthenticated,
   (loggedIn) => {
-    if (loggedIn) connect()
+    if (loggedIn) {
+      connect()
+    } else {
+      // Tear down the WebSocket so a logged-out user's stale session can't be
+      // reused by the next user who logs in on this tab (sessionStorage is
+      // per-tab but the WebSocket outlives the logout unless we close it).
+      disconnect()
+      showLoginModal.value = false
+    }
   },
 )
 

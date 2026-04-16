@@ -48,8 +48,8 @@ def _login(client, *, email: str = "login@colorado.edu", password: str = "Secure
 
 
 def test_login_returns_200_with_correct_shape(client, db_session):
-    """Valid credentials return 200 with access_token, token_type='bearer', expires_in."""
-    _create_user(db_session, email="shape@colorado.edu")
+    """Valid credentials return 200 with access_token, token_type='bearer', expires_in, user_id, name."""
+    user = _create_user(db_session, email="shape@colorado.edu")
     resp = _login(client, email="shape@colorado.edu")
     assert resp.status_code == 200
     body = resp.json()
@@ -57,6 +57,8 @@ def test_login_returns_200_with_correct_shape(client, db_session):
     assert body["token_type"] == "bearer"
     assert isinstance(body["expires_in"], int)
     assert body["expires_in"] > 0
+    assert body["user_id"] == user.id
+    assert body["name"] == user.name
 
 
 def test_login_expires_in_matches_config(client, db_session):

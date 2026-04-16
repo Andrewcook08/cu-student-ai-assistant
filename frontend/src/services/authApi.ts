@@ -63,10 +63,9 @@ export async function fetchProgramRequirements(
   return res.json()
 }
 
-export async function updateProgram(programId: number | null, token: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/students/me/program`, {
+export async function updateProgram(programId: number | null): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/students/me/program`, {
     method: 'PUT',
-    headers: authHeaders(token),
     body: JSON.stringify({ program_id: programId }),
   })
   if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to update program'))

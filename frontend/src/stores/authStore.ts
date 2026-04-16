@@ -44,18 +44,6 @@ export const useAuthStore = defineStore('auth', () => {
     return payload.exp * 1000 < Date.now()
   }
 
-  function parseTokenSub(rawToken: string): number | null {
-    const payload = parseTokenPayload(rawToken)
-    if (!payload) return null
-    const sub = payload.sub
-    if (typeof sub === 'number' && Number.isInteger(sub) && sub > 0) return sub
-    if (typeof sub === 'string') {
-      const n = Number(sub)
-      return Number.isInteger(n) && n > 0 ? n : null
-    }
-    return null
-  }
-
   function initFromStorage() {
     const storedToken = sessionStorage.getItem('token')
     const storedUserId = sessionStorage.getItem('userId')
@@ -78,5 +66,5 @@ export const useAuthStore = defineStore('auth', () => {
     logout()
   }
 
-  return { isAuthenticated, userName, token, userId, setAuth, logout, initFromStorage, parseTokenSub }
+  return { isAuthenticated, userName, token, userId, setAuth, logout, initFromStorage }
 })

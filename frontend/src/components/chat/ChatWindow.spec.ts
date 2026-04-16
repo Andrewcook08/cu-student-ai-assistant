@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { useChatStore } from '@/stores/chatStore'
@@ -8,14 +8,21 @@ import ChatWindow from './ChatWindow.vue'
 // payload = {"sub":1,"exp":9999999999}
 const validJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjEsImV4cCI6OTk5OTk5OTk5OX0.sig'
 
-// Mock useChat so no real WebSocket is opened during component tests
+// Shared mocks so tests can assert connect/disconnect were called.
+const chatMocks = {
+  connect: vi.fn(),
+  send: vi.fn(),
+  disconnect: vi.fn(),
+}
 vi.mock('@/composables/useChat', () => ({
-  useChat: () => ({
-    connect: vi.fn(),
-    send: vi.fn(),
-    disconnect: vi.fn(),
-  }),
+  useChat: () => chatMocks,
 }))
+
+beforeEach(() => {
+  chatMocks.connect.mockClear()
+  chatMocks.send.mockClear()
+  chatMocks.disconnect.mockClear()
+})
 
 function mountWindow(authenticated = false) {
   const pinia = createPinia()
@@ -108,5 +115,32 @@ describe('ChatWindow', () => {
 
     const input = wrapper.findComponent({ name: 'ChatInput' })
     expect(input.props('disabled')).toBe(true)
+  })
+
+  it('calls connect() on mount when already authenticated', () => {
+    mountWindow(true)
+    expect(chatMocks.connect).toHaveBeenCalled()
+    expect(chatMocks.disconnect).not.toHaveBeenCalled()
+  })
+
+  it('does NOT call connect() on mount when unauthenticated', () => {
+    mountWindow(false)
+    expect(chatMocks.connect).not.toHaveBeenCalled()
+  })
+
+  it('calls connect() when user logs in after mount', async () => {
+    const { wrapper, authStore } = mountWindow(false)
+    expect(chatMocks.connect).not.toHaveBeenCalled()
+    authStore.setAuth(validJwt, 2, 'Bob')
+    await wrapper.vm.$nextTick()
+    expect(chatMocks.connect).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls disconnect() when user logs out — prevents cross-user WebSocket reuse', async () => {
+    const { wrapper, authStore } = mountWindow(true)
+    expect(chatMocks.disconnect).not.toHaveBeenCalled()
+    authStore.logout()
+    await wrapper.vm.$nextTick()
+    expect(chatMocks.disconnect).toHaveBeenCalledTimes(1)
   })
 })

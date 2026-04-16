@@ -149,5 +149,9 @@ export interface LoginFormData {
 }
 
 export interface AuthLoginResponse {
-  token: string
+  access_token: string
+  token_type: 'bearer'
+  expires_in: number
+  user_id: number
+  name: string
 }

@@ -8,6 +8,14 @@ import * as authApi from '@/services/authApi'
 // payload = {"sub":1,"exp":9999999999}
 const validJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjEsImV4cCI6OTk5OTk5OTk5OX0.sig'
 
+const loginOk = {
+  access_token: validJwt,
+  token_type: 'bearer' as const,
+  expires_in: 3600,
+  user_id: 1,
+  name: 'Test User',
+}
+
 function mountModal() {
   return mount(LoginModal, {
     global: { plugins: [createPinia()] },
@@ -39,7 +47,7 @@ describe('LoginModal', () => {
   })
 
   it('emits close after successful login', async () => {
-    vi.spyOn(authApi, 'login').mockResolvedValue({ token: validJwt })
+    vi.spyOn(authApi, 'login').mockResolvedValue(loginOk)
     const wrapper = mountModal()
     await wrapper.find('input[type="email"]').setValue('a@b.com')
     await wrapper.find('input[type="password"]').setValue('p4ssword')
@@ -74,7 +82,7 @@ describe('LoginModal', () => {
   })
 
   it('disables the submit button while loading', async () => {
-    let resolve!: (v: { token: string }) => void
+    let resolve!: (v: typeof loginOk) => void
     vi.spyOn(authApi, 'login').mockReturnValue(new Promise(r => { resolve = r }))
     const wrapper = mountModal()
     await wrapper.find('input[type="email"]').setValue('a@b.com')
@@ -82,7 +90,7 @@ describe('LoginModal', () => {
     await wrapper.find('form').trigger('submit')
     await nextTick()
     expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
-    resolve({ token: validJwt })
+    resolve(loginOk)
     await flushPromises()
   })
 

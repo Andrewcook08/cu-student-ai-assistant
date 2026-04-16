@@ -39,13 +39,22 @@ describe('apiFetch', () => {
     expect((init?.headers as Record<string, string>)['Authorization']).toBeUndefined()
   })
 
-  it('calls store.logout() on 401 response', async () => {
+  it('calls store.logout() on 401 response from /api/ URL', async () => {
     const store = useAuthStore()
     store.setAuth('expired-tok', 1, 'Alice')
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 401 }))
     await apiFetch('/api/courses')
     expect(store.isAuthenticated).toBe(false)
     expect(store.token).toBeNull()
+  })
+
+  it('does NOT call store.logout() on 401 from non-/api/ URL', async () => {
+    const store = useAuthStore()
+    store.setAuth('tok', 1, 'Alice')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 401 }))
+    await apiFetch('/external/thing')
+    expect(store.isAuthenticated).toBe(true)
+    expect(store.token).toBe('tok')
   })
 
   it('returns the response without throwing on 401', async () => {

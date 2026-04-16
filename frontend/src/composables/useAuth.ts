@@ -34,9 +34,7 @@ export function useAuth() {
     error.value = null
     try {
       const result = await apiLogin(data.email, data.password)
-      const userId = store.parseTokenSub(result.token)
-      if (!userId) throw new Error('Invalid token received from server')
-      store.setAuth(result.token, userId, data.email)
+      store.setAuth(result.access_token, result.user_id, result.name)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Login failed'
       throw e
@@ -92,7 +90,8 @@ export function useAuth() {
     loading.value = true
     error.value = null
     try {
-      await apiUpdateProgram(programId, requireToken())
+      requireToken()
+      await apiUpdateProgram(programId)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to update program'
       throw e

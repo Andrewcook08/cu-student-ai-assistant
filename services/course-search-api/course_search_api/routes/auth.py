@@ -147,6 +147,8 @@ async def login(
         "access_token": token,
         "token_type": "bearer",
         "expires_in": settings.jwt_expire_minutes * 60,
+        "user_id": user.id,
+        "name": user.name,
     }
 
 
