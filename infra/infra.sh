@@ -182,15 +182,32 @@ case "$cmd" in
     ;;
   up)
     terraform init -input=false
-    terraform plan -out=tfplan
-    terraform apply tfplan
-    rm -f tfplan
+
+    # Three-phase apply: Cloud Run services reference cloud-run-*/versions/latest
+    # in their env_from blocks, and Cloud Run refuses to create a revision when
+    # the referenced version doesn't exist. `populate_cloud_run_secrets` can't
+    # run until the secret shells exist and the data_vm_internal_ip output is
+    # populated. So the order must be:
+    #   1. Create the minimum needed to populate secrets: secret shells + IP.
+    #   2. Populate all secret versions.
+    #   3. Apply everything else — VM, Cloud Run services, IAM bindings.
+    echo "── Phase 1: secret shells + static IP ──"
+    terraform apply -auto-approve \
+      -target=google_compute_address.data_vm \
+      -target=google_secret_manager_secret.data_vm \
+      -target=google_secret_manager_secret.cloud_run \
+      -target=google_secret_manager_secret.anthropic_key
+
     echo
-    echo "── Populating data-vm secrets ──"
+    echo "── Phase 2: populating secret versions ──"
     populate_secrets
     echo
-    echo "── Populating cloud-run secrets ──"
     populate_cloud_run_secrets
+
+    echo
+    echo "── Phase 3: provisioning VM + Cloud Run + IAM ──"
+    terraform apply -auto-approve
+
     reset_data_vm_if_needed
     ;;
   secrets)
