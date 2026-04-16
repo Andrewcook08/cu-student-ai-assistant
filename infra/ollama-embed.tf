@@ -1,0 +1,125 @@
+# ─────────────────────────────────────────────
+# Ollama Embed Service  (CUAI-88 / DEPLOY-008)
+# Prebaked Cloud Run service running nomic-embed-text via Ollama.
+# Callable only from course-search-api and chat-service via VPC connector.
+# ADR-42: embed model is baked into the container image to avoid cold-pull latency.
+# ─────────────────────────────────────────────
+
+locals {
+  image_ollama_embed = var.image_tag != "" ? "${local.image_base}/ollama-embed:${var.image_tag}" : local.placeholder_image
+}
+
+# ─────────────────────────────────────────────
+# Service Account
+# ─────────────────────────────────────────────
+
+resource "google_service_account" "ollama_embed" {
+  account_id   = "ollama-embed-sa"
+  display_name = "Ollama Embed Service"
+  description  = "Cloud Run: pulls ollama-embed image from Artifact Registry; called by course-search-api and chat-service"
+}
+
+# ─────────────────────────────────────────────
+# Artifact Registry reader
+# ─────────────────────────────────────────────
+
+resource "google_project_iam_member" "ollama_embed_ar_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.ollama_embed.email}"
+}
+
+# ─────────────────────────────────────────────
+# Cloud Run v2 Service
+# ─────────────────────────────────────────────
+
+resource "google_cloud_run_v2_service" "ollama_embed" {
+  name     = "ollama-embed"
+  location = var.region
+  # INTERNAL_ONLY: this service is not exposed to the public internet.
+  # It is only reachable from other Cloud Run services via the Serverless VPC Connector.
+  ingress = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+
+  template {
+    service_account                  = google_service_account.ollama_embed.email
+    max_instance_request_concurrency = 50
+
+    vpc_access {
+      connector = google_vpc_access_connector.connector.id
+      egress    = "PRIVATE_RANGES_ONLY"
+    }
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+
+    containers {
+      image = local.image_ollama_embed
+
+      ports {
+        container_port = 11434
+      }
+
+      # Ollama's health endpoint — GET / returns "Ollama is running"
+      startup_probe {
+        http_get {
+          path = "/"
+          port = 11434
+        }
+        initial_delay_seconds = 5
+        timeout_seconds       = 5
+        period_seconds        = 5
+        failure_threshold     = 20
+      }
+      liveness_probe {
+        http_get {
+          path = "/"
+          port = 11434
+        }
+        period_seconds    = 30
+        timeout_seconds   = 5
+        failure_threshold = 3
+      }
+
+      resources {
+        limits = {
+          memory = "1Gi"
+          cpu    = "1"
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    # Deploy pipeline (CUAI-72) owns the image field after bootstrap.
+    ignore_changes = [template[0].containers[0].image]
+  }
+
+  depends_on = [
+    google_project_service.apis["run.googleapis.com"],
+    google_vpc_access_connector.connector,
+    google_artifact_registry_repository.docker,
+    google_project_iam_member.ollama_embed_ar_reader,
+  ]
+}
+
+# ─────────────────────────────────────────────
+# Scoped invoker bindings
+# Only course-search-api and chat-service may call this service.
+# No allUsers binding — internal-only traffic model.
+# ─────────────────────────────────────────────
+
+resource "google_cloud_run_v2_service_iam_member" "ollama_embed_invoker_course_search" {
+  name     = google_cloud_run_v2_service.ollama_embed.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.course_search_api.email}"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "ollama_embed_invoker_chat" {
+  name     = google_cloud_run_v2_service.ollama_embed.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.chat_service.email}"
+}

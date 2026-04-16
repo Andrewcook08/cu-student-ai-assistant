@@ -66,6 +66,9 @@ data_disk_size_gb   = 50
 # image_tag = "latest"
 
 # ── Ollama embed service URL (CUAI-88 / DEPLOY-008) ──────────────────────────
-# Set once CUAI-88 is deployed. Until then, leave empty (embedding calls will fail).
+# Optional override. By default Terraform reads the URL directly from the
+# managed ollama-embed service in this module — no value needed here.
+# Set only if pointing course-search-api / chat-service at an embed service in
+# a different project, or debugging against a self-hosted endpoint.
 #
 # ollama_embed_url = "https://ollama-embed-HASH-uc.a.run.app"

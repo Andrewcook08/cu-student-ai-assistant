@@ -32,3 +32,8 @@ output "frontend_url" {
   description = "Public URL of the frontend Cloud Run service (*.run.app). Printed by ./infra.sh status."
   value       = google_cloud_run_v2_service.frontend.uri
 }
+
+output "ollama_embed_url" {
+  description = "Internal URL of the ollama-embed Cloud Run service (CUAI-88). Reachable only via VPC connector from course-search-api and chat-service."
+  value       = google_cloud_run_v2_service.ollama_embed.uri
+}
