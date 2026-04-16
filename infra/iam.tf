@@ -119,6 +119,15 @@ resource "google_service_account_iam_member" "deploy_act_as_frontend" {
   member             = "serviceAccount:${google_service_account.deploy.email}"
 }
 
+# ollama_embed SA is defined in ollama-embed.tf — bind here alongside the
+# other deploy_act_as_* so the full list of SAs deploy-sa can impersonate
+# lives in one place.
+resource "google_service_account_iam_member" "deploy_act_as_ollama_embed" {
+  service_account_id = google_service_account.ollama_embed.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.deploy.email}"
+}
+
 # Bind the WIF pool to deploy-sa — only tokens from this repo can impersonate it.
 resource "google_service_account_iam_member" "deploy_wif_binding" {
   service_account_id = google_service_account.deploy.name
