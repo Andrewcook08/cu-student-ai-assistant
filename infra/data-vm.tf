@@ -80,6 +80,20 @@ resource "google_service_account" "data_vm" {
   description  = "Reads secrets at boot; writes queue-depth metrics to Cloud Monitoring"
 }
 
+# Ops agent needs these to ship metrics + logs. Without metricWriter the
+# data_vm_down uptime alert has no data to evaluate and will never fire.
+resource "google_project_iam_member" "data_vm_metric_writer" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.data_vm.email}"
+}
+
+resource "google_project_iam_member" "data_vm_log_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.data_vm.email}"
+}
+
 # ── Secret Manager shells ────────────────────────────────────────────────────
 # Terraform creates the secret resources but not their values.
 # Operators populate each secret before the VM is useful:
