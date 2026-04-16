@@ -57,6 +57,7 @@ resource "google_iam_workload_identity_pool" "github" {
   workload_identity_pool_id = "github-actions"
   display_name              = "GitHub Actions"
   description               = "OIDC pool for GitHub Actions deploy pipeline"
+  depends_on                = [google_project_service.apis["iam.googleapis.com"]]
 }
 
 resource "google_iam_workload_identity_pool_provider" "github" {
@@ -76,6 +77,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
 
   # Restrict to this repo on main only — PR tokens are rejected at the pool level.
   attribute_condition = "attribute.repository == 'Andrewcook08/cu-student-ai-assistant' && attribute.ref == 'refs/heads/main'"
+  depends_on          = [google_project_service.apis["iam.googleapis.com"]]
 }
 
 # ── deploy-sa — used by GitHub Actions to push images and deploy revisions ────
@@ -121,5 +123,5 @@ resource "google_service_account_iam_member" "deploy_act_as_frontend" {
 resource "google_service_account_iam_member" "deploy_wif_binding" {
   service_account_id = google_service_account.deploy.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/Andrewcook08/cu-student-ai-assistant"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.ref/refs/heads/main"
 }
