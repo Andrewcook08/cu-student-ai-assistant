@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { X } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
 import type { CompletedCoursePayload, Program, Requirement } from '@/types/index'
 
@@ -163,6 +164,15 @@ async function submitStep2() {
     @click.self="closeModal"
   >
     <div class="modal-box">
+      <button
+        type="button"
+        class="modal__close"
+        aria-label="Close"
+        data-testid="close-btn"
+        @click="closeModal"
+      >
+        <X :size="18" aria-hidden="true" />
+      </button>
       <template v-if="step === 1">
         <h2 :id="dialogTitleId" class="modal-title">Create Account</h2>
         <form @submit.prevent="submitStep1" novalidate>
@@ -319,7 +329,9 @@ async function submitStep2() {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -327,6 +339,7 @@ async function submitStep2() {
 }
 
 .modal-box {
+  position: relative;
   background: #fff;
   width: 480px;
   max-width: 95vw;
@@ -335,6 +348,32 @@ async function submitStep2() {
   border-radius: 4px;
   padding: 28px 32px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.modal__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.modal__close:hover {
+  color: #333;
+  background: #f0f0f0;
+}
+
+.modal__close:focus-visible {
+  outline: 2px solid #CFB87C;
+  outline-offset: 1px;
 }
 
 .modal-title {

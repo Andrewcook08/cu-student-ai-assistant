@@ -4,6 +4,7 @@ import { MessageCircle, X } from 'lucide-vue-next'
 import ChatInput from './ChatInput.vue'
 import ChatMessage from './ChatMessage.vue'
 import LoginModal from '@/components/auth/LoginModal.vue'
+import RegisterModal from '@/components/auth/RegisterModal.vue'
 import type { Action } from '@/types/index'
 import { useChatStore } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -16,6 +17,22 @@ const store = useChatStore()
 const auth = useAuthStore()
 const { connect, disconnect, send } = useChat()
 const showLoginModal = ref(false)
+const showRegisterModal = ref(false)
+
+function openRegister() {
+  showLoginModal.value = false
+  showRegisterModal.value = true
+}
+
+function openLogin() {
+  showRegisterModal.value = false
+  showLoginModal.value = true
+}
+
+function closeAuthModals() {
+  showLoginModal.value = false
+  showRegisterModal.value = false
+}
 
 // ── Resize by dragging the header bar upward/leftward ────────
 let resizing = false
@@ -89,7 +106,7 @@ watch(
       // reused by the next user who logs in on this tab (sessionStorage is
       // per-tab but the WebSocket outlives the logout unless we close it).
       disconnect()
-      showLoginModal.value = false
+      closeAuthModals()
     }
   },
 )
@@ -163,7 +180,16 @@ watch(
     </template>
   </div>
 
-  <LoginModal v-if="showLoginModal" @close="showLoginModal = false" />
+  <LoginModal
+    v-if="showLoginModal"
+    @close="closeAuthModals"
+    @switch-to-register="openRegister"
+  />
+  <RegisterModal
+    v-if="showRegisterModal"
+    @close="closeAuthModals"
+    @switch-to-login="openLogin"
+  />
 </template>
 
 <style scoped>

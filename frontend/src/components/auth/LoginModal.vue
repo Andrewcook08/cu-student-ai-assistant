@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { X } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
 
 const emit = defineEmits<{
@@ -25,6 +26,15 @@ async function handleSubmit() {
 <template>
   <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title">
     <div class="modal-box">
+      <button
+        type="button"
+        class="modal__close"
+        aria-label="Close"
+        data-testid="close-btn"
+        @click="emit('close')"
+      >
+        <X :size="18" aria-hidden="true" />
+      </button>
       <h2 id="login-title" class="modal__title">Log In</h2>
 
       <form @submit.prevent="handleSubmit" novalidate>
@@ -98,6 +108,8 @@ async function handleSubmit() {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -105,12 +117,39 @@ async function handleSubmit() {
 }
 
 .modal-box {
+  position: relative;
   background: #fff;
   border-radius: 4px;
   padding: 24px;
   width: 100%;
   max-width: 420px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
+}
+
+.modal__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.modal__close:hover {
+  color: #333;
+  background: #f0f0f0;
+}
+
+.modal__close:focus-visible {
+  outline: 2px solid #CFB87C;
+  outline-offset: 1px;
 }
 
 .modal__title {
