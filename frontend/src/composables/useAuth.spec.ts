@@ -5,10 +5,48 @@ import * as authApi from '@/services/authApi'
 
 beforeEach(() => {
   vi.restoreAllMocks()
-  localStorage.clear()
+  sessionStorage.clear()
 })
 
+// payload = {"sub":1,"exp":9999999999}
+const validJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjEsImV4cCI6OTk5OTk5OTk5OX0.sig'
+
+const loginOk = {
+  access_token: validJwt,
+  token_type: 'bearer' as const,
+  expires_in: 3600,
+  user_id: 1,
+  name: 'Alice',
+}
+
 describe('useAuth', () => {
+  describe('login', () => {
+    it('calls authApi.login, stores access_token + name from response, and resolves', async () => {
+      vi.spyOn(authApi, 'login').mockResolvedValue(loginOk)
+      const { login, loading, error } = useAuth()
+      await login({ email: 'a@b.com', password: 'secure-pass-12' })
+      expect(authApi.login).toHaveBeenCalledWith('a@b.com', 'secure-pass-12')
+      const store = useAuthStore()
+      expect(store.isAuthenticated).toBe(true)
+      expect(store.token).toBe(validJwt)
+      expect(store.userId).toBe(1)
+      expect(store.userName).toBe('Alice')
+      expect(loading.value).toBe(false)
+      expect(error.value).toBeNull()
+      expect(sessionStorage.getItem('token')).toBe(validJwt)
+      expect(sessionStorage.getItem('userName')).toBe('Alice')
+    })
+
+    it('sets error.value and rethrows on authApi.login failure', async () => {
+      vi.spyOn(authApi, 'login').mockRejectedValue(new Error('Invalid credentials'))
+      const { login, error } = useAuth()
+      await expect(
+        login({ email: 'a@b.com', password: 'wrong' }),
+      ).rejects.toThrow('Invalid credentials')
+      expect(error.value).toBe('Invalid credentials')
+    })
+  })
+
   describe('register', () => {
     it('calls authApi.register, stores token in authStore, and returns response', async () => {
       vi.spyOn(authApi, 'register').mockResolvedValue({ token: 'tok', user_id: 1 })
@@ -22,7 +60,7 @@ describe('useAuth', () => {
       expect(result).toEqual({ token: 'tok', user_id: 1 })
       expect(loading.value).toBe(false)
       expect(error.value).toBeNull()
-      expect(localStorage.getItem('token')).toBe('tok')
+      expect(sessionStorage.getItem('token')).toBe('tok')
     })
 
     it('sets error.value and rethrows on authApi.register failure', async () => {
@@ -94,7 +132,6 @@ describe('useAuth', () => {
       await updateCompletedCourses([{ course_code: 'CSCI1300', grade: 'A' }])
       expect(authApi.updateCompletedCourses).toHaveBeenCalledWith(
         [{ course_code: 'CSCI1300', grade: 'A' }],
-        'tok',
       )
     })
 

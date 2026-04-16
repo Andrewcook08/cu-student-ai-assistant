@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useCourses } from './useCourses'
 import * as courseApi from '@/services/courseApi'
+import type { Course, PaginatedResponse } from '@/types/index'
 
 beforeEach(() => {
   vi.restoreAllMocks()
@@ -101,7 +102,7 @@ describe('useCourses', () => {
   })
 
   it('loading is true during fetch and false after', async () => {
-    let resolveFn!: (v: unknown) => void
+    let resolveFn!: (v: PaginatedResponse<Course>) => void
     vi.spyOn(courseApi, 'fetchCourses').mockReturnValueOnce(
       new Promise((res) => { resolveFn = res })
     )

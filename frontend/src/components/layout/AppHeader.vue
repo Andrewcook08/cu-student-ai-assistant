@@ -2,10 +2,27 @@
 import { ref } from 'vue'
 import { HelpCircle, ShoppingCart, LogIn, LogOut } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/authStore'
+import LoginModal from '@/components/auth/LoginModal.vue'
 import RegisterModal from '@/components/auth/RegisterModal.vue'
 
 const auth = useAuthStore()
+const showLoginModal = ref(false)
 const showRegisterModal = ref(false)
+
+function openLogin() {
+  showRegisterModal.value = false
+  showLoginModal.value = true
+}
+
+function openRegister() {
+  showLoginModal.value = false
+  showRegisterModal.value = true
+}
+
+function closeAll() {
+  showLoginModal.value = false
+  showRegisterModal.value = false
+}
 </script>
 
 <template>
@@ -33,7 +50,7 @@ const showRegisterModal = ref(false)
         type="button"
         class="anon-only"
         aria-haspopup="dialog"
-        @click.prevent="showRegisterModal = true"
+        @click.prevent="openLogin"
       >
         <LogIn :size="16" aria-hidden="true" />
         Login
@@ -50,7 +67,16 @@ const showRegisterModal = ref(false)
     </div>
   </header>
 
-  <RegisterModal v-if="showRegisterModal" @close="showRegisterModal = false" />
+  <LoginModal
+    v-if="showLoginModal"
+    @close="closeAll"
+    @switch-to-register="openRegister"
+  />
+  <RegisterModal
+    v-if="showRegisterModal"
+    @close="closeAll"
+    @switch-to-login="openLogin"
+  />
 </template>
 
 <style scoped>

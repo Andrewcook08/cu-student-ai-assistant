@@ -2,12 +2,14 @@ import { ref } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
 import {
   register as apiRegister,
+  login as apiLogin,
   fetchPrograms as apiFetchPrograms,
   fetchProgramRequirements,
   updateProgram as apiUpdateProgram,
   updateCompletedCourses as apiUpdateCourses,
 } from '@/services/authApi'
 import type {
+  LoginFormData,
   RegisterFormData,
   AuthRegisterResponse,
   Program,
@@ -24,8 +26,21 @@ export function useAuth() {
     if (!store.token) {
       throw new Error('You must be signed in to continue')
     }
-
     return store.token
+  }
+
+  async function login(data: LoginFormData): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      const result = await apiLogin(data.email, data.password)
+      store.setAuth(result.access_token, result.user_id, result.name)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Login failed'
+      throw e
+    } finally {
+      loading.value = false
+    }
   }
 
   async function register(data: RegisterFormData): Promise<AuthRegisterResponse> {
@@ -47,7 +62,8 @@ export function useAuth() {
     loading.value = true
     error.value = null
     try {
-      return await apiFetchPrograms(requireToken())
+      requireToken()
+      return await apiFetchPrograms()
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to load programs'
       throw e
@@ -60,7 +76,8 @@ export function useAuth() {
     loading.value = true
     error.value = null
     try {
-      return await fetchProgramRequirements(programId, requireToken())
+      requireToken()
+      return await fetchProgramRequirements(programId)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to load requirements'
       throw e
@@ -73,7 +90,8 @@ export function useAuth() {
     loading.value = true
     error.value = null
     try {
-      await apiUpdateProgram(programId, requireToken())
+      requireToken()
+      await apiUpdateProgram(programId)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to update program'
       throw e
@@ -86,7 +104,8 @@ export function useAuth() {
     loading.value = true
     error.value = null
     try {
-      await apiUpdateCourses(courses, requireToken())
+      requireToken()
+      await apiUpdateCourses(courses)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to update courses'
       throw e
@@ -95,5 +114,5 @@ export function useAuth() {
     }
   }
 
-  return { loading, error, register, fetchPrograms, fetchRequirements, updateProgram, updateCompletedCourses }
+  return { loading, error, login, register, fetchPrograms, fetchRequirements, updateProgram, updateCompletedCourses }
 }
