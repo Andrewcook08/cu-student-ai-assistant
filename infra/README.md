@@ -11,8 +11,8 @@ One project, one region (`us-central1`). Three Cloud Run app services (`course-s
 | Owner | Responsibility |
 |---|---|
 | **Terraform (`./infra.sh up`)** | VM, VPC, connector, Cloud Run service **shells**, secret **shells**, IAM, Artifact Registry repo |
-| **`./infra.sh` populate steps** | Random passwords for data-vm-*, derived connection strings for cloud-run-* |
-| **Operator (one paste)** | `anthropic-api-key` value — Andrew's personal key, not in Terraform state |
+| **`./infra.sh` populate steps** | Random passwords for data-vm-*, derived connection strings for cloud-run-*, **placeholder** for anthropic-api-key |
+| **Operator (one paste)** | Real `anthropic-api-key` value — overwrites the placeholder; Andrew's personal key, not in Terraform state |
 | **Deploy pipeline (CUAI-72)** | Build Docker images, push to Artifact Registry, update Cloud Run revisions with real image tags |
 
 Images are deliberately **not** Terraform's concern after bootstrap. Every Cloud Run service uses a lifecycle rule to ignore changes to the image field:
@@ -34,11 +34,13 @@ Four steps. Takes ~8 minutes total, most of it waiting for Cloud Run revisions.
 
 ### 1. `./infra.sh up`
 
-Creates everything: VM, VPC, connector, AR repo, Cloud Run service shells (on placeholder image), secret shells. Auto-populates `data-vm-*` and `cloud-run-*` secrets with random values and derived connection strings. If any `data-vm-*` secret was newly populated this run, auto-resets the data VM so its startup script re-fires against the now-filled secrets and brings the Postgres / Neo4j / Redis docker-compose stack up. Prints a reminder about the Anthropic key.
+Creates everything: VM, VPC, connector, AR repo, Cloud Run service shells (on placeholder image), secret shells. Auto-populates `data-vm-*` and `cloud-run-*` secrets with random values and derived connection strings. Seeds `anthropic-api-key` with a placeholder string — this is required because Cloud Run refuses to create a revision that references a non-existent secret version. If any `data-vm-*` secret was newly populated this run, auto-resets the data VM so its startup script re-fires against the now-filled secrets and brings the Postgres / Neo4j / Redis docker-compose stack up.
+
+Runs as a three-phase apply (secret shells + IP → populate versions → full apply) so Cloud Run can resolve `versions/latest` at revision-create time.
 
 Expected end state: three Cloud Run services alive and serving the GCP hello page at their `.run.app` URLs, data VM running with all three databases healthy. `ollama-embed` fails to pull (no image yet) — that's fine, the pipeline will fix it in step 3.
 
-### 2. Paste the Anthropic key
+### 2. Overwrite the Anthropic key placeholder
 
 ```bash
 gcloud secrets versions add anthropic-api-key \
@@ -47,7 +49,7 @@ gcloud secrets versions add anthropic-api-key \
 
 Only Andrew needs to do this. `chat-service-sa` is the only identity with `roles/secretmanager.secretAccessor` on this secret (ADR per Jira comment 11205).
 
-Until this step runs, the pipeline's real `chat-service` revision will boot-fail at `validate_production()`. The placeholder hello revision is unaffected (it doesn't read `shared.config`).
+**Order matters: this must run before step 3.** Cloud Run resolves `versions/latest` at revision-create time and bakes the value into the revision. If the pipeline creates a new revision while the placeholder is still `latest`, `chat-service` boot-fails at `validate_production()` and you'd need to force another revision to pick up the real key. The placeholder hello revision from step 1 is unaffected (it doesn't read `shared.config`).
 
 ### 3. Trigger the deploy pipeline
 
@@ -80,15 +82,12 @@ Destroys everything, including:
 
 - The Artifact Registry repo and all images in it
 - All Secret Manager secret shells **and their values** (including the Anthropic key)
-- The data VM (but its persistent disk is snapshotted daily — see `data-vm.tf`; snapshots survive destroy)
+- The data VM, its persistent disk, **and every snapshot of that disk** (the snapshot policy would normally keep snapshots after disk delete; `./infra.sh down` explicitly purges them after `terraform destroy` so nothing billable survives)
 - All Cloud Run services and their revision history
 
 After this runs, the GCP project has no paid resources. The drift check at the end of the script catches anything Terraform missed and fails loudly.
 
-**Before tearing down for the last time**, note:
-
-- Snapshots of the data VM disk persist by design. If you truly want zero residual cost, delete them manually: `gcloud compute snapshots list --filter="sourceDisk~data-services-data" --format="value(name)" | xargs -r gcloud compute snapshots delete --quiet`.
-- The GCS Terraform state bucket is not managed by this module. If you're done forever, `gsutil rm -r gs://<state-bucket>`.
+The GCS Terraform state bucket is not managed by this module — it lives separately so state survives teardowns. If you're truly done forever: `gsutil rm -r gs://<state-bucket>`.
 
 ## Manual steps, in one place
 

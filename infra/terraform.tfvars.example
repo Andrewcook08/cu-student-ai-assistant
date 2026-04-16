@@ -35,3 +35,37 @@ data_disk_size_gb   = 50
 # alert_notification_channels = [
 #   "projects/your-project/notificationChannels/123456789",
 # ]
+
+# ── Cloud Run secrets (DEPLOY-004 / CUAI-67) ─────────────────────────────────
+# After `terraform apply` creates the secret shells, populate each value before
+# the Cloud Run services will successfully boot. Values never enter Terraform state.
+#
+# Use the data VM internal IP 10.0.0.10 when constructing connection strings.
+#
+#   gcloud secrets versions add cloud-run-database-url \
+#     --data-file=<(echo -n "postgresql+psycopg://postgres:STRONG_PW@10.0.0.10:5432/cu_assistant")
+#
+#   gcloud secrets versions add cloud-run-neo4j-password \
+#     --data-file=<(echo -n "STRONG_NEO4J_PW")      # same value as data-vm-neo4j-password
+#
+#   gcloud secrets versions add cloud-run-redis-url \
+#     --data-file=<(echo -n "redis://:STRONG_REDIS_PW@10.0.0.10:6379")
+#
+#   gcloud secrets versions add cloud-run-jwt-secret-key \
+#     --data-file=<(openssl rand -hex 32)
+#
+#   # ANTHROPIC_API_KEY — Andrew populates this. Only chat-service-sa has secretAccessor.
+#   # Team members should NOT be granted secretAccessor on this secret.
+#   gcloud secrets versions add anthropic-api-key \
+#     --data-file=<(echo -n "sk-ant-…")
+
+# ── Cloud Run image tag ───────────────────────────────────────────────────────
+# Override on manual deploys to pin a specific image SHA.
+# CI sets this automatically via the deploy workflow.
+#
+# image_tag = "latest"
+
+# ── Ollama embed service URL (CUAI-88 / DEPLOY-008) ──────────────────────────
+# Set once CUAI-88 is deployed. Until then, leave empty (embedding calls will fail).
+#
+# ollama_embed_url = "https://ollama-embed-HASH-uc.a.run.app"

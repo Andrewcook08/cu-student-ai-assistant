@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    settings.validate_production()
+    settings.validate_production(require_anthropic=True)
     # Long-lived singleton — the driver owns a connection pool and must
     # outlive individual requests. Tool handlers pull it off app.state.
     app.state.neo4j_driver = AsyncGraphDatabase.driver(

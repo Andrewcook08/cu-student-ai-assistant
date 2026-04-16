@@ -38,3 +38,21 @@ variable "alert_notification_channels" {
   type        = list(string)
   default     = []
 }
+
+variable "image_tag" {
+  description = "Docker image tag for all Cloud Run services. Leave empty on first apply to use the GCP placeholder image; CI sets this to the commit SHA on deploy."
+  type        = string
+  default     = ""
+}
+
+variable "anthropic_model" {
+  description = "Anthropic model ID used by chat-service"
+  type        = string
+  default     = "claude-sonnet-4-20250514"
+}
+
+variable "ollama_embed_url" {
+  description = "URL of the Ollama embed Cloud Run service (CUAI-88 / DEPLOY-008). Used by course-search-api and chat-service for nomic-embed-text embeddings. Leave empty until CUAI-88 is deployed."
+  type        = string
+  default     = ""
+}
