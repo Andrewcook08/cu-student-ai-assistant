@@ -36,6 +36,9 @@ jobs:
   build-and-push:
     name: Build & push — ${{ matrix.service }}
     runs-on: ubuntu-latest
+    # Bound the blast radius: a stuck docker push or auth hang would otherwise
+    # hold the concurrency slot for the GitHub default of 6h.
+    timeout-minutes: 20
 
     permissions:
       id-token: write
@@ -62,6 +65,15 @@ jobs:
             context: infra/docker/ollama-embed/
 
     steps:
+      # Workflow_dispatch has no branch restriction at the trigger level; the
+      # WIF provider rejects non-main OIDC tokens, but the resulting error
+      # looks like an auth misconfiguration. Fail fast with a clear message.
+      - name: Enforce main branch
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Deploy workflow can only run on refs/heads/main. Got: ${{ github.ref }}"
+          exit 1
+
       - uses: actions/checkout@v4
 
       - name: Authenticate to GCP via Workload Identity Federation
@@ -108,6 +120,7 @@ jobs:
     name: Deploy — ${{ matrix.service }}
     runs-on: ubuntu-latest
     needs: build-and-push
+    timeout-minutes: 15
 
     permissions:
       id-token: write
@@ -116,9 +129,19 @@ jobs:
     strategy:
       # Run deployments sequentially so a failure in one service doesn't race
       # with others — easier to diagnose and avoids partial-fleet updates.
+      # Order: producers before consumers (ollama-embed is called by the two
+      # Python services); frontend last because it's the user-facing surface
+      # and any backend-breaking change should be visible to users only after
+      # the backends are ready.
       max-parallel: 1
       matrix:
         include:
+          - service: ollama-embed
+            # INGRESS_TRAFFIC_INTERNAL_ONLY — GitHub runners cannot reach this
+            # service. We verify the new revision instead (see smoke-test step).
+            health_path: ""
+            internal: true
+            validate_env: false
           # validate_env: only the two Python services import shared/config.py,
           # which is what enforces the ENVIRONMENT=production guard tied to the
           # JWT-secret fail-fast check. The frontend (nginx + static SPA) and
@@ -139,14 +162,14 @@ jobs:
             health_path: /
             internal: false
             validate_env: false
-          - service: ollama-embed
-            # INGRESS_TRAFFIC_INTERNAL_ONLY — GitHub runners cannot reach this
-            # service. We verify the new revision instead (see smoke-test step).
-            health_path: ""
-            internal: true
-            validate_env: false
 
     steps:
+      - name: Enforce main branch
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Deploy workflow can only run on refs/heads/main. Got: ${{ github.ref }}"
+          exit 1
+
       - uses: actions/checkout@v4
 
       - name: Authenticate to GCP via Workload Identity Federation
