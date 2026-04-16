@@ -70,7 +70,8 @@ class Settings(BaseSettings):
 
         if not self.ollama_url:
             errors.append(
-                "OLLAMA_URL is empty — embed service (CUAI-88) must be deployed before production apply"
+                "OLLAMA_URL is empty — embed service (CUAI-88) must be deployed"
+                " before production apply"
             )
 
         if require_anthropic and not self.anthropic_api_key:
