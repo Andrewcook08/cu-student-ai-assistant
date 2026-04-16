@@ -2,10 +2,14 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up
 #
-# Three changes from the base file:
-#   1. Datastore ports cleared — no host binding; services reach each other by service name
-#   2. Required-secret syntax — stack refuses to start if any secret is unset
-#   3. ENVIRONMENT=production on app services — trips the SEC-006 fail-fast validator at boot
+# Two changes from the base file:
+#   1. Required-secret syntax — stack refuses to start if any secret is unset
+#   2. ENVIRONMENT=production on app services — trips the SEC-006 fail-fast validator at boot
+#
+# Data-service ports remain bound to the VM host: Cloud Run reaches postgres/neo4j/redis
+# over the VPC connector at the VM's internal IP:port. The VM is in a private subnet and
+# a Network Firewall Policy (infra/network.tf) restricts 5432/7687/6379/11434 sources to
+# the VPC connector range — so host bindings are not publicly reachable.
 #
 # Required environment variables (set in the shell or a secrets manager before starting):
 #   POSTGRES_PASSWORD  — strong password for PostgreSQL
@@ -16,14 +20,12 @@
 #   ANTHROPIC_API_KEY  — injected by Cloud Run from Secret Manager
 
 services:
-  # ── Data services — host ports cleared, strong secrets required ─────────────
+  # ── Data services — strong secrets required; ports inherited from base compose ─
   postgres:
-    ports: !reset []
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
 
   neo4j:
-    ports: !reset []
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD required}
     healthcheck:
@@ -33,13 +35,9 @@ services:
       retries: 10
 
   redis:
-    ports: !reset []
     command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
-
-  ollama:
-    ports: !reset []
 
   # ── Application services — secrets injected, production validator tripped ───
   course-search-api:
