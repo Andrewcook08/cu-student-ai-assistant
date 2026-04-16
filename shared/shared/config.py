@@ -26,9 +26,9 @@ class Settings(BaseSettings):
     ollama_url: str
     ollama_embed_model: str
 
-    # Anthropic (LLM) — only required by chat-service; other services default to empty
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-20250514"
+    # Anthropic (LLM) — only required by chat-service; other services leave key unset
+    anthropic_api_key: str | None = None
+    anthropic_model: str  # required — set by infra (Terraform var.anthropic_model)
 
     # Auth
     jwt_secret_key: str
@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
-    def validate_production(self) -> None:
+    def validate_production(self, *, require_anthropic: bool = False) -> None:
         """Raise RuntimeError at boot if any insecure defaults are present in production."""
         if self.environment != "production":
             return
@@ -66,6 +66,16 @@ class Settings(BaseSettings):
         if f":{_DEFAULT_COMPOSE_DB_PASSWORD}@" in self.database_url:
             errors.append(
                 "DATABASE_URL contains the default compose password — set a strong password"
+            )
+
+        if not self.ollama_url:
+            errors.append(
+                "OLLAMA_URL is empty — embed service (CUAI-88) must be deployed before production apply"
+            )
+
+        if require_anthropic and not self.anthropic_api_key:
+            errors.append(
+                "ANTHROPIC_API_KEY must be set when chat-service runs in production"
             )
 
         if errors:

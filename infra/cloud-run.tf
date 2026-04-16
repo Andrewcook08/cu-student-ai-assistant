@@ -182,6 +182,10 @@ resource "google_cloud_run_v2_service" "frontend" {
     }
   }
 
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   depends_on = [
     google_project_service.apis["run.googleapis.com"],
     google_artifact_registry_repository.docker,
@@ -230,6 +234,26 @@ resource "google_cloud_run_v2_service" "course_search_api" {
         container_port = 8000
       }
 
+      startup_probe {
+        http_get {
+          path = "/api/health"
+          port = 8000
+        }
+        initial_delay_seconds = 5
+        timeout_seconds       = 5
+        period_seconds        = 5
+        failure_threshold     = 20
+      }
+      liveness_probe {
+        http_get {
+          path = "/api/health"
+          port = 8000
+        }
+        period_seconds    = 30
+        timeout_seconds   = 5
+        failure_threshold = 3
+      }
+
       resources {
         limits = {
           memory = "512Mi"
@@ -261,6 +285,10 @@ resource "google_cloud_run_v2_service" "course_search_api" {
       env {
         name  = "CORS_ORIGINS"
         value = google_cloud_run_v2_service.frontend.uri
+      }
+      env {
+        name  = "ANTHROPIC_MODEL"
+        value = var.anthropic_model
       }
 
       # ── Sensitive config — sourced from Secret Manager ────────────────────
@@ -300,10 +328,11 @@ resource "google_cloud_run_v2_service" "course_search_api" {
           }
         }
       }
-      # Note: ANTHROPIC_API_KEY is not set here — course-search-api does not call the
-      # Anthropic API. If shared.config.Settings requires it at boot, make the field
-      # Optional in shared/config.py (see CUAI-67 implementation notes).
     }
+  }
+
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
   }
 
   depends_on = [
@@ -315,7 +344,6 @@ resource "google_cloud_run_v2_service" "course_search_api" {
     google_secret_manager_secret_iam_member.course_search_api_neo4j_password,
     google_secret_manager_secret_iam_member.course_search_api_redis_url,
     google_secret_manager_secret_iam_member.course_search_api_jwt_secret,
-    google_cloud_run_v2_service.frontend,
   ]
 }
 
@@ -346,6 +374,7 @@ resource "google_cloud_run_v2_service" "chat_service" {
   template {
     service_account                  = google_service_account.chat_service.email
     max_instance_request_concurrency = 15
+    timeout                          = "3600s" # 60 min — max for Cloud Run; WebSocket lifetime cap
 
     vpc_access {
       connector = google_vpc_access_connector.connector.id
@@ -362,6 +391,26 @@ resource "google_cloud_run_v2_service" "chat_service" {
 
       ports {
         container_port = 8001
+      }
+
+      startup_probe {
+        http_get {
+          path = "/api/chat/health"
+          port = 8001
+        }
+        initial_delay_seconds = 5
+        timeout_seconds       = 5
+        period_seconds        = 5
+        failure_threshold     = 20
+      }
+      liveness_probe {
+        http_get {
+          path = "/api/chat/health"
+          port = 8001
+        }
+        period_seconds    = 30
+        timeout_seconds   = 5
+        failure_threshold = 3
       }
 
       resources {
@@ -394,7 +443,7 @@ resource "google_cloud_run_v2_service" "chat_service" {
       }
       env {
         name  = "ANTHROPIC_MODEL"
-        value = "claude-sonnet-4-20250514"
+        value = var.anthropic_model
       }
       env {
         name  = "CORS_ORIGINS"
@@ -451,6 +500,10 @@ resource "google_cloud_run_v2_service" "chat_service" {
     }
   }
 
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   depends_on = [
     google_project_service.apis["run.googleapis.com"],
     google_vpc_access_connector.connector,
@@ -461,7 +514,6 @@ resource "google_cloud_run_v2_service" "chat_service" {
     google_secret_manager_secret_iam_member.chat_service_redis_url,
     google_secret_manager_secret_iam_member.chat_service_jwt_secret,
     google_secret_manager_secret_iam_member.chat_service_anthropic,
-    google_cloud_run_v2_service.frontend,
   ]
 }
 

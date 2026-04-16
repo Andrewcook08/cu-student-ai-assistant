@@ -90,6 +90,9 @@ populate_cloud_run_secrets() {
     return 1
   fi
 
+  local data_vm_ip
+  data_vm_ip=$(terraform output -raw data_vm_internal_ip)
+
   _populate_if_empty() {
     local name="$1" value="$2"
     if gcloud secrets versions list "$name" --limit=1 --format="value(name)" 2>/dev/null | grep -q .; then
@@ -101,9 +104,9 @@ populate_cloud_run_secrets() {
   }
 
   _populate_if_empty "cloud-run-database-url" \
-    "postgresql+psycopg://postgres:${postgres_pw}@10.0.0.10:5432/cu_assistant"
+    "postgresql+psycopg://postgres:${postgres_pw}@${data_vm_ip}:5432/cu_assistant"
   _populate_if_empty "cloud-run-neo4j-password" "${neo4j_pw}"
-  _populate_if_empty "cloud-run-redis-url" "redis://:${redis_pw}@10.0.0.10:6379"
+  _populate_if_empty "cloud-run-redis-url" "redis://:${redis_pw}@${data_vm_ip}:6379"
 
   if gcloud secrets versions list "cloud-run-jwt-secret-key" --limit=1 --format="value(name)" 2>/dev/null | grep -q .; then
     echo "  ✓ cloud-run-jwt-secret-key already populated — skipping"
