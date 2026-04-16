@@ -75,9 +75,7 @@ class Settings(BaseSettings):
             )
 
         if require_anthropic and not self.anthropic_api_key:
-            errors.append(
-                "ANTHROPIC_API_KEY must be set when chat-service runs in production"
-            )
+            errors.append("ANTHROPIC_API_KEY must be set when chat-service runs in production")
 
         if errors:
             raise RuntimeError(
