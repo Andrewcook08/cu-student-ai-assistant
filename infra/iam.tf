@@ -128,6 +128,15 @@ resource "google_service_account_iam_member" "deploy_act_as_ollama_embed" {
   member             = "serviceAccount:${google_service_account.deploy.email}"
 }
 
+# ingest_job SA is defined in ingest-job.tf — same rationale as ollama_embed.
+# Required so `gcloud run jobs update --image=` in the deploy workflow can
+# actAs the runtime SA attached to the ingest-pipeline Cloud Run Job.
+resource "google_service_account_iam_member" "deploy_act_as_ingest_job" {
+  service_account_id = google_service_account.ingest_job.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.deploy.email}"
+}
+
 # Bind the WIF pool to deploy-sa — only tokens from this repo can impersonate it.
 resource "google_service_account_iam_member" "deploy_wif_binding" {
   service_account_id = google_service_account.deploy.name
