@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { useAuthStore } from './authStore'
+import { useChatStore } from './chatStore'
 
 // test-setup.ts calls setActivePinia(createPinia()) before each test
 
@@ -38,6 +39,19 @@ describe('authStore', () => {
     expect(sessionStorage.getItem('token')).toBeNull()
     expect(sessionStorage.getItem('userId')).toBeNull()
     expect(sessionStorage.getItem('userName')).toBeNull()
+  })
+
+  it('logout wipes the chat panel so the next user starts fresh', () => {
+    const auth = useAuthStore()
+    const chat = useChatStore()
+    auth.setAuth('jwt-abc', 7, 'Alice')
+    chat.addMessage({ role: 'user', content: 'secret' })
+    chat.initSession(7)
+
+    auth.logout()
+
+    expect(chat.messages).toEqual([])
+    expect(chat.sessionId).toBeNull()
   })
 
   // header.payload.sig — payload = {"sub":1,"exp":9999999999} (year 2286, never expires in tests)

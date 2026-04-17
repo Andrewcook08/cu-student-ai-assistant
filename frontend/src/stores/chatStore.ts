@@ -62,11 +62,35 @@ export const useChatStore = defineStore('chat', () => {
     connectionError.value = null
   }
 
-  function initSession(): string {
-    if (!sessionId.value) {
-      sessionId.value = crypto.randomUUID()
+  // Persist (and restore) the session UUID in sessionStorage, keyed by userId.
+  // Same user logging back in within the tab's lifetime and Redis's 2h TTL
+  // keeps the LLM's conversation context intact. Different userId means a
+  // different key, so no cross-user leakage is possible.
+  function initSession(userId: number | null = null): string {
+    if (sessionId.value) return sessionId.value
+    if (userId !== null) {
+      const stored = sessionStorage.getItem(`chat-session-${userId}`)
+      if (stored) {
+        sessionId.value = stored
+        return stored
+      }
     }
-    return sessionId.value!
+    const fresh = crypto.randomUUID()
+    sessionId.value = fresh
+    if (userId !== null) {
+      sessionStorage.setItem(`chat-session-${userId}`, fresh)
+    }
+    return fresh
+  }
+
+  function reset() {
+    messages.value = []
+    sessionId.value = null
+    isTyping.value = false
+    isStreaming.value = false
+    toolStatus.value = null
+    connectionError.value = null
+    isReconnecting.value = false
   }
 
   return {
@@ -89,5 +113,6 @@ export const useChatStore = defineStore('chat', () => {
     setError,
     clearError,
     initSession,
+    reset,
   }
 })

@@ -37,8 +37,8 @@ export function useChat() {
 
   function connect() {
     if (ws && ws.readyState <= WS_OPEN) return  // already connected or connecting
-    const sid = store.initSession()
     const authStore = useAuthStore()
+    const sid = store.initSession(authStore.userId)
     const token = authStore.token ?? ''
     ws = new WebSocket(`${WS_BASE_URL}/ws/chat/${sid}?token=${token}`)
 

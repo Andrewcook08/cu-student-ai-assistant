@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { useChatStore } from './chatStore'
 
 // test-setup.ts calls setActivePinia(createPinia()) before each test
+
+beforeEach(() => sessionStorage.clear())
+afterEach(() => sessionStorage.clear())
 
 describe('chatStore', () => {
   it('starts with empty messages', () => {
@@ -82,5 +85,56 @@ describe('chatStore', () => {
     store.addMessage({ role: 'user', content: 'hello' })
     store.clearMessages()
     expect(store.messages).toHaveLength(0)
+  })
+
+  it('reset clears all per-user state', () => {
+    const store = useChatStore()
+    store.addMessage({ role: 'user', content: 'hi' })
+    store.initSession()
+    store.setTyping(true)
+    store.setStreaming(true)
+    store.setToolStatus('working')
+    store.setError('boom')
+    store.setReconnecting(true)
+
+    store.reset()
+
+    expect(store.messages).toEqual([])
+    expect(store.sessionId).toBeNull()
+    expect(store.isTyping).toBe(false)
+    expect(store.isStreaming).toBe(false)
+    expect(store.toolStatus).toBeNull()
+    expect(store.connectionError).toBeNull()
+    expect(store.isReconnecting).toBe(false)
+  })
+
+  it('initSession(userId) persists the UUID to sessionStorage', () => {
+    const store = useChatStore()
+    const uuid = store.initSession(42)
+    expect(sessionStorage.getItem('chat-session-42')).toBe(uuid)
+  })
+
+  it('initSession(userId) restores the persisted UUID after reset', () => {
+    const store = useChatStore()
+    const first = store.initSession(42)
+    store.reset()
+    const second = store.initSession(42)
+    expect(second).toBe(first)
+  })
+
+  it('initSession(userId) isolates UUIDs across different users', () => {
+    const store = useChatStore()
+    const aliceUuid = store.initSession(1)
+    store.reset()
+    const bobUuid = store.initSession(2)
+    expect(bobUuid).not.toBe(aliceUuid)
+    expect(sessionStorage.getItem('chat-session-1')).toBe(aliceUuid)
+    expect(sessionStorage.getItem('chat-session-2')).toBe(bobUuid)
+  })
+
+  it('initSession() without userId does not write to sessionStorage', () => {
+    const store = useChatStore()
+    store.initSession()
+    expect(sessionStorage.length).toBe(0)
   })
 })
