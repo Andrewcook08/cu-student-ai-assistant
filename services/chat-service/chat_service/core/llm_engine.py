@@ -414,9 +414,11 @@ def build_graph(
         if state.get("error"):
             return {}
 
-        # Extract reply text from the last AIMessage.
-        # AIMessage.content may be a list of content blocks (Anthropic streaming)
-        # rather than a plain string — flatten to str before validation.
+        # Extract reply text from the last AIMessage. Anthropic's SDK can
+        # return `.content` as either a string or a list of content blocks
+        # (e.g. after tool calls: `[{"type": "text", "text": "..."}, ...]`).
+        # Flatten to a plain string so validate_output's regex-based PII
+        # scan has something it can call .subn() on.
         ai_messages = [m for m in state["messages"] if isinstance(m, AIMessage)]
         raw_content = ai_messages[-1].content if ai_messages else ""
         if isinstance(raw_content, list):
