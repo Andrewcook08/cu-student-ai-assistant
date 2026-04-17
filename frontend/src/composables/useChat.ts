@@ -40,9 +40,10 @@ export function useChat() {
     const authStore = useAuthStore()
     const sid = store.initSession(authStore.userId)
     const token = authStore.token ?? ''
-    ws = new WebSocket(`${WS_BASE_URL}/ws/chat/${sid}?token=${token}`)
+    const current = new WebSocket(`${WS_BASE_URL}/ws/chat/${sid}?token=${token}`)
+    ws = current
 
-    ws.onopen = () => {
+    current.onopen = () => {
       store.setConnected(true)
       store.setReconnecting(false)
       store.clearError()
@@ -52,7 +53,7 @@ export function useChat() {
     // Message routing — matches WsServerMessage contract in types/index.ts.
     // Backend (CHAT-002+) must send type: 'error' for errors and type: 'progress'
     // for progress updates. The stub (CHAT-001) is an echo server only.
-    ws.onmessage = (event: MessageEvent) => {
+    current.onmessage = (event: MessageEvent) => {
       let data: WsServerMessage
       try {
         data = JSON.parse(event.data as string)
@@ -95,13 +96,20 @@ export function useChat() {
       }
     }
 
-    ws.onerror = () => {
+    current.onerror = () => {
       // onclose fires after onerror — reconnection is handled there
     }
 
-    ws.onclose = (event: CloseEvent) => {
+    current.onclose = (event: CloseEvent) => {
       store.setConnected(false)
       store.setTyping(false)
+
+      // If this socket is no longer the active one (disconnect() nulled `ws`,
+      // or a new connect() replaced it), skip the reconnect+error path. Without
+      // this, an explicit logout queues a zombie reconnect that hits the
+      // backend with an empty token and surfaces "Authentication failed" on
+      // the next user's empty panel.
+      if (ws !== current) return
 
       if (NO_RECONNECT_CODES.has(event.code)) {
         const errMsg = CLOSE_ERROR_MESSAGES[event.code] ?? 'Connection closed.'
