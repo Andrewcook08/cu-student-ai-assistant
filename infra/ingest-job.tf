@@ -60,8 +60,8 @@ resource "google_cloud_run_v2_job" "ingest_pipeline" {
   template {
     # Cloud Run Jobs built-in retry: 3 attempts before marking the execution failed.
     # Application-level retry (exponential backoff) runs inside each attempt.
-    task_count   = 1
-    parallelism  = 1
+    task_count  = 1
+    parallelism = 1
 
     template {
       service_account = google_service_account.ingest_job.email
