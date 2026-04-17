@@ -221,9 +221,14 @@ resource "google_cloud_run_v2_service" "course_search_api" {
     service_account                  = google_service_account.course_search_api.email
     max_instance_request_concurrency = 80
 
+    # ALL_TRAFFIC egress: routes every outbound request — including calls to
+    # *.run.app — through the VPC connector, so they arrive at other Cloud
+    # Run services (e.g. ollama-embed with ingress=internal) classified as
+    # internal traffic. PRIVATE_RANGES_ONLY would send run.app requests via
+    # the default NAT, where they'd hit the ingress=internal gate and 404.
     vpc_access {
       connector = google_vpc_access_connector.connector.id
-      egress    = "PRIVATE_RANGES_ONLY"
+      egress    = "ALL_TRAFFIC"
     }
 
     scaling {
@@ -380,9 +385,14 @@ resource "google_cloud_run_v2_service" "chat_service" {
     max_instance_request_concurrency = 15
     timeout                          = "3600s" # 60 min — max for Cloud Run; WebSocket lifetime cap
 
+    # ALL_TRAFFIC egress: routes every outbound request — including calls to
+    # *.run.app — through the VPC connector, so they arrive at other Cloud
+    # Run services (e.g. ollama-embed with ingress=internal) classified as
+    # internal traffic. PRIVATE_RANGES_ONLY would send run.app requests via
+    # the default NAT, where they'd hit the ingress=internal gate and 404.
     vpc_access {
       connector = google_vpc_access_connector.connector.id
-      egress    = "PRIVATE_RANGES_ONLY"
+      egress    = "ALL_TRAFFIC"
     }
 
     scaling {
