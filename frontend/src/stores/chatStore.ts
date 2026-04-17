@@ -148,6 +148,22 @@ export const useChatStore = defineStore('chat', () => {
     persistUserId = null
   }
 
+  // Rotates to a fresh session UUID and wipes the transcript (both in-memory
+  // and persisted). Backed by a new UUID so the LLM gets an empty Redis
+  // history on the next turn — the old session's Redis keys TTL out on
+  // their own within 2h. Used by the "Clear conversation" button.
+  function newSession(userId: number | null = null): string {
+    const fresh = crypto.randomUUID()
+    sessionId.value = fresh
+    messages.value = []
+    if (userId !== null) {
+      persistUserId = userId
+      sessionStorage.setItem(`chat-session-${userId}`, fresh)
+      sessionStorage.removeItem(`chat-messages-${userId}`)
+    }
+    return fresh
+  }
+
   return {
     messages,
     isTyping,
@@ -169,6 +185,7 @@ export const useChatStore = defineStore('chat', () => {
     setError,
     clearError,
     initSession,
+    newSession,
     reset,
   }
 })

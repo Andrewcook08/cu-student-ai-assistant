@@ -139,7 +139,19 @@ export function useChat() {
     reconnectAttempt = 0
   }
 
+  // Tears down the current WebSocket, rotates the chat store to a fresh
+  // session UUID (wiping the transcript), and reconnects. The backend
+  // loads history from Redis keyed by (user_id, session_id) on each turn,
+  // so a new session_id → empty history → the LLM starts from scratch.
+  // The old session's Redis keys expire naturally within 2h.
+  function clearConversation() {
+    const authStore = useAuthStore()
+    disconnect()
+    store.newSession(authStore.userId)
+    connect()
+  }
+
   onUnmounted(disconnect)
 
-  return { connect, send, disconnect }
+  return { connect, send, disconnect, clearConversation }
 }

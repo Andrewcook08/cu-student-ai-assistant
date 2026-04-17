@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
-import { MessageCircle, X } from 'lucide-vue-next'
+import { MessageCircle, RefreshCw, X } from 'lucide-vue-next'
 import ChatInput from './ChatInput.vue'
 import ChatMessage from './ChatMessage.vue'
 import LoginModal from '@/components/auth/LoginModal.vue'
@@ -15,7 +15,12 @@ const messagesEl = ref<HTMLElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 const store = useChatStore()
 const auth = useAuthStore()
-const { connect, disconnect, send } = useChat()
+const { connect, disconnect, send, clearConversation } = useChat()
+
+function onClearClick(e: MouseEvent) {
+  e.stopPropagation()
+  clearConversation()
+}
 const showLoginModal = ref(false)
 const showRegisterModal = ref(false)
 
@@ -136,6 +141,16 @@ watch(
   <div v-else ref="panelEl" class="chat-panel">
     <div class="chat-panel__header" @mousedown="onResizeStart">
       <span class="chat-panel__title">CU AI Advisor</span>
+      <button
+        v-if="auth.isAuthenticated"
+        class="chat-panel__clear"
+        title="Clear conversation"
+        data-testid="chat-clear-btn"
+        @mousedown.stop
+        @click="onClearClick"
+      >
+        <RefreshCw :size="14" />
+      </button>
       <button class="chat-panel__close" title="Close chat" @click.stop="toggle">
         <X :size="16" />
       </button>
@@ -253,7 +268,8 @@ watch(
   font-weight: 700;
   letter-spacing: 0.5px;
 }
-.chat-panel__close {
+.chat-panel__close,
+.chat-panel__clear {
   background: none;
   border: none;
   color: #CFB87C;
@@ -265,7 +281,9 @@ watch(
   opacity: 0.85;
   transition: opacity 0.15s;
 }
-.chat-panel__close:hover { opacity: 1; }
+.chat-panel__close:hover,
+.chat-panel__clear:hover { opacity: 1; }
+.chat-panel__clear { margin-right: 4px; }
 
 /* Reconnecting banner */
 .chat-reconnecting {

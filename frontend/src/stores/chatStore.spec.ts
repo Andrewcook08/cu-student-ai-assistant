@@ -260,4 +260,31 @@ describe('chatStore', () => {
     store.initSession(42)
     expect(store.messages).toEqual([])
   })
+
+  it('newSession rotates the UUID, clears messages, and wipes persisted transcript', () => {
+    const store = useChatStore()
+    const originalUuid = store.initSession(42)
+    store.addMessage({ role: 'user', content: 'hello' })
+    expect(sessionStorage.getItem('chat-messages-42')).not.toBeNull()
+
+    const freshUuid = store.newSession(42)
+
+    expect(freshUuid).not.toBe(originalUuid)
+    expect(store.sessionId).toBe(freshUuid)
+    expect(store.messages).toEqual([])
+    expect(sessionStorage.getItem('chat-session-42')).toBe(freshUuid)
+    expect(sessionStorage.getItem('chat-messages-42')).toBeNull()
+  })
+
+  it('after newSession, subsequent addMessage persists under the new UUID only', () => {
+    const store = useChatStore()
+    store.initSession(42)
+    store.newSession(42)
+    store.addMessage({ role: 'user', content: 'first on fresh session' })
+
+    const raw = sessionStorage.getItem('chat-messages-42')
+    expect(JSON.parse(raw as string)).toEqual([
+      { role: 'user', content: 'first on fresh session' },
+    ])
+  })
 })

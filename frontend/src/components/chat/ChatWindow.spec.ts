@@ -13,6 +13,7 @@ const chatMocks = {
   connect: vi.fn(),
   send: vi.fn(),
   disconnect: vi.fn(),
+  clearConversation: vi.fn(),
 }
 vi.mock('@/composables/useChat', () => ({
   useChat: () => chatMocks,
@@ -22,6 +23,7 @@ beforeEach(() => {
   chatMocks.connect.mockClear()
   chatMocks.send.mockClear()
   chatMocks.disconnect.mockClear()
+  chatMocks.clearConversation.mockClear()
 })
 
 function mountWindow(authenticated = false) {
@@ -142,5 +144,21 @@ describe('ChatWindow', () => {
     authStore.logout()
     await wrapper.vm.$nextTick()
     expect(chatMocks.disconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it('Clear button is hidden for the unauthenticated auth gate', async () => {
+    const { wrapper } = mountWindow(false)
+    await wrapper.find('.chat-bubble').trigger('click')
+    expect(wrapper.find('[data-testid="chat-clear-btn"]').exists()).toBe(false)
+  })
+
+  it('Clear button is visible when authenticated and fires clearConversation()', async () => {
+    const { wrapper } = mountWindow(true)
+    await wrapper.find('.chat-bubble').trigger('click')
+    const btn = wrapper.find('[data-testid="chat-clear-btn"]')
+    expect(btn.exists()).toBe(true)
+
+    await btn.trigger('click')
+    expect(chatMocks.clearConversation).toHaveBeenCalledTimes(1)
   })
 })

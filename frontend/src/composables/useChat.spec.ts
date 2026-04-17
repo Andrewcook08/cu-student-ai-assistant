@@ -441,6 +441,47 @@ describe('useChat — onclose (general)', () => {
   })
 })
 
+describe('useChat — clearConversation', () => {
+  it('closes the old WebSocket, rotates to a fresh session UUID, and reconnects', () => {
+    let wsCount = 0
+    const instances: MockWebSocket[] = []
+    vi.stubGlobal('WebSocket', class extends MockWebSocket {
+      constructor(url: string) {
+        super(url)
+        wsCount++
+        instance = this
+        instances.push(this)
+      }
+    })
+
+    const { connect, clearConversation } = useChat()
+    const store = useChatStore()
+    connect()
+    instance.simulateOpen()
+    store.addMessage({ role: 'user', content: 'old message' })
+    const oldUrl = instance.url
+    const oldSessionId = oldUrl.split('/ws/chat/')[1].split('?')[0]
+
+    clearConversation()
+
+    // A new WebSocket was opened with a different session UUID.
+    expect(wsCount).toBe(2)
+    const newUrl = instance.url
+    const newSessionId = newUrl.split('/ws/chat/')[1].split('?')[0]
+    expect(newSessionId).not.toBe(oldSessionId)
+
+    // Old WS was closed.
+    expect(instances[0].readyState).toBe(MockWebSocket.CLOSING)
+
+    // Transcript wiped.
+    expect(store.messages).toEqual([])
+    expect(sessionStorage.getItem('chat-messages-1')).toBeNull()
+
+    // Persisted UUID rotated to the new one.
+    expect(sessionStorage.getItem('chat-session-1')).toBe(newSessionId)
+  })
+})
+
 describe('useChat — send', () => {
   it('adds user message to store and sends JSON to WebSocket', () => {
     const { connect, send } = useChat()
