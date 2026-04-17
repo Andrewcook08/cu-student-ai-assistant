@@ -105,7 +105,7 @@ resource "google_cloud_run_v2_job" "ingest_pipeline" {
         }
         env {
           name  = "OLLAMA_EMBED_MODEL"
-          value = "nomic-embed-text"
+          value = "nomic-embed-text:v1.5"
         }
         # Unused by ingest but required by shared/config.py Settings model
         env {

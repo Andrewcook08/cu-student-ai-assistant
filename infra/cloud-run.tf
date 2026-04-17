@@ -288,8 +288,11 @@ resource "google_cloud_run_v2_service" "course_search_api" {
         value = local.ollama_embed_url_effective
       }
       env {
-        name  = "OLLAMA_EMBED_MODEL"
-        value = "nomic-embed-text"
+        name = "OLLAMA_EMBED_MODEL"
+        # Must match the tag baked by infra/docker/ollama-embed/Dockerfile —
+        # Ollama treats `:v1.5` and `:latest` as distinct models and returns
+        # 404 "model not found" on any mismatch.
+        value = "nomic-embed-text:v1.5"
       }
       env {
         name  = "CORS_ORIGINS"
@@ -453,7 +456,7 @@ resource "google_cloud_run_v2_service" "chat_service" {
       }
       env {
         name  = "OLLAMA_EMBED_MODEL"
-        value = "nomic-embed-text"
+        value = "nomic-embed-text:v1.5"
       }
       env {
         name  = "ANTHROPIC_MODEL"
