@@ -64,7 +64,6 @@ def _run_upsert(logger) -> None:
     from data.ingest.ingest_courses import ingest_courses
     from data.ingest.ingest_requirements import ingest_requirements
     from data.ingest.parse_prerequisites import run as parse_prereqs
-
     from data.ingest.retry import with_retry
 
     steps = [
@@ -86,13 +85,13 @@ def _run_upsert(logger) -> None:
 
 def _run_embeddings_only(logger) -> None:
     from data.ingest.build_embeddings import build_all_embeddings
+
     with timed_step(logger, "build_embeddings"):
         build_all_embeddings(logger)
 
 
 def _run_validate(logger) -> None:
     """Run all validators against current DB state, no writes."""
-    import logging as _logging
     import sys as _sys
 
     from data.ingest.run_all import validate_neo4j_extras
@@ -124,7 +123,6 @@ def _run_validate(logger) -> None:
 
 def _dry_run_counts(logger) -> None:
     """Print planned row counts without writing anything."""
-    import json
     from pathlib import Path
 
     from data.ingest.ingest_courses import parse_classes
@@ -145,11 +143,13 @@ def _dry_run_counts(logger) -> None:
         driver = GraphDatabase.driver(
             settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password)
         )
-        with driver.session() as session:
-            missing_emb = session.run(
-                "MATCH (c:Course) WHERE c.embedding IS NULL RETURN count(c) AS n"
-            ).single()["n"]
-        driver.close()
+        try:
+            with driver.session() as session:
+                missing_emb = session.run(
+                    "MATCH (c:Course) WHERE c.embedding IS NULL RETURN count(c) AS n"
+                ).single()["n"]
+        finally:
+            driver.close()
         emb_line = f"  embeddings to generate : {missing_emb} (courses missing embeddings)"
     except Exception:
         emb_line = "  embeddings to generate : (could not connect to Neo4j)"

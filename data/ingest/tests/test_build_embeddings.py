@@ -136,8 +136,6 @@ def test_build_all_skips_when_no_courses(mock_client_cls, _mock_neo4j_and_config
 
     build_all_embeddings()
 
-    # No embeddings to generate — client should never be used
-    mock_client_cls.return_value.__enter__ = mock_client_cls
     assert mock_client_cls.return_value.post.call_count == 0
 
 
@@ -165,8 +163,7 @@ def test_build_all_processes_courses(mock_client_cls, _mock_neo4j_and_config) ->
     build_all_embeddings()
 
     write_calls = [
-        c for c in mock_session.run.call_args_list
-        if c.args and "SET c.embedding" in str(c.args[0])
+        c for c in mock_session.run.call_args_list if c.args and "SET c.embedding" in str(c.args[0])
     ]
     assert len(write_calls) == 1
 
@@ -199,7 +196,6 @@ def test_build_all_retries_on_failure(mock_client_cls, mock_sleep, _mock_neo4j_a
 
     assert mock_sleep.call_count == 2
     write_calls = [
-        c for c in mock_session.run.call_args_list
-        if c.args and "SET c.embedding" in str(c.args[0])
+        c for c in mock_session.run.call_args_list if c.args and "SET c.embedding" in str(c.args[0])
     ]
     assert len(write_calls) == 1
