@@ -200,21 +200,22 @@ jobs:
       # boots successfully with ENVIRONMENT=production has therefore passed
       # validate_production() and is NOT running with a default JWT secret.
       #
-      # We use --format=json and jq because Cloud Run v2 services expose env
-      # vars under template.containers[].env (not spec.template.spec.containers)
-      # and the structured JSON is more reliable to parse than the flattened
-      # value() output across gcloud SDK versions.
+      # We use --format=json and jq because `gcloud run services describe`
+      # returns the Knative v1 projection by default — env vars live under
+      # spec.template.spec.containers[].env. The structured JSON is more
+      # reliable to parse than the flattened value() output across gcloud
+      # SDK versions.
       - name: Assert ENVIRONMENT=production is configured
         if: ${{ matrix.validate_env }}
         run: |
           ENV_JSON=$(gcloud run services describe ${{ matrix.service }} \
             --region=${{ env.REGION }} \
-            --format='json(template.containers[0].env)')
+            --format='json(spec.template.spec.containers[0].env)')
 
           # jq exits 1 (non-zero) if the select() produces no output, which
           # causes the step to fail — no explicit exit 1 needed.
           echo "$ENV_JSON" | jq --exit-status \
-            '.template.containers[0].env
+            '.spec.template.spec.containers[0].env
              | map(select(.name == "ENVIRONMENT" and .value == "production"))
              | length > 0' \
             || { echo "ERROR: ENVIRONMENT=production not found in ${{ matrix.service }} env config"; exit 1; }
