@@ -4,7 +4,21 @@ import { useAuthStore } from '@/stores/authStore'
 import type { WsClientMessage, WsServerMessage } from '@/types/index'
 
 const WS_OPEN = 1 // WebSocket.OPEN — avoids dependency on global being set correctly
-const WS_BASE_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8001'
+
+// In dev, VITE_WS_URL is unset and we fall back to the chat-service port.
+// In the prod build we derive the WS URL from the browser origin so the
+// connection goes back through the frontend's nginx, which proxies /ws/*
+// to chat-service. This keeps everything same-origin and avoids CORS
+// handling on the WebSocket upgrade.
+const WS_BASE_URL = (() => {
+  const explicit = import.meta.env.VITE_WS_URL
+  if (explicit) return explicit
+  if (import.meta.env.PROD && typeof window !== 'undefined') {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${window.location.host}`
+  }
+  return 'ws://localhost:8001'
+})()
 const NO_RECONNECT_CODES = new Set([4001, 4002, 1008, 1009])
 const MAX_RECONNECT_DELAY = 30_000
 
