@@ -122,6 +122,82 @@ Any other drift (env vars, concurrency, probes, IAM) should round-trip through T
 | `artifact-registry.tf` | `cu-assistant` Docker repo |
 | `cloud-run.tf` | Three app Cloud Run services (frontend, course-search-api, chat-service) + Secret Manager shells + IAM bindings |
 | `ollama-embed.tf` | Prebaked Ollama embed Cloud Run service + SA + scoped invoker IAM (CUAI-88) |
+| `ingest-job.tf` | Cloud Run Job for data ingestion pipeline + SA + Secret Manager bindings (CUAI-69) |
 | `iam.tf` | Runtime service accounts + AR reader + (CUAI-89) WIF pool/provider + `deploy-sa` |
 | `infra.sh` | `plan` / `up` / `down` / `status` / `secrets` wrapper |
 | `terraform.tfvars.example` | Copy to `terraform.tfvars` and fill in `project_id` + secret-population commands |
+
+## Data Ingestion (CUAI-69)
+
+The `ingest-pipeline` Cloud Run Job loads the CU course catalog (courses, prereq graph, degree programs, embeddings) into the GCP databases. It must be run once after a fresh `./infra.sh up` before the app is usable.
+
+### Trigger
+
+```bash
+# Safe to re-run anytime — upsert mode is idempotent
+gcloud run jobs execute ingest-pipeline \
+  --args="--mode=upsert" \
+  --region=us-central1 \
+  --wait
+
+# Re-run embeddings only (e.g. after embed service was redeployed)
+gcloud run jobs execute ingest-pipeline \
+  --args="--mode=embeddings" \
+  --region=us-central1 \
+  --wait
+
+# Wipe everything and reload from scratch (destructive — requires confirmation flag)
+gcloud run jobs execute ingest-pipeline \
+  --args="--mode=full,--i-understand-this-wipes-prod" \
+  --region=us-central1 \
+  --wait
+
+# Validate current DB state without writing anything
+gcloud run jobs execute ingest-pipeline \
+  --args="--mode=validate" \
+  --region=us-central1 \
+  --wait
+```
+
+### Dry run (local)
+
+Preview row counts without touching the databases:
+
+```bash
+uv run --package data-ingest python -m data.ingest run --mode=upsert --dry-run
+```
+
+### Diagnose failures
+
+Each execution emits structured JSON logs to Cloud Logging. Filter by `run_id` (printed in the first log line of every execution):
+
+```
+resource.type="cloud_run_job"
+resource.labels.job_name="ingest-pipeline"
+jsonPayload.run_id="<run_id>"
+```
+
+Or stream live during an execution:
+
+```bash
+gcloud logging tail 'resource.type="cloud_run_job" AND resource.labels.job_name="ingest-pipeline"' \
+  --format='value(jsonPayload)'
+```
+
+### Re-run safely
+
+- **`--mode=upsert`** — always safe to re-run. Uses `MERGE` (Neo4j) and `ON CONFLICT DO UPDATE` (Postgres). Running it twice produces identical state.
+- **`--mode=embeddings`** — only processes courses with no embedding yet. Safe to re-run; already-embedded courses are skipped.
+- **`--mode=full`** — destructive. Wipes all tables and nodes before reloading. Requires `--i-understand-this-wipes-prod`. Use only to recover from corrupt state.
+
+### Expected validation counts (post-ingest)
+
+| Check | Expected |
+|-------|----------|
+| Postgres courses | 3410 |
+| Postgres sections | 9470 |
+| Neo4j Course nodes | 3410 |
+| Neo4j Program nodes | 203 |
+| Neo4j HAS_PREREQUISITE edges | > 2000 |
+| Courses with embeddings | 3410 |
+| Vector index `course-embeddings` | exists (768-dim cosine) |

@@ -47,3 +47,8 @@ output "deploy_sa_email" {
   description = "deploy-sa email — set as WIF_SA secret in GitHub Actions."
   value       = google_service_account.deploy.email
 }
+
+output "ingest_job_sa_email" {
+  description = "ingest-job-sa email — service account used by the ingest-pipeline Cloud Run Job."
+  value       = google_service_account.ingest_job.email
+}

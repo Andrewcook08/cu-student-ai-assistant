@@ -136,8 +136,9 @@ def test_build_all_skips_when_no_courses(mock_client_cls, _mock_neo4j_and_config
 
     build_all_embeddings()
 
-    output = capsys.readouterr().out
-    assert "nothing to do" in output
+    # No embeddings to generate — client should never be used
+    mock_client_cls.return_value.__enter__ = mock_client_cls
+    assert mock_client_cls.return_value.post.call_count == 0
 
 
 @patch("data.ingest.build_embeddings.httpx.Client")
@@ -170,7 +171,7 @@ def test_build_all_processes_courses(mock_client_cls, _mock_neo4j_and_config) ->
     assert len(write_calls) == 1
 
 
-@patch("data.ingest.build_embeddings.time.sleep")
+@patch("data.ingest.retry.time.sleep")
 @patch("data.ingest.build_embeddings.httpx.Client")
 def test_build_all_retries_on_failure(mock_client_cls, mock_sleep, _mock_neo4j_and_config) -> None:
     fake_vector = [0.5] * 768
