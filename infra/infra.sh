@@ -2,11 +2,14 @@
 # Local test harness for the infra Terraform.
 #
 # Usage:
-#   ./infra.sh plan     # dry-run — no cloud changes
-#   ./infra.sh up       # provision everything (plan → apply saved plan)
-#   ./infra.sh down     # tear everything down
-#   ./infra.sh status   # list deployed resources + show outputs
-#   ./infra.sh secrets  # populate empty data-vm-* and cloud-run-* secrets
+#   ./infra.sh plan                         # dry-run — no cloud changes
+#   ./infra.sh up                           # provision everything (plan → apply saved plan)
+#   ./infra.sh down                         # tear everything down
+#   ./infra.sh status                       # list deployed resources + show outputs
+#   ./infra.sh secrets                      # populate empty data-vm-* and cloud-run-* secrets
+#   ./infra.sh ingest [upsert|embeddings|validate]
+#                                           # execute the ingest-pipeline Cloud Run Job
+#                                           # (default: upsert; --mode=full requires raw gcloud)
 #
 # Assumes `terraform` is installed and `gcloud auth application-default login`
 # has been run so the GCS state backend is accessible.
@@ -286,9 +289,59 @@ case "$cmd" in
     echo "── Outputs ──"
     terraform output
     ;;
+  ingest)
+    # Convenience wrapper around `gcloud run jobs execute ingest-pipeline`.
+    # --mode=full is deliberately not exposed here: it's destructive and we
+    # want operators to type the raw gcloud invocation (with the confirmation
+    # flag) explicitly rather than normalize a flag on the convenience path.
+    mode="${2:-upsert}"
+    case "$mode" in
+      upsert|embeddings|validate) ;;
+      full)
+        echo "✗ --mode=full is destructive; not available via this wrapper." >&2
+        echo "  Run directly with the confirmation flag:" >&2
+        echo "    gcloud run jobs execute ingest-pipeline \\" >&2
+        echo "      --args=\"--mode=full,--i-understand-this-wipes-prod\" \\" >&2
+        echo "      --region=us-central1 --wait" >&2
+        exit 1
+        ;;
+      *)
+        echo "usage: $0 ingest [upsert|embeddings|validate]" >&2
+        exit 1
+        ;;
+    esac
+
+    # Pre-flight: bail early if the job doesn't exist or still has the
+    # placeholder image. Executing `cloudrun/hello` as the ingest job
+    # silently succeeds (prints "Hello!" and exits 0) without running any
+    # ingest code — a confusing no-op worth catching before the user waits
+    # for a "successful" execution.
+    image=$(gcloud run jobs describe ingest-pipeline --region=us-central1 \
+      --format='value(spec.template.spec.template.spec.containers[0].image)' 2>/dev/null || true)
+    if [[ -z "$image" ]]; then
+      echo "✗ ingest-pipeline Cloud Run Job not found." >&2
+      echo "  Run ./infra.sh up first." >&2
+      exit 1
+    fi
+    if [[ "$image" == *"cloudrun/container/hello"* ]]; then
+      echo "✗ ingest-pipeline still on the placeholder image ($image)." >&2
+      echo "  Trigger the deploy pipeline first so CI pushes the real image:" >&2
+      echo "    gh workflow run deploy.yml" >&2
+      exit 1
+    fi
+
+    echo "── Executing ingest-pipeline --mode=${mode} ──"
+    echo "  image: ${image}"
+    echo
+    gcloud run jobs execute ingest-pipeline \
+      --args="--mode=${mode}" \
+      --region=us-central1 \
+      --wait
+    ;;
   *)
-    echo "usage: $0 {plan|up|down|status|secrets}" >&2
-    echo "  secrets  populate data-vm-* and cloud-run-* Secret Manager secrets" >&2
+    echo "usage: $0 {plan|up|down|status|secrets|ingest}" >&2
+    echo "  secrets          populate data-vm-* and cloud-run-* Secret Manager secrets" >&2
+    echo "  ingest [MODE]    execute ingest-pipeline Cloud Run Job (MODE: upsert|embeddings|validate)" >&2
     exit 1
     ;;
 esac

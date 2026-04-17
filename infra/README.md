@@ -30,15 +30,15 @@ Without that rule, running `./infra.sh up` after a pipeline deploy reverts every
 
 ## Fresh spin-up runbook
 
-Four steps. Takes ~8 minutes total, most of it waiting for Cloud Run revisions.
+Five steps. Takes ~20 minutes total end-to-end, most of it waiting for Cloud Run revisions and the embeddings step of ingest.
 
 ### 1. `./infra.sh up`
 
-Creates everything: VM, VPC, connector, AR repo, Cloud Run service shells (on placeholder image), secret shells. Auto-populates `data-vm-*` and `cloud-run-*` secrets with random values and derived connection strings. Seeds `anthropic-api-key` with a placeholder string — this is required because Cloud Run refuses to create a revision that references a non-existent secret version. If any `data-vm-*` secret was newly populated this run, auto-resets the data VM so its startup script re-fires against the now-filled secrets and brings the Postgres / Neo4j / Redis docker-compose stack up.
+Creates everything: VM, VPC, connector, AR repo, Cloud Run service shells (on placeholder image), Cloud Run Job shell (ingest-pipeline, also on placeholder image), secret shells. Auto-populates `data-vm-*` and `cloud-run-*` secrets with random values and derived connection strings. Seeds `anthropic-api-key` with a placeholder string — this is required because Cloud Run refuses to create a revision that references a non-existent secret version. If any `data-vm-*` secret was newly populated this run, auto-resets the data VM so its startup script re-fires against the now-filled secrets and brings the Postgres / Neo4j / Redis docker-compose stack up.
 
 Runs as a three-phase apply (secret shells + IP → populate versions → full apply) so Cloud Run can resolve `versions/latest` at revision-create time.
 
-Expected end state: three Cloud Run services alive and serving the GCP hello page at their `.run.app` URLs, data VM running with all three databases healthy. `ollama-embed` fails to pull (no image yet) — that's fine, the pipeline will fix it in step 3.
+Expected end state: three Cloud Run services alive and serving the GCP hello page at their `.run.app` URLs, data VM running with all three databases healthy, `ingest-pipeline` Job provisioned with the placeholder image. `ollama-embed` fails to pull (no image yet) — that's fine, the pipeline will fix it in step 3.
 
 ### 2. Overwrite the Anthropic key placeholder
 
@@ -57,11 +57,23 @@ Only Andrew needs to do this. `chat-service-sa` is the only identity with `roles
 gh workflow run deploy.yml
 ```
 
-The pipeline (CUAI-72) builds the four images, pushes them to `us-central1-docker.pkg.dev/PROJECT/cu-assistant`, and calls `gcloud run services update --image=…` on each service. New revisions replace the placeholder (or missing) images. This step is **required** on every fresh spin-up — a teardown destroys the Artifact Registry repo along with every image.
+The pipeline (CUAI-72) builds all five images (four services + ingest-pipeline), pushes them to `us-central1-docker.pkg.dev/PROJECT/cu-assistant`, calls `gcloud run services update --image=…` on each service, and `gcloud run jobs update --image=…` on the ingest-pipeline Job. New revisions replace the placeholder (or missing) images. This step is **required** on every fresh spin-up — a teardown destroys the Artifact Registry repo along with every image.
 
-Typical wall-clock: ~4 minutes for the full pipeline.
+Typical wall-clock: ~5–8 minutes for the full pipeline.
 
-### 4. Verify
+### 4. `./infra.sh ingest`
+
+```bash
+./infra.sh ingest
+```
+
+Executes the `ingest-pipeline` Cloud Run Job in `--mode=upsert` and streams to completion. Loads the CU course catalog (3410 courses, 203 programs, prereq graph, embeddings) into Postgres + Neo4j. Pre-flight check bails out if the Job is still on the placeholder image, so you'll get a clear error if step 3 hasn't finished yet.
+
+Typical wall-clock: ~5 minutes (embeddings dominate; one Ollama call per course).
+
+See [Data Ingestion](#data-ingestion-cuai-69) below for other modes (`embeddings`, `validate`), logging queries, and the destructive `--mode=full` escape hatch.
+
+### 5. Verify
 
 ```bash
 terraform output frontend_url
@@ -70,6 +82,9 @@ curl -sI "$(terraform output -raw frontend_url)"
 gcloud run services describe chat-service --region=us-central1 \
   --format="value(status.url)"
 # Visit the frontend URL — you should hit the real login page, not the GCP hello page.
+
+# Confirm ingest counts match expectations
+./infra.sh ingest validate
 ```
 
 ## Teardown
@@ -96,6 +111,7 @@ These cannot be scripted away by design — they're the only things between the 
 1. **First-time setup only** — `gcloud auth application-default login` and point `backend.tf` at your Terraform state bucket.
 2. **Every fresh spin-up** — paste the Anthropic key (step 2 above).
 3. **Every fresh spin-up** — trigger `deploy.yml` (step 3 above).
+4. **Every fresh spin-up** — run `./infra.sh ingest` (step 4 above). Required because `./infra.sh down` wipes the data VM's disks along with everything else, so the databases come back empty.
 
 ## Drift, state, and the image field
 
@@ -124,37 +140,29 @@ Any other drift (env vars, concurrency, probes, IAM) should round-trip through T
 | `ollama-embed.tf` | Prebaked Ollama embed Cloud Run service + SA + scoped invoker IAM (CUAI-88) |
 | `ingest-job.tf` | Cloud Run Job for data ingestion pipeline + SA + Secret Manager bindings (CUAI-69) |
 | `iam.tf` | Runtime service accounts + AR reader + (CUAI-89) WIF pool/provider + `deploy-sa` |
-| `infra.sh` | `plan` / `up` / `down` / `status` / `secrets` wrapper |
+| `infra.sh` | `plan` / `up` / `down` / `status` / `secrets` / `ingest` wrapper |
 | `terraform.tfvars.example` | Copy to `terraform.tfvars` and fill in `project_id` + secret-population commands |
 
 ## Data Ingestion (CUAI-69)
 
-The `ingest-pipeline` Cloud Run Job loads the CU course catalog (courses, prereq graph, degree programs, embeddings) into the GCP databases. It must be run once after a fresh `./infra.sh up` before the app is usable.
+The `ingest-pipeline` Cloud Run Job loads the CU course catalog (courses, prereq graph, degree programs, embeddings) into the GCP databases. It must be run once after a fresh `./infra.sh up` before the app is usable — step 4 of the spin-up runbook.
 
 ### Trigger
 
+The `./infra.sh ingest` wrapper is the preferred path — it pre-flights that the Job is on a real image (not the placeholder) and uses the correct `gcloud` invocation:
+
 ```bash
-# Safe to re-run anytime — upsert mode is idempotent
-gcloud run jobs execute ingest-pipeline \
-  --args="--mode=upsert" \
-  --region=us-central1 \
-  --wait
+./infra.sh ingest             # default: --mode=upsert
+./infra.sh ingest upsert      # same as above — idempotent, safe to re-run
+./infra.sh ingest embeddings  # re-run only Step 4 (e.g. after embed service redeploy)
+./infra.sh ingest validate    # count-based validators only, no writes
+```
 
-# Re-run embeddings only (e.g. after embed service was redeployed)
-gcloud run jobs execute ingest-pipeline \
-  --args="--mode=embeddings" \
-  --region=us-central1 \
-  --wait
+For the destructive reload path, use raw gcloud — the wrapper intentionally doesn't expose `--mode=full` to keep the confirmation flag from becoming muscle memory:
 
-# Wipe everything and reload from scratch (destructive — requires confirmation flag)
+```bash
 gcloud run jobs execute ingest-pipeline \
   --args="--mode=full,--i-understand-this-wipes-prod" \
-  --region=us-central1 \
-  --wait
-
-# Validate current DB state without writing anything
-gcloud run jobs execute ingest-pipeline \
-  --args="--mode=validate" \
   --region=us-central1 \
   --wait
 ```
