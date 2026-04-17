@@ -73,20 +73,11 @@ export function useChat() {
         store.setTyping(false)
         store.setStreaming(false)
         store.setToolStatus(null)
-        // If we already streamed tokens into the last message, update it
-        // with the final reply + structured data instead of adding a duplicate.
-        const last = store.messages[store.messages.length - 1]
-        if (last && last.role === 'assistant' && last.reply) {
-          last.structured_data = data.structured_data
-          last.suggested_actions = data.suggested_actions
-        } else {
-          store.addMessage({
-            role: 'assistant',
-            reply: data.reply,
-            structured_data: data.structured_data,
-            suggested_actions: data.suggested_actions,
-          })
-        }
+        store.applyFinalAssistant({
+          reply: data.reply,
+          structured_data: data.structured_data,
+          suggested_actions: data.suggested_actions,
+        })
       } else if (data.type === 'error') {
         store.setTyping(false)
         store.addMessage({

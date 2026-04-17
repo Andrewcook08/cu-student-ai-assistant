@@ -137,4 +137,127 @@ describe('chatStore', () => {
     store.initSession()
     expect(sessionStorage.length).toBe(0)
   })
+
+  it('addMessage persists transcript to sessionStorage once initSession(userId) is called', () => {
+    const store = useChatStore()
+    store.initSession(42)
+    store.addMessage({ role: 'user', content: 'hi' })
+    store.addMessage({ role: 'assistant', reply: 'hello there' })
+
+    const raw = sessionStorage.getItem('chat-messages-42')
+    expect(raw).not.toBeNull()
+    expect(JSON.parse(raw as string)).toEqual([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', reply: 'hello there' },
+    ])
+  })
+
+  it('appendToken persists streaming updates for later restore', () => {
+    const store = useChatStore()
+    store.initSession(42)
+    store.appendToken('Hel')
+    store.appendToken('lo')
+
+    const raw = sessionStorage.getItem('chat-messages-42')
+    expect(JSON.parse(raw as string)).toEqual([
+      { role: 'assistant', reply: 'Hello' },
+    ])
+  })
+
+  it('applyFinalAssistant persists structured_data on an existing streamed bubble', () => {
+    const store = useChatStore()
+    store.initSession(42)
+    store.appendToken('Here are courses')
+    store.applyFinalAssistant({
+      reply: 'Here are courses',
+      structured_data: [{ code: 'CSCI 1300', title: 'Intro CS', credits: '3' }],
+      suggested_actions: [{ type: 'search', label: 'more', payload: {} }],
+    })
+
+    const msgs = JSON.parse(sessionStorage.getItem('chat-messages-42') as string)
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].structured_data).toHaveLength(1)
+    expect(msgs[0].suggested_actions).toHaveLength(1)
+  })
+
+  it('applyFinalAssistant adds a new bubble when no streaming happened', () => {
+    const store = useChatStore()
+    store.initSession(42)
+    store.applyFinalAssistant({
+      reply: 'hi',
+      structured_data: undefined,
+      suggested_actions: undefined,
+    })
+
+    expect(store.messages).toHaveLength(1)
+    expect(store.messages[0].role).toBe('assistant')
+    expect(store.messages[0].reply).toBe('hi')
+  })
+
+  it('reset clears in-memory messages but leaves sessionStorage transcript intact', () => {
+    const store = useChatStore()
+    store.initSession(42)
+    store.addMessage({ role: 'user', content: 'hello' })
+    store.reset()
+
+    expect(store.messages).toEqual([])
+    expect(sessionStorage.getItem('chat-messages-42')).not.toBeNull()
+  })
+
+  it('after reset + initSession(same userId), messages hydrate back into the panel', () => {
+    const store = useChatStore()
+    store.initSession(42)
+    store.addMessage({ role: 'user', content: 'hello' })
+    store.addMessage({ role: 'assistant', reply: 'hi there' })
+    store.reset()
+
+    store.initSession(42)
+
+    expect(store.messages).toEqual([
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', reply: 'hi there' },
+    ])
+  })
+
+  it('initSession(userId) does not restore another users transcript', () => {
+    const store = useChatStore()
+    store.initSession(1)
+    store.addMessage({ role: 'user', content: 'alice secret' })
+    store.reset()
+
+    store.initSession(2)
+
+    expect(store.messages).toEqual([])
+  })
+
+  it('addMessage does not write to sessionStorage after reset (no active userId)', () => {
+    const store = useChatStore()
+    store.initSession(42)
+    store.reset()
+    store.addMessage({ role: 'user', content: 'post-reset' })
+
+    // chat-messages-42 still holds whatever was there before reset — here
+    // there was nothing persisted before this specific sequence, so it
+    // remains null. Key guarantee: we did NOT write post-reset content.
+    const raw = sessionStorage.getItem('chat-messages-42')
+    const parsed = raw ? JSON.parse(raw) : null
+    expect(parsed).not.toEqual([{ role: 'user', content: 'post-reset' }])
+  })
+
+  it('clearMessages wipes the persisted transcript', () => {
+    const store = useChatStore()
+    store.initSession(42)
+    store.addMessage({ role: 'user', content: 'hello' })
+    store.clearMessages()
+
+    expect(sessionStorage.getItem('chat-messages-42')).toBe('[]')
+  })
+
+  it('initSession(userId) with malformed storage falls back to empty transcript', () => {
+    sessionStorage.setItem('chat-session-42', '11111111-1111-4111-8111-111111111111')
+    sessionStorage.setItem('chat-messages-42', 'not-valid-json{')
+    const store = useChatStore()
+    store.initSession(42)
+    expect(store.messages).toEqual([])
+  })
 })

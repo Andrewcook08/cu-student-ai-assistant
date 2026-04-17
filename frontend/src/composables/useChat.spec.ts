@@ -54,6 +54,10 @@ let instance: MockWebSocket
 // Setup / teardown
 // ---------------------------------------------------------------------------
 beforeEach(() => {
+  // Clear before setAuth so the auth writes land in a clean store — and so
+  // the chat transcript persisted from a previous test doesn't hydrate into
+  // this test's store via initSession(userId).
+  sessionStorage.clear()
   const pinia = createPinia()
   setActivePinia(pinia)
   const authStore = useAuthStore()
@@ -70,6 +74,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.clearAllTimers()
+  sessionStorage.clear()
 })
 
 // ---------------------------------------------------------------------------
