@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import time
+import logging
 
 import httpx
 
-MAX_RETRIES = 3
-RETRY_DELAY = 2.0
+from data.ingest.retry import with_retry
+
+FAILURE_THRESHOLD = 0.05  # exit non-zero only if > 5% of courses fail
 
 
 def get_embedding(text: str, client: httpx.Client, *, base_url: str, model: str) -> list[float]:
-    """Call Ollama embed API and return the embedding vector."""
     resp = client.post(
         f"{base_url}/api/embed",
         json={"model": model, "input": text},
@@ -22,21 +22,15 @@ def get_embedding(text: str, client: httpx.Client, *, base_url: str, model: str)
 
 
 def create_vector_index(session) -> None:
-    """Create the course-embeddings vector index if it doesn't exist."""
     session.run(
         "CREATE VECTOR INDEX `course-embeddings` IF NOT EXISTS "
         "FOR (c:Course) ON (c.embedding) "
         "OPTIONS {indexConfig: {`vector.dimensions`: 768, "
         "`vector.similarity_function`: 'cosine'}}"
     )
-    print("Vector index 'course-embeddings' ensured (768 dims, cosine).")
 
 
 def build_embedding_text(record: dict) -> str:
-    """Construct the text string used to generate a course embedding.
-
-    Format: "{code} {title} {topic_titles} {description} {attributes}"
-    """
     attrs = " ".join(record.get("attributes") or [])
     return (
         f"{record['code']} {record['title']} "
@@ -46,10 +40,12 @@ def build_embedding_text(record: dict) -> str:
     ).strip()
 
 
-def build_all_embeddings() -> None:
+def build_all_embeddings(logger: logging.Logger | None = None) -> None:
     """Generate embeddings for all Course nodes missing them."""
     from neo4j import GraphDatabase
     from shared.config import settings
+
+    log = logger or logging.getLogger(__name__)
 
     driver = GraphDatabase.driver(
         settings.neo4j_uri,
@@ -59,7 +55,6 @@ def build_all_embeddings() -> None:
     with driver.session() as session:
         create_vector_index(session)
 
-    # Fetch courses that need embeddings (include attributes for gen-ed search).
     with driver.session() as session:
         records = session.run(
             "MATCH (c:Course) WHERE c.embedding IS NULL "
@@ -71,11 +66,11 @@ def build_all_embeddings() -> None:
 
     total = len(records)
     if total == 0:
-        print("All courses already have embeddings, nothing to do.")
+        log.info("all courses already have embeddings, skipping")
         driver.close()
         return
 
-    print(f"Generating embeddings for {total} courses...")
+    log.info(f"generating embeddings for {total} courses", extra={"step": "embeddings"})
 
     failed: list[str] = []
     client = httpx.Client()
@@ -86,22 +81,25 @@ def build_all_embeddings() -> None:
             text = build_embedding_text(record)
 
             embedding = None
-            for attempt in range(1, MAX_RETRIES + 1):
-                try:
-                    embedding = get_embedding(
+            try:
+                embedding = with_retry(
+                    lambda: get_embedding(
                         text,
                         client,
                         base_url=settings.ollama_url,
                         model=settings.ollama_embed_model,
-                    )
-                    break
-                except (httpx.HTTPError, KeyError) as exc:
-                    if attempt < MAX_RETRIES:
-                        print(f"  Retry {attempt}/{MAX_RETRIES} for {code}: {exc}")
-                        time.sleep(RETRY_DELAY)
-                    else:
-                        print(f"  FAILED {code} after {MAX_RETRIES} attempts: {exc}")
-                        failed.append(code)
+                    ),
+                    on_retry=lambda attempt, exc: log.warning(
+                        f"embed retry {attempt}: {exc}",
+                        extra={"step": "embeddings", "course_code": code},
+                    ),
+                )
+            except Exception as exc:
+                log.error(
+                    f"embed failed after all attempts: {exc}",
+                    extra={"step": "embeddings", "course_code": code},
+                )
+                failed.append(code)
 
             if embedding is not None:
                 with driver.session() as session:
@@ -112,15 +110,25 @@ def build_all_embeddings() -> None:
                     )
 
             if i % 100 == 0 or i == total:
-                print(f"  Progress: {i}/{total} courses processed.")
+                log.info(
+                    f"progress {i}/{total}",
+                    extra={"step": "embeddings"},
+                )
     finally:
         client.close()
         driver.close()
 
-    print(f"\nDone. {total - len(failed)}/{total} embeddings written.")
-    if failed:
-        print(f"Failed courses ({len(failed)}): {', '.join(failed)}")
-        raise SystemExit(1)
+    fail_rate = len(failed) / total if total else 0
+    log.info(
+        f"embeddings done: {total - len(failed)}/{total} written, {len(failed)} failed",
+        extra={"step": "embeddings"},
+    )
+
+    if failed and fail_rate > FAILURE_THRESHOLD:
+        raise RuntimeError(
+            f"Embedding failure rate {fail_rate:.1%} exceeds threshold "
+            f"{FAILURE_THRESHOLD:.0%} ({len(failed)}/{total} failed)"
+        )
 
 
 if __name__ == "__main__":
