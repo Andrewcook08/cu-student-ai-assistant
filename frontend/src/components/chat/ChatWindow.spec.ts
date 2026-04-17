@@ -41,20 +41,26 @@ function mountWindow(authenticated = false) {
 }
 
 describe('ChatWindow', () => {
-  it('renders the collapsed bubble by default', () => {
-    const { wrapper } = mountWindow()
+  it('renders nothing when unauthenticated — login is handled by AppHeader', () => {
+    const { wrapper } = mountWindow(false)
+    expect(wrapper.find('.chat-bubble').exists()).toBe(false)
+    expect(wrapper.find('.chat-panel').exists()).toBe(false)
+  })
+
+  it('renders the collapsed bubble by default when authenticated', () => {
+    const { wrapper } = mountWindow(true)
     expect(wrapper.find('.chat-bubble').exists()).toBe(true)
     expect(wrapper.find('.chat-panel').exists()).toBe(false)
   })
 
   it('expands when bubble is clicked', async () => {
-    const { wrapper } = mountWindow()
+    const { wrapper } = mountWindow(true)
     await wrapper.find('.chat-bubble').trigger('click')
     expect(wrapper.find('.chat-panel').exists()).toBe(true)
   })
 
   it('collapses again when header is clicked (mousedown + mouseup without drag)', async () => {
-    const { wrapper } = mountWindow()
+    const { wrapper } = mountWindow(true)
     await wrapper.find('.chat-bubble').trigger('click')
     await wrapper.find('.chat-panel__header').trigger('mousedown')
     // No mousemove — triggers toggle on mouseup
@@ -63,20 +69,11 @@ describe('ChatWindow', () => {
     expect(wrapper.find('.chat-panel').exists()).toBe(false)
   })
 
-  it('shows auth gate when not authenticated', async () => {
-    const { wrapper } = mountWindow(false)
-    await wrapper.find('.chat-bubble').trigger('click')
-    expect(wrapper.find('[data-testid="chat-login-btn"]').exists()).toBe(true)
-    expect(wrapper.find('.chat-panel__messages').exists()).toBe(false)
-    expect(wrapper.findComponent({ name: 'ChatInput' }).exists()).toBe(false)
-  })
-
   it('shows chat UI when authenticated', async () => {
     const { wrapper } = mountWindow(true)
     await wrapper.find('.chat-bubble').trigger('click')
     expect(wrapper.find('.chat-panel__messages').exists()).toBe(true)
     expect(wrapper.findComponent({ name: 'ChatInput' }).exists()).toBe(true)
-    expect(wrapper.find('[data-testid="chat-login-btn"]').exists()).toBe(false)
   })
 
   it('messages area is present and empty on fresh open (authenticated)', async () => {
@@ -144,12 +141,6 @@ describe('ChatWindow', () => {
     authStore.logout()
     await wrapper.vm.$nextTick()
     expect(chatMocks.disconnect).toHaveBeenCalledTimes(1)
-  })
-
-  it('Clear button is hidden for the unauthenticated auth gate', async () => {
-    const { wrapper } = mountWindow(false)
-    await wrapper.find('.chat-bubble').trigger('click')
-    expect(wrapper.find('[data-testid="chat-clear-btn"]').exists()).toBe(false)
   })
 
   it('Clear button is visible when authenticated and fires clearConversation()', async () => {

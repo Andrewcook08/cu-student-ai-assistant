@@ -3,8 +3,6 @@ import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import { MessageCircle, RefreshCw, X } from 'lucide-vue-next'
 import ChatInput from './ChatInput.vue'
 import ChatMessage from './ChatMessage.vue'
-import LoginModal from '@/components/auth/LoginModal.vue'
-import RegisterModal from '@/components/auth/RegisterModal.vue'
 import type { Action } from '@/types/index'
 import { useChatStore } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -20,23 +18,6 @@ const { connect, disconnect, send, clearConversation } = useChat()
 function onClearClick(e: MouseEvent) {
   e.stopPropagation()
   clearConversation()
-}
-const showLoginModal = ref(false)
-const showRegisterModal = ref(false)
-
-function openRegister() {
-  showLoginModal.value = false
-  showRegisterModal.value = true
-}
-
-function openLogin() {
-  showRegisterModal.value = false
-  showLoginModal.value = true
-}
-
-function closeAuthModals() {
-  showLoginModal.value = false
-  showRegisterModal.value = false
 }
 
 // ── Resize by dragging the header bar upward/leftward ────────
@@ -111,7 +92,9 @@ watch(
       // reused by the next user who logs in on this tab (sessionStorage is
       // per-tab but the WebSocket outlives the logout unless we close it).
       disconnect()
-      closeAuthModals()
+      // Collapse the panel so a subsequent login doesn't re-render into an
+      // already-open window with no context. Login is handled by AppHeader.
+      isOpen.value = false
     }
   },
 )
@@ -132,33 +115,34 @@ watch(
 </script>
 
 <template>
-  <!-- Collapsed: icon button only -->
-  <div v-if="!isOpen" class="chat-bubble" @click="toggle" title="Open AI assistant">
-    <MessageCircle :size="24" />
-  </div>
-
-  <!-- Expanded: full chat panel -->
-  <div v-else ref="panelEl" class="chat-panel">
-    <div class="chat-panel__header" @mousedown="onResizeStart">
-      <span class="chat-panel__title">CU AI Advisor</span>
-      <button
-        v-if="auth.isAuthenticated"
-        class="chat-panel__clear"
-        title="Clear conversation"
-        data-testid="chat-clear-btn"
-        @mousedown.stop
-        @click="onClearClick"
-      >
-        <RefreshCw :size="14" />
-      </button>
-      <button class="chat-panel__close" title="Close chat" @click.stop="toggle">
-        <X :size="16" />
-      </button>
+  <!-- Chat is unavailable when logged out. Login is handled by AppHeader,
+       so there's no reason to render a bubble the user can only bounce off. -->
+  <template v-if="auth.isAuthenticated">
+    <!-- Collapsed: icon button only -->
+    <div v-if="!isOpen" class="chat-bubble" @click="toggle" title="Open AI assistant">
+      <MessageCircle :size="24" />
     </div>
 
-    <div v-if="store.isReconnecting" class="chat-reconnecting">Reconnecting...</div>
+    <!-- Expanded: full chat panel -->
+    <div v-else ref="panelEl" class="chat-panel">
+      <div class="chat-panel__header" @mousedown="onResizeStart">
+        <span class="chat-panel__title">CU AI Advisor</span>
+        <button
+          class="chat-panel__clear"
+          title="Clear conversation"
+          data-testid="chat-clear-btn"
+          @mousedown.stop
+          @click="onClearClick"
+        >
+          <RefreshCw :size="14" />
+        </button>
+        <button class="chat-panel__close" title="Close chat" @click.stop="toggle">
+          <X :size="16" />
+        </button>
+      </div>
 
-    <template v-if="auth.isAuthenticated">
+      <div v-if="store.isReconnecting" class="chat-reconnecting">Reconnecting...</div>
+
       <div ref="messagesEl" class="chat-panel__messages">
         <ChatMessage
           v-for="(msg, i) in store.messages"
@@ -178,33 +162,8 @@ watch(
         :disabled="store.isTyping || store.isStreaming || !!store.connectionError"
         @send="send"
       />
-    </template>
-
-    <template v-else>
-      <div class="chat-auth-gate">
-        <p>Log in to start chatting with your AI advisor.</p>
-        <button
-          type="button"
-          class="chat-login-btn"
-          data-testid="chat-login-btn"
-          @click="showLoginModal = true"
-        >
-          Log In
-        </button>
-      </div>
-    </template>
-  </div>
-
-  <LoginModal
-    v-if="showLoginModal"
-    @close="closeAuthModals"
-    @switch-to-register="openRegister"
-  />
-  <RegisterModal
-    v-if="showRegisterModal"
-    @close="closeAuthModals"
-    @switch-to-login="openLogin"
-  />
+    </div>
+  </template>
 </template>
 
 <style scoped>
@@ -328,35 +287,6 @@ watch(
 @keyframes shimmer {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
-}
-
-/* Auth gate */
-.chat-auth-gate {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 32px 16px;
-  gap: 16px;
-  color: #555;
-  font-size: 14px;
-  text-align: center;
-}
-
-.chat-login-btn {
-  background: #CFB87C;
-  color: #000;
-  font-weight: 600;
-  border: none;
-  border-radius: 3px;
-  padding: 8px 20px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.chat-login-btn:hover {
-  background: #c4a94f;
 }
 
 /* Typing indicator */
