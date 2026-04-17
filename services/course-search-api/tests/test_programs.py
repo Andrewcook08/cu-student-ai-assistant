@@ -3,34 +3,35 @@
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Auth lock-in
+# Anonymous access — program catalog is public
 # ---------------------------------------------------------------------------
 
 
-def test_list_programs_requires_auth_no_header(client):
-    """Missing Authorization header → 401 (no credentials provided)."""
+def test_list_programs_no_auth_returns_200(client, db_session):
+    """Anonymous GET /api/programs → 200 with a list body."""
     response = client.get("/api/programs")
-    assert response.status_code == 401
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
 
 
-def test_list_programs_rejects_invalid_token(client):
-    """Invalid Bearer token → 401 from get_current_user."""
+def test_list_programs_invalid_token_still_returns_200(client, db_session):
+    """Bogus Bearer token is ignored; endpoint no longer validates auth."""
     response = client.get("/api/programs", headers={"Authorization": "Bearer bad-token"})
-    assert response.status_code == 401
+    assert response.status_code == 200
 
 
-def test_program_requirements_requires_auth_no_header(client):
-    """Missing Authorization header → 401 (no credentials provided)."""
-    response = client.get("/api/programs/1/requirements")
-    assert response.status_code == 401
+def test_program_requirements_no_auth_404_for_nonexistent(client, db_session):
+    """Anonymous request for a missing program → 404, NOT 401."""
+    response = client.get("/api/programs/999999/requirements")
+    assert response.status_code == 404
 
 
-def test_program_requirements_rejects_invalid_token(client):
-    """Invalid Bearer token → 401 from get_current_user."""
+def test_program_requirements_invalid_token_still_reachable(client, db_session):
+    """Bogus Bearer token is ignored; endpoint returns normal response (404 here)."""
     response = client.get(
-        "/api/programs/1/requirements", headers={"Authorization": "Bearer bad-token"}
+        "/api/programs/999999/requirements", headers={"Authorization": "Bearer bad-token"}
     )
-    assert response.status_code == 401
+    assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------

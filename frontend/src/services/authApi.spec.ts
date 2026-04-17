@@ -92,7 +92,7 @@ describe('authApi', () => {
   })
 
   describe('fetchPrograms', () => {
-    it('GETs /api/programs with Authorization header', async () => {
+    it('GETs /api/programs with Authorization header when authenticated', async () => {
       const store = useAuthStore()
       store.setAuth('my-token', 1, 'Alice')
       mockFetch([{ id: 1, name: 'CS BS', type: 'major', total_credits: 120 }])
@@ -104,6 +104,13 @@ describe('authApi', () => {
       })
       expect(result).toHaveLength(1)
       expect(result[0].id).toBe(1)
+    })
+
+    it('GETs /api/programs without Authorization header when unauthenticated', async () => {
+      mockFetch([{ id: 1, name: 'CS BS', type: 'major', total_credits: 120 }])
+      await fetchPrograms()
+      const [, requestInit] = getLastFetchCall()
+      expect((requestInit?.headers as Record<string, string>)['Authorization']).toBeUndefined()
     })
 
     it('surfaces the server detail message on non-ok response', async () => {
@@ -118,7 +125,7 @@ describe('authApi', () => {
   })
 
   describe('fetchProgramRequirements', () => {
-    it('GETs /api/programs/7/requirements with Authorization header', async () => {
+    it('GETs /api/programs/7/requirements with Authorization header when authenticated', async () => {
       const store = useAuthStore()
       store.setAuth('tok', 1, 'Alice')
       mockFetch({ program: { id: 7, name: 'CS BS', type: 'major' }, requirements: [] })
@@ -128,6 +135,13 @@ describe('authApi', () => {
       expect(requestInit?.headers).toMatchObject({
         Authorization: 'Bearer tok',
       })
+    })
+
+    it('GETs /api/programs/{id}/requirements without Authorization header when unauthenticated', async () => {
+      mockFetch({ program: { id: 7, name: 'CS BS', type: 'major' }, requirements: [] })
+      await fetchProgramRequirements(7)
+      const [, requestInit] = getLastFetchCall()
+      expect((requestInit?.headers as Record<string, string>)['Authorization']).toBeUndefined()
     })
 
     it('throws on non-ok response', async () => {
