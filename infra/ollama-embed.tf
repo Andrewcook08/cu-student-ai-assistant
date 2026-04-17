@@ -111,10 +111,30 @@ resource "google_cloud_run_v2_service" "ollama_embed" {
 }
 
 # ─────────────────────────────────────────────
-# Scoped invoker bindings
-# Only course-search-api and chat-service may call this service.
-# No allUsers binding — internal-only traffic model.
+# Invoker bindings
+#
+# The service is reachable only via `ingress = INGRESS_TRAFFIC_INTERNAL_ONLY`,
+# so the network boundary — not IAM — is the effective security gate: only
+# callers routing through the VPC connector (our Cloud Run services, which
+# set vpc-access-egress = ALL_TRAFFIC) can reach this URL at all.
+#
+# With that perimeter in place we grant `allUsers` the invoker role so the
+# HTTP clients in course-search-api and chat-service don't have to mint an
+# ID token per request. The named SA bindings are kept for documentation:
+# they declare the intended callers even though they're redundant with
+# `allUsers` as long as the ingress setting stands.
+#
+# Invariant: if `ingress` ever changes to `INGRESS_TRAFFIC_ALL`, this
+# `allUsers` binding MUST be removed — otherwise the embed model becomes
+# an open, unauthenticated public endpoint.
 # ─────────────────────────────────────────────
+
+resource "google_cloud_run_v2_service_iam_member" "ollama_embed_invoker_all_internal" {
+  name     = google_cloud_run_v2_service.ollama_embed.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
 
 resource "google_cloud_run_v2_service_iam_member" "ollama_embed_invoker_course_search" {
   name     = google_cloud_run_v2_service.ollama_embed.name
