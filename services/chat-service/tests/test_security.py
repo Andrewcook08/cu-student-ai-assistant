@@ -509,7 +509,7 @@ class TestMalformedOutputPipeline:
                 content="",
                 tool_calls=[{"id": "tc1", "name": "search_courses", "args": {"query": "CS"}}],
             ),
-            AIMessage(content="Here are the CS courses."),
+            AIMessage(content="Here are the CS courses: CSCI 1300 and CSCI 2270."),
         ]
 
         async with _GraphCtx(llm_responses=llm_responses, tool_executor=executor) as ctx:
@@ -561,7 +561,7 @@ class TestMalformedOutputPipeline:
                 content="",
                 tool_calls=[{"id": "tc1", "name": "search_courses", "args": {"query": "CS"}}],
             ),
-            AIMessage(content="Here is the course."),
+            AIMessage(content="Here is the course: CSCI 1300."),
         ]
 
         async with _GraphCtx(llm_responses=llm_responses, tool_executor=executor) as ctx:
@@ -634,7 +634,7 @@ class TestMalformedOutputPipeline:
                 content="",
                 tool_calls=[{"id": "tc1", "name": "search_courses", "args": {"query": "CS"}}],
             ),
-            AIMessage(content="Here is the course."),
+            AIMessage(content="Here is the course: CSCI 1300."),
         ]
 
         async with _GraphCtx(llm_responses=llm_responses, tool_executor=executor) as ctx:
@@ -724,7 +724,7 @@ class TestCombinedAttackScenarios:
                 content="",
                 tool_calls=[{"id": "tc1", "name": "search_courses", "args": {"query": "CS"}}],
             ),
-            AIMessage(content="Here are the courses."),
+            AIMessage(content="Here are the courses: CSCI 1300."),
         ]
 
         async with _GraphCtx(llm_responses=llm_responses, tool_executor=executor) as ctx:
