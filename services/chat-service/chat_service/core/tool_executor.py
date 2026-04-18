@@ -54,6 +54,17 @@ tops out around 7–8 tools.  Ten leaves headroom for pathological-but-benign
 flows while still blocking runaway loops.
 """
 
+MAX_TOOL_ROUNDS = 4
+"""Hard cap on *rounds* of tool calls (one trip through tool_node = one round).
+
+Each round requires a fresh Anthropic API call to feed the results back to
+the model, so this is the real driver of request-rate pressure (as opposed
+to ``MAX_TOOL_CALLS_PER_TURN``, which counts individual tools regardless of
+fan-out).  Four rounds supports the deepest legitimate chain we expect —
+search → lookup → prereq → prereq-of-prereq — while capping the worst case
+at ~5 Anthropic calls per user turn (4 tool rounds + 1 final synthesis).
+"""
+
 RESULT_SUMMARY_MAX_CHARS = 500
 """Per architecture doc — keep audit rows small and cheap to scan."""
 

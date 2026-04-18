@@ -42,7 +42,7 @@ from chat_service.core.llm_engine import (
     _try_parse_course_card,
     build_graph,
 )
-from chat_service.core.tool_executor import MAX_TOOL_CALLS_PER_TURN
+from chat_service.core.tool_executor import MAX_TOOL_CALLS_PER_TURN, MAX_TOOL_ROUNDS
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 # ─── Shared factories ────────────────────────────────────────────────────────
@@ -64,6 +64,7 @@ def _base_state(**overrides: Any) -> dict[str, Any]:
         "intent": Intent.GENERAL_QUESTION.value,
         "context_text": "",
         "call_count": 0,
+        "tool_rounds": 0,
         "structured_data": [],
         "error": None,
     }
@@ -947,6 +948,73 @@ async def test_should_continue_rate_limit_routes_to_final_response() -> None:
     ai_msgs = [m for m in final_state["messages"] if isinstance(m, AIMessage)]
     assert ai_msgs[-1].content  # non-empty final response
     assert not getattr(ai_msgs[-1], "tool_calls", None)  # no tool calls
+
+
+@pytest.mark.asyncio
+async def test_should_continue_round_limit_routes_to_final_response() -> None:
+    """When tool_rounds >= MAX_TOOL_ROUNDS, routing must go to final_response.
+
+    This is the primary guard against runaway LLM↔tool loops that burn
+    Anthropic request rate — one round per fresh API call.
+    """
+    tool_call = {
+        "id": "call-round",
+        "name": "search_courses",
+        "args": {"query": "AI"},
+        "type": "tool_call",
+    }
+    ai_with_tool_calls = AIMessage(content="", tool_calls=[tool_call])
+    executor = _make_tool_executor()
+
+    async with _GraphCtx(
+        llm_responses=[ai_with_tool_calls],
+        tool_executor=executor,
+    ) as ctx:
+        # Pre-seed tool_rounds at the cap so next routing decision → final_response.
+        final_state = await ctx.graph.ainvoke(_base_state(tool_rounds=MAX_TOOL_ROUNDS))
+
+    # Tool executor must NOT have been called — round cap hit before tool_node.
+    executor.execute.assert_not_awaited()
+    tool_msgs = [m for m in final_state["messages"] if isinstance(m, ToolMessage)]
+    assert len(tool_msgs) == 0
+    # final_response_node produced a text-only closing response.
+    ai_msgs = [m for m in final_state["messages"] if isinstance(m, AIMessage)]
+    assert ai_msgs[-1].content
+    assert not getattr(ai_msgs[-1], "tool_calls", None)
+
+
+@pytest.mark.asyncio
+async def test_tool_node_increments_tool_rounds_once_per_round() -> None:
+    """Parallel tool calls in the same AIMessage count as a single round.
+
+    tool_rounds tracks trips through tool_node, not individual tool calls.
+    This keeps the round cap aligned with Anthropic API pressure.
+    """
+    tool_call_a = {
+        "id": "call-a",
+        "name": "lookup_course",
+        "args": {"course_code": "CSCI 2270"},
+        "type": "tool_call",
+    }
+    tool_call_b = {
+        "id": "call-b",
+        "name": "lookup_course",
+        "args": {"course_code": "CSCI 3104"},
+        "type": "tool_call",
+    }
+    first_response = AIMessage(content="", tool_calls=[tool_call_a, tool_call_b])
+    second_response = AIMessage(content="Here are both courses.")
+    executor = _make_tool_executor(execute_return={"result": {"code": "CSCI X", "title": "T"}})
+
+    async with _GraphCtx(
+        llm_responses=[first_response, second_response],
+        tool_executor=executor,
+    ) as ctx:
+        final_state = await ctx.graph.ainvoke(_base_state())
+
+    # Two tools ran → call_count == 2, but only one trip through tool_node → tool_rounds == 1.
+    assert final_state["call_count"] == 2
+    assert final_state["tool_rounds"] == 1
 
 
 @pytest.mark.asyncio
