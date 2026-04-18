@@ -939,15 +939,65 @@ async def test_should_continue_rate_limit_routes_to_final_response() -> None:
         # Pre-seed call_count to the limit so routing goes to final_response.
         final_state = await ctx.graph.ainvoke(_base_state(call_count=MAX_TOOL_CALLS_PER_TURN))
 
-    # Tool executor must NOT have been called.
+    # Tool executor must NOT have been called — the real tool was skipped.
     executor.execute.assert_not_awaited()
-    # No ToolMessages were added.
+    # A synthetic stub ToolMessage IS present (required so the Anthropic
+    # request stays well-formed) but it carries the cap-reached error.
     tool_msgs = [m for m in final_state["messages"] if isinstance(m, ToolMessage)]
-    assert len(tool_msgs) == 0
+    assert len(tool_msgs) == 1
+    assert tool_msgs[0].tool_call_id == "call-rl"
+    assert "limit reached" in tool_msgs[0].content.lower()
     # final_response_node produced a text-only closing response.
     ai_msgs = [m for m in final_state["messages"] if isinstance(m, AIMessage)]
     assert ai_msgs[-1].content  # non-empty final response
     assert not getattr(ai_msgs[-1], "tool_calls", None)  # no tool calls
+
+
+@pytest.mark.asyncio
+async def test_final_response_injects_tool_result_stubs_for_unresolved_tool_calls() -> None:
+    """Pending tool_calls at the cap must get synthetic tool_result stubs.
+
+    Anthropic rejects a messages array where an assistant ``tool_use`` block
+    is not immediately followed by a matching ``tool_result``. When the
+    round/call cap trips while the last AIMessage has unresolved tool_calls,
+    final_response_node must synthesize stub ToolMessages for every pending
+    id before invoking the bare LLM — otherwise the API returns 400.
+    """
+    tool_call_a = {
+        "id": "toolu_a",
+        "name": "search_courses",
+        "args": {"query": "AI"},
+        "type": "tool_call",
+    }
+    tool_call_b = {
+        "id": "toolu_b",
+        "name": "lookup_course",
+        "args": {"course_code": "CSCI 4830"},
+        "type": "tool_call",
+    }
+    ai_with_unresolved = AIMessage(content="", tool_calls=[tool_call_a, tool_call_b])
+
+    async with _GraphCtx(
+        llm_responses=[ai_with_unresolved],
+        tool_executor=_make_tool_executor(),
+    ) as ctx:
+        final_state = await ctx.graph.ainvoke(_base_state(tool_rounds=MAX_TOOL_ROUNDS))
+
+    # Bare LLM was called exactly once, with stubs for every pending tool_call_id.
+    ctx.llm_bare.ainvoke.assert_awaited_once()
+    sent_messages = ctx.llm_bare.ainvoke.await_args.args[0]
+    tool_msgs = [m for m in sent_messages if isinstance(m, ToolMessage)]
+    stub_ids = {m.tool_call_id for m in tool_msgs}
+    assert stub_ids == {"toolu_a", "toolu_b"}
+
+    # Stubs are also in the final state so respond_node/validate_output see them.
+    state_tool_ids = {m.tool_call_id for m in final_state["messages"] if isinstance(m, ToolMessage)}
+    assert {"toolu_a", "toolu_b"}.issubset(state_tool_ids)
+
+    # The closing AIMessage is last (text-only).
+    last = final_state["messages"][-1]
+    assert isinstance(last, AIMessage)
+    assert not getattr(last, "tool_calls", None)
 
 
 @pytest.mark.asyncio
@@ -975,8 +1025,10 @@ async def test_should_continue_round_limit_routes_to_final_response() -> None:
 
     # Tool executor must NOT have been called — round cap hit before tool_node.
     executor.execute.assert_not_awaited()
+    # One synthetic stub ToolMessage is added for the unresolved tool_call id.
     tool_msgs = [m for m in final_state["messages"] if isinstance(m, ToolMessage)]
-    assert len(tool_msgs) == 0
+    assert len(tool_msgs) == 1
+    assert tool_msgs[0].tool_call_id == "call-round"
     # final_response_node produced a text-only closing response.
     ai_msgs = [m for m in final_state["messages"] if isinstance(m, AIMessage)]
     assert ai_msgs[-1].content

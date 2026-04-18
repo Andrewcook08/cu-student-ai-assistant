@@ -376,8 +376,22 @@ def build_graph(
         Invoked when the tool call limit is reached so the model can
         synthesize tool results into a coherent final answer instead
         of leaving the response hanging mid-sentence.
+
+        The last AIMessage may still carry unresolved ``tool_calls`` (we routed
+        here specifically because the model wanted more tools but we refused).
+        Anthropic rejects requests where a ``tool_use`` block is not
+        immediately followed by a matching ``tool_result``, so we append
+        synthetic ``ToolMessage`` stubs for every pending id — which also
+        doubles as an in-band signal to the model that it hit the cap.
         """
+        cap_hint = (
+            "You have reached the maximum number of tool calls for this turn. "
+            "Produce a final answer using only the information already gathered. "
+            "If more detail is needed, tell the user what you would look up next "
+            "and invite them to ask a follow-up."
+        )
         system_prompt = _build_system_prompt(state["intent"], state["context_text"])
+        system_prompt = cap_hint + "\n\n" + system_prompt
         if state.get("injection_warning"):
             system_prompt = state["injection_warning"] + "\n\n" + system_prompt
         system_msg = SystemMessage(
@@ -387,9 +401,22 @@ def build_graph(
         conversation = [
             m for m in state["messages"] if isinstance(m, (HumanMessage, AIMessage, ToolMessage))
         ]
+
+        stubs: list[ToolMessage] = []
+        if conversation and isinstance(conversation[-1], AIMessage):
+            last_ai = conversation[-1]
+            for tc in getattr(last_ai, "tool_calls", None) or []:
+                stubs.append(
+                    ToolMessage(
+                        content=json.dumps({"error": "Tool call limit reached — not executed."}),
+                        tool_call_id=tc["id"],
+                        name=tc["name"],
+                    )
+                )
+
         try:
-            response = await llm.ainvoke([system_msg] + conversation)
-            return {"messages": [response]}
+            response = await llm.ainvoke([system_msg] + conversation + stubs)
+            return {"messages": stubs + [response]}
         except Exception:
             logger.exception(
                 "llm_engine: final response failed for user_id=%s",
