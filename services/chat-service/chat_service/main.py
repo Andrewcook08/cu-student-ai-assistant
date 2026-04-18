@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Proactively test connections before use so stale pool entries
         # (closed by the data VM after idle timeout) are refreshed instead
         # of causing TCPTransport errors mid-request.
-        connection_liveness_check_timeout=30,
+        liveness_check_timeout=30,
         max_connection_lifetime=300,
     )
     # Long-lived httpx client for Ollama embeddings only. Timeout is
