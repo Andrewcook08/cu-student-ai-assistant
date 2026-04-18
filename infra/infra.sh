@@ -289,6 +289,9 @@ case "$cmd" in
     echo "── Outputs ──"
     terraform output
     ;;
+  smoke-test)
+    bash "$(dirname "$0")/smoke-test.sh"
+    ;;
   ingest)
     # Convenience wrapper around `gcloud run jobs execute ingest-pipeline`.
     # --mode=full is deliberately not exposed here: it's destructive and we
@@ -339,9 +342,10 @@ case "$cmd" in
       --wait
     ;;
   *)
-    echo "usage: $0 {plan|up|down|status|secrets|ingest}" >&2
+    echo "usage: $0 {plan|up|down|status|secrets|ingest|smoke-test}" >&2
     echo "  secrets          populate data-vm-* and cloud-run-* Secret Manager secrets" >&2
     echo "  ingest [MODE]    execute ingest-pipeline Cloud Run Job (MODE: upsert|embeddings|validate)" >&2
+    echo "  smoke-test       DEPLOY-007 end-to-end acceptance test against live Cloud Run" >&2
     exit 1
     ;;
 esac

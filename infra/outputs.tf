@@ -33,6 +33,16 @@ output "frontend_url" {
   value       = google_cloud_run_v2_service.frontend.uri
 }
 
+output "course_search_api_url" {
+  description = "Public URL of the course-search-api Cloud Run service."
+  value       = google_cloud_run_v2_service.course_search_api.uri
+}
+
+output "chat_service_url" {
+  description = "Public URL of the chat-service Cloud Run service."
+  value       = google_cloud_run_v2_service.chat_service.uri
+}
+
 output "ollama_embed_url" {
   description = "Internal URL of the ollama-embed Cloud Run service (CUAI-88). Reachable only via VPC connector from course-search-api and chat-service."
   value       = google_cloud_run_v2_service.ollama_embed.uri
