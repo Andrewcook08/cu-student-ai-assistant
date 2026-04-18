@@ -37,6 +37,7 @@ import pytest
 from chat_service.core.context_builder import ContextResult
 from chat_service.core.intent_classifier import Intent
 from chat_service.core.llm_engine import (
+    MAX_COURSE_CARDS_PER_RESPONSE,
     _build_system_prompt,
     _extract_course_cards,
     _try_parse_course_card,
@@ -425,6 +426,25 @@ def test_extract_course_cards_skips_invalid_card_schema() -> None:
 
 def test_extract_course_cards_empty_messages() -> None:
     assert _extract_course_cards([]) == []
+
+
+def test_extract_course_cards_capped_at_max_per_response() -> None:
+    """Broad searches returning many courses must not flood the UI.
+
+    When the model runs several broad searches in one turn, the total unique
+    course count can balloon to 30+. The UI should cap at
+    MAX_COURSE_CARDS_PER_RESPONSE; the model is told to curate in text.
+    """
+    many_courses = [
+        {"code": f"TEST {1000 + i}", "title": f"Course {i}"}
+        for i in range(MAX_COURSE_CARDS_PER_RESPONSE * 3)
+    ]
+    msgs = [_tool_msg("search_courses", many_courses)]
+    cards = _extract_course_cards(msgs)
+    assert len(cards) == MAX_COURSE_CARDS_PER_RESPONSE
+    # Cap keeps first-N by input order, matching dedup "first occurrence wins".
+    assert cards[0]["code"] == "TEST 1000"
+    assert cards[-1]["code"] == f"TEST {1000 + MAX_COURSE_CARDS_PER_RESPONSE - 1}"
 
 
 def test_extract_course_cards_mixed_valid_and_invalid() -> None:

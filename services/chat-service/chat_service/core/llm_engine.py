@@ -123,6 +123,10 @@ FORMATTING:
 then lookup_course for full details.
 - When checking prerequisites, explain the full chain clearly.
 - When presenting multiple courses, format them as a clear numbered list.
+- Curate — don't dump. Recommend at most 5–8 clearly relevant courses per reply, \
+even if the tools returned more. Filter out obviously irrelevant results: \
+graduate-only courses (typically 5000+) for undergraduate students, \
+courses outside the student's stated interest area, and dissertation/thesis credits.
 
 The user's intent appears to be: {intent}
 {context}"""
@@ -138,6 +142,12 @@ def _build_system_prompt(intent: str, context_text: str) -> str:
 
 #: Tool names whose results may contain course data suitable for CourseCards.
 _COURSE_TOOL_NAMES: frozenset[str] = frozenset({"search_courses", "lookup_course"})
+
+#: Upper bound on CourseCards rendered per response. Broad tool queries (e.g.
+#: "humanities") can return ~50 unique courses across a few rounds; dumping
+#: every one into the UI overwhelms the student. The model is told in the
+#: system prompt to curate in text — this is the defensive UX cap.
+MAX_COURSE_CARDS_PER_RESPONSE = 8
 
 
 def _try_parse_course_card(data: dict[str, Any]) -> dict[str, Any] | None:
@@ -185,6 +195,8 @@ def _extract_course_cards(messages: list[Any]) -> list[dict[str, Any]]:
             if card and card["code"] not in seen_codes:
                 seen_codes.add(card["code"])
                 cards.append(card)
+                if len(cards) >= MAX_COURSE_CARDS_PER_RESPONSE:
+                    return cards
 
     return cards
 
