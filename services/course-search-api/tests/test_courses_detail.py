@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Auth lock-in
+# Anonymous access — course detail is public
 # ---------------------------------------------------------------------------
 
 
-def test_course_detail_requires_auth_no_header(client):
-    """Missing Authorization header → 401 (no credentials provided)."""
+def test_course_detail_no_auth_404_for_nonexistent(client, db_session):
+    """Anonymous request for a missing course → 404, NOT 401."""
     response = client.get("/api/courses/FAKE 9999")
-    assert response.status_code == 401
+    assert response.status_code == 404
 
 
-def test_course_detail_rejects_invalid_token(client):
-    """Invalid Bearer token → 401 from get_current_user."""
+def test_course_detail_invalid_token_still_reachable(client, db_session):
+    """Bogus Bearer token is ignored; endpoint returns normal response (404 here)."""
     response = client.get("/api/courses/FAKE 9999", headers={"Authorization": "Bearer bad-token"})
-    assert response.status_code == 401
+    assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------

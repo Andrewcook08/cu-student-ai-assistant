@@ -4,12 +4,11 @@ import httpx
 import neo4j.exceptions
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from neo4j import AsyncDriver
-from shared.models import Course, Section, User
+from shared.models import Course, Section
 from sqlalchemy import Integer, case, cast, distinct, func
 from sqlalchemy.orm import Session, joinedload
 
 from course_search_api.dependencies import (
-    get_current_user,
     get_db,
     get_http_client,
     get_neo4j_driver,
@@ -45,7 +44,6 @@ def list_courses(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
 ) -> dict:
     # Base query — no eager loading yet (applied after count)
     query = db.query(Course)
@@ -111,12 +109,16 @@ async def search_courses(
     limit: int = Query(10, ge=1, le=50),
     http_client: httpx.AsyncClient = Depends(get_http_client),
     driver: AsyncDriver = Depends(get_neo4j_driver),
-    _user: User = Depends(get_current_user),
 ) -> dict:
     """Semantic course search via Ollama embeddings + Neo4j vector index.
 
     Generates a 768-dim embedding for *q*, queries the 'course-embeddings'
     vector index, and returns results ranked by cosine similarity.
+
+    Anonymous access allowed — the data is already public on
+    classes.colorado.edu. user_key_func falls back to remote IP when no
+    valid Bearer token is present, so the 30/min cap applies per-IP for
+    anonymous users and per-user for authenticated users.
 
     Returns 503 if Ollama or Neo4j is temporarily unavailable.
     """
@@ -140,7 +142,6 @@ async def search_courses(
 def get_course(
     code: str,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
 ) -> dict:
     course = (
         db.query(Course)

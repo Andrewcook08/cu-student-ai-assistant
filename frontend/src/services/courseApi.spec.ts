@@ -150,6 +150,13 @@ describe('courseApi', () => {
       expect((requestInit?.headers as Record<string, string>)['Authorization']).toBe('Bearer my-token')
     })
 
+    it('omits Authorization header when unauthenticated — course list is public', async () => {
+      mockFetch({ items: [], total: 0, offset: 0, limit: 50 })
+      await fetchCourses({ dept: 'CSCI' })
+      const [, requestInit] = getLastFetchCall()
+      expect((requestInit?.headers as Record<string, string>)['Authorization']).toBeUndefined()
+    })
+
     it('clears auth state on 401 response', async () => {
       const store = useAuthStore()
       store.setAuth('expired-token', 1, 'Alice')
@@ -210,6 +217,13 @@ describe('courseApi', () => {
       await fetchCourse('CSCI1300')
       const [, requestInit] = getLastFetchCall()
       expect((requestInit?.headers as Record<string, string>)['Authorization']).toBe('Bearer my-token')
+    })
+
+    it('omits Authorization header when unauthenticated — course detail is public', async () => {
+      mockFetch({ code: 'CSCI 1300', title: 'CS 1', credits: '3', dept: 'CSCI', sections: [] })
+      await fetchCourse('CSCI 1300')
+      const [, requestInit] = getLastFetchCall()
+      expect((requestInit?.headers as Record<string, string>)['Authorization']).toBeUndefined()
     })
   })
 })

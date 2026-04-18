@@ -40,23 +40,26 @@ def mock_search_services():
 
 
 # ---------------------------------------------------------------------------
-# Auth lock-in
+# Anonymous access — semantic search is public
 # ---------------------------------------------------------------------------
 
 
-def test_search_requires_auth_no_header(client):
-    """Missing Authorization header → 401 (no credentials provided)."""
+def test_search_no_auth_returns_200(client):
+    """Anonymous GET /api/courses/search → 200. Rate-limited per IP by user_key_func fallback."""
     response = client.get("/api/courses/search?q=machine+learning")
-    assert response.status_code == 401
+    assert response.status_code == 200
+    data = response.json()
+    assert data["query"] == "machine learning"
+    assert isinstance(data["items"], list)
 
 
-def test_search_rejects_invalid_token(client):
-    """Invalid Bearer token → 401 from get_current_user."""
+def test_search_invalid_token_still_returns_200(client):
+    """Bogus Bearer token is ignored; endpoint no longer validates auth."""
     response = client.get(
         "/api/courses/search?q=machine+learning",
         headers={"Authorization": "Bearer bad-token"},
     )
-    assert response.status_code == 401
+    assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------

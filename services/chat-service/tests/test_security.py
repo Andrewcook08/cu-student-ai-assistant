@@ -574,6 +574,33 @@ class TestMalformedOutputPipeline:
             assert "[REDACTED]" in cards[0].get("description", "")
 
     @pytest.mark.asyncio
+    async def test_list_content_final_reply_is_normalized(self) -> None:
+        """Regression: Anthropic can return AIMessage.content as a list of content
+        blocks (e.g. ``[{"type": "text", "text": "..."}]``) after tool calls.
+        The validator expects a plain string; unflattened, it raised
+        ``TypeError: expected string or bytes-like object, got 'list'`` and
+        crashed the graph — the user saw "Something went wrong" instead of
+        the LLM's reply. Validate_output_node must flatten to a string.
+        """
+        llm_responses = [
+            AIMessage(
+                content=[
+                    {"type": "text", "text": "Here are your courses for fall. "},
+                    {"type": "text", "text": "Let me know if you want more details."},
+                ],
+            ),
+        ]
+
+        async with _GraphCtx(llm_responses=llm_responses) as ctx:
+            state = _base_state()
+            final_state = await ctx.graph.ainvoke(state)
+
+            # Graph must complete without raising. pii_detected/scope are
+            # populated only if validate_output_node runs end-to-end.
+            assert "pii_detected" in final_state
+            assert final_state["pii_detected"] is False
+
+    @pytest.mark.asyncio
     async def test_scope_violation_flagged(self) -> None:
         """LLM reply containing shell commands triggers scope_violation_detected."""
         llm_responses = [

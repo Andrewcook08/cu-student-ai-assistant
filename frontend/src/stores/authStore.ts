@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { useChatStore } from './chatStore'
 
 export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = ref(false)
@@ -25,6 +26,9 @@ export const useAuthStore = defineStore('auth', () => {
     sessionStorage.removeItem('token')
     sessionStorage.removeItem('userId')
     sessionStorage.removeItem('userName')
+    // Clear chat panel state so the next user on this tab doesn't see the
+    // previous user's messages or reconnect to their session UUID.
+    useChatStore().reset()
   }
 
   function parseTokenPayload(rawToken: string): Record<string, unknown> | null {

@@ -35,20 +35,23 @@ def _make_course(
 
 
 # ---------------------------------------------------------------------------
-# Auth lock-in
+# Anonymous access — course listing mirrors the public classes.colorado.edu UX
 # ---------------------------------------------------------------------------
 
 
-def test_list_courses_requires_auth_no_header(client):
-    """Missing Authorization header → 401 (no credentials provided)."""
+def test_list_courses_no_auth_returns_200(client, db_session):
+    """Missing Authorization header → 200. Course data is public."""
     response = client.get("/api/courses")
-    assert response.status_code == 401
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+    assert "total" in data
 
 
-def test_list_courses_rejects_invalid_token(client):
-    """Invalid Bearer token → 401 from get_current_user."""
+def test_list_courses_invalid_token_still_returns_200(client, db_session):
+    """Bogus Bearer token → 200. The endpoint no longer validates auth at all."""
     response = client.get("/api/courses", headers={"Authorization": "Bearer bad-token"})
-    assert response.status_code == 401
+    assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------

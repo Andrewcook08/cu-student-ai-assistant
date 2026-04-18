@@ -27,6 +27,12 @@ class MockWebSocket {
 
   send(data: string) { this.sent.push(data) }
 
+  // Real browsers fire onclose asynchronously after close(). Tests that need
+  // to exercise the post-close timing drive it explicitly via simulateClose.
+  close() {
+    this.readyState = MockWebSocket.CLOSING
+  }
+
   simulateOpen() {
     this.readyState = MockWebSocket.OPEN
     this.onopen?.(new Event('open'))
@@ -48,6 +54,10 @@ let instance: MockWebSocket
 // Setup / teardown
 // ---------------------------------------------------------------------------
 beforeEach(() => {
+  // Clear before setAuth so the auth writes land in a clean store — and so
+  // the chat transcript persisted from a previous test doesn't hydrate into
+  // this test's store via initSession(userId).
+  sessionStorage.clear()
   const pinia = createPinia()
   setActivePinia(pinia)
   const authStore = useAuthStore()
@@ -64,6 +74,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.clearAllTimers()
+  sessionStorage.clear()
 })
 
 // ---------------------------------------------------------------------------
@@ -374,6 +385,100 @@ describe('useChat — onclose (general)', () => {
     instance.simulateClose(1000)
 
     expect(store.isTyping).toBe(false)
+  })
+
+  // Regression: logout calls disconnect(), which closes the WS. The browser
+  // then fires onclose asynchronously with a generic code (e.g. 1005/1006).
+  // Before the ws-identity check, that onclose would schedule a reconnect
+  // with the now-empty token, the backend would 4001, and the next user's
+  // chat panel would open with "Authentication failed. Please log in again."
+  it('after disconnect(), a late close on the old WS does NOT schedule a reconnect or set an error', () => {
+    vi.useFakeTimers()
+    let wsCount = 0
+    vi.stubGlobal('WebSocket', class extends MockWebSocket {
+      constructor(url: string) {
+        super(url)
+        wsCount++
+        instance = this
+      }
+    })
+
+    const { connect, disconnect } = useChat()
+    const store = useChatStore()
+    connect()
+    instance.simulateOpen()
+    const oldInstance = instance
+
+    disconnect()
+    // Browser fires close asynchronously after ws.close(). Simulate that.
+    oldInstance.simulateClose(1005)
+
+    expect(store.isReconnecting).toBe(false)
+    expect(store.connectionError).toBeNull()
+    expect(store.messages).toHaveLength(0)
+
+    // Advance past the max backoff to be sure no reconnect is scheduled.
+    vi.advanceTimersByTime(35_000)
+    expect(wsCount).toBe(1)
+    vi.useRealTimers()
+  })
+
+  // Same shape, but the close carries an auth-failure code (e.g. a zombie
+  // reconnect that did manage to fire before disconnect nulled `ws`).
+  // The ws-identity guard should still suppress the error message.
+  it('after disconnect(), a late auth-failure close on the old WS does NOT surface an error', () => {
+    const { connect, disconnect } = useChat()
+    const store = useChatStore()
+    connect()
+    instance.simulateOpen()
+    const oldInstance = instance
+
+    disconnect()
+    oldInstance.simulateClose(4001)
+
+    expect(store.connectionError).toBeNull()
+    expect(store.messages).toHaveLength(0)
+  })
+})
+
+describe('useChat — clearConversation', () => {
+  it('closes the old WebSocket, rotates to a fresh session UUID, and reconnects', () => {
+    let wsCount = 0
+    const instances: MockWebSocket[] = []
+    vi.stubGlobal('WebSocket', class extends MockWebSocket {
+      constructor(url: string) {
+        super(url)
+        wsCount++
+        instance = this
+        instances.push(this)
+      }
+    })
+
+    const { connect, clearConversation } = useChat()
+    const store = useChatStore()
+    connect()
+    instance.simulateOpen()
+    store.addMessage({ role: 'user', content: 'old message' })
+    const oldUrl = instance.url
+    const oldSessionId = oldUrl.split('/ws/chat/')[1].split('?')[0]
+
+    clearConversation()
+
+    // A new WebSocket was opened with a different session UUID.
+    expect(wsCount).toBe(2)
+    const newUrl = instance.url
+    const newSessionId = newUrl.split('/ws/chat/')[1].split('?')[0]
+    expect(newSessionId).not.toBe(oldSessionId)
+
+    // Old WS was closed.
+    expect(instances[0].readyState).toBe(MockWebSocket.CLOSING)
+
+    // Transcript wiped.
+    expect(store.messages).toEqual([])
+    expect(sessionStorage.getItem('chat-messages-1')).toBeNull()
+
+    // Persisted UUID rotated to the new one.
+    expect(sessionStorage.getItem('chat-session-1')).toBe(newSessionId)
   })
 })
 

@@ -37,12 +37,13 @@ export function useChat() {
 
   function connect() {
     if (ws && ws.readyState <= WS_OPEN) return  // already connected or connecting
-    const sid = store.initSession()
     const authStore = useAuthStore()
+    const sid = store.initSession(authStore.userId)
     const token = authStore.token ?? ''
-    ws = new WebSocket(`${WS_BASE_URL}/ws/chat/${sid}?token=${token}`)
+    const current = new WebSocket(`${WS_BASE_URL}/ws/chat/${sid}?token=${token}`)
+    ws = current
 
-    ws.onopen = () => {
+    current.onopen = () => {
       store.setConnected(true)
       store.setReconnecting(false)
       store.clearError()
@@ -52,7 +53,7 @@ export function useChat() {
     // Message routing — matches WsServerMessage contract in types/index.ts.
     // Backend (CHAT-002+) must send type: 'error' for errors and type: 'progress'
     // for progress updates. The stub (CHAT-001) is an echo server only.
-    ws.onmessage = (event: MessageEvent) => {
+    current.onmessage = (event: MessageEvent) => {
       let data: WsServerMessage
       try {
         data = JSON.parse(event.data as string)
@@ -72,20 +73,11 @@ export function useChat() {
         store.setTyping(false)
         store.setStreaming(false)
         store.setToolStatus(null)
-        // If we already streamed tokens into the last message, update it
-        // with the final reply + structured data instead of adding a duplicate.
-        const last = store.messages[store.messages.length - 1]
-        if (last && last.role === 'assistant' && last.reply) {
-          last.structured_data = data.structured_data
-          last.suggested_actions = data.suggested_actions
-        } else {
-          store.addMessage({
-            role: 'assistant',
-            reply: data.reply,
-            structured_data: data.structured_data,
-            suggested_actions: data.suggested_actions,
-          })
-        }
+        store.applyFinalAssistant({
+          reply: data.reply,
+          structured_data: data.structured_data,
+          suggested_actions: data.suggested_actions,
+        })
       } else if (data.type === 'error') {
         store.setTyping(false)
         store.addMessage({
@@ -95,13 +87,20 @@ export function useChat() {
       }
     }
 
-    ws.onerror = () => {
+    current.onerror = () => {
       // onclose fires after onerror — reconnection is handled there
     }
 
-    ws.onclose = (event: CloseEvent) => {
+    current.onclose = (event: CloseEvent) => {
       store.setConnected(false)
       store.setTyping(false)
+
+      // If this socket is no longer the active one (disconnect() nulled `ws`,
+      // or a new connect() replaced it), skip the reconnect+error path. Without
+      // this, an explicit logout queues a zombie reconnect that hits the
+      // backend with an empty token and surfaces "Authentication failed" on
+      // the next user's empty panel.
+      if (ws !== current) return
 
       if (NO_RECONNECT_CODES.has(event.code)) {
         const errMsg = CLOSE_ERROR_MESSAGES[event.code] ?? 'Connection closed.'
@@ -140,7 +139,19 @@ export function useChat() {
     reconnectAttempt = 0
   }
 
+  // Tears down the current WebSocket, rotates the chat store to a fresh
+  // session UUID (wiping the transcript), and reconnects. The backend
+  // loads history from Redis keyed by (user_id, session_id) on each turn,
+  // so a new session_id → empty history → the LLM starts from scratch.
+  // The old session's Redis keys expire naturally within 2h.
+  function clearConversation() {
+    const authStore = useAuthStore()
+    disconnect()
+    store.newSession(authStore.userId)
+    connect()
+  }
+
   onUnmounted(disconnect)
 
-  return { connect, send, disconnect }
+  return { connect, send, disconnect, clearConversation }
 }
