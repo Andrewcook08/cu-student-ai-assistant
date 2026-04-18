@@ -33,6 +33,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.neo4j_driver = AsyncGraphDatabase.driver(
         settings.neo4j_uri,
         auth=(settings.neo4j_user, settings.neo4j_password),
+        # Proactively test connections before use so stale pool entries
+        # (closed by the data VM after idle timeout) are refreshed instead
+        # of causing TCPTransport errors mid-request.
+        liveness_check_timeout=30,
+        max_connection_lifetime=300,
     )
     # Long-lived httpx client for Ollama embeddings only. Timeout is
     # split per phase so that the generous inference budget doesn't also

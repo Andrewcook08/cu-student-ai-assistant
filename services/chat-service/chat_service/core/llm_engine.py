@@ -414,9 +414,20 @@ def build_graph(
         if state.get("error"):
             return {}
 
-        # Extract reply text from the last AIMessage
+        # Extract reply text from the last AIMessage.
+        # AIMessage.content may be a list of content blocks (Anthropic streaming)
+        # rather than a plain string — flatten to str before validation.
         ai_messages = [m for m in state["messages"] if isinstance(m, AIMessage)]
-        reply = (ai_messages[-1].content or "") if ai_messages else ""
+        raw_content = ai_messages[-1].content if ai_messages else ""
+        if isinstance(raw_content, list):
+            reply = "".join(
+                block["text"] if isinstance(block, dict) else getattr(block, "text", "")
+                for block in raw_content
+                if (isinstance(block, dict) and block.get("type") == "text")
+                or (not isinstance(block, dict) and getattr(block, "type", None) == "text")
+            )
+        else:
+            reply = raw_content or ""
 
         structured_data = state.get("structured_data", [])
 
