@@ -10,11 +10,6 @@ What these tests verify that the unit tests cannot:
 
 - ``SETEX`` actually applies the TTL on the wire (via Redis ``TTL`` command).
 - ``RPUSH`` / ``LRANGE`` round-trip preserves order and bytes.
-- The full ``enqueue_inference`` contract works against real pub/sub —
-  including the **subscribe-before-LPUSH** ordering, which a fast worker
-  could otherwise race past.
-- Two concurrent ``enqueue_inference`` callers do not cross-contaminate
-  results because each gets its own ``request_id`` channel.
 - User-scoped keys actually live at distinct keys at the wire level.
 
 Each test uses a unique key prefix so the tests can run in parallel
@@ -24,7 +19,6 @@ after itself with ``DEL`` on every key it touched.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import uuid
@@ -34,11 +28,9 @@ from typing import Any, cast
 import pytest
 import redis.asyncio as redis
 from chat_service.services.redis_service import (
-    INFERENCE_QUEUE_KEY,
     SESSION_TTL_SECONDS,
     append_message,
     build_redis_client,
-    enqueue_inference,
     get_messages,
     get_session,
     store_session,
@@ -155,132 +147,3 @@ async def test_get_messages_trims_to_limit_against_real_redis(client: redis.Redi
 
     # Last 3 entries, oldest-first within the window.
     assert [m["i"] for m in messages] == [7, 8, 9]
-
-
-# ─── Inference queue + pub/sub ──────────────────────────────────────────
-
-
-async def _fake_worker(client: redis.Redis, response: dict[str, Any]) -> None:
-    """Pop one request off the queue, publish a result on its channel.
-
-    Mirrors what the real Ollama worker side will eventually do (CHAT-009+).
-    """
-    # BRPOP blocks until a request appears. 5s ceiling so a broken test
-    # doesn't hang the suite forever.
-    popped = await cast(Any, client.brpop([INFERENCE_QUEUE_KEY], timeout=5))
-    assert popped is not None, "no inference request appeared on the queue"
-    _, payload = popped
-    request = json.loads(payload)
-    request_id = request["request_id"]
-    # Give the subscriber a moment to actually attach. Without this, a
-    # very fast worker can publish before the consumer's subscribe loop
-    # is listening — which is exactly the race the
-    # subscribe-before-LPUSH ordering protects against in production
-    # code, but the asyncio scheduler still needs a tick to pump the
-    # subscription.
-    await asyncio.sleep(0.05)
-    await cast(
-        Any,
-        client.publish(f"ollama:result:{request_id}", json.dumps(response)),
-    )
-
-
-async def test_enqueue_inference_round_trip_with_fake_worker(client: redis.Redis) -> None:
-    expected = {"reply": "hello back", "tokens": 3}
-    worker = asyncio.create_task(_fake_worker(client, expected))
-
-    try:
-        result = await enqueue_inference(
-            client,
-            {"prompt": "hello", "model": "test"},
-            timeout=5.0,
-            progress_interval=10.0,
-        )
-    finally:
-        await worker
-
-    assert result == expected
-
-
-async def test_enqueue_inference_concurrent_callers_get_their_own_results(
-    client: redis.Redis,
-) -> None:
-    """Two requests in flight at once must each receive their own result."""
-    response_a = {"who": "a"}
-    response_b = {"who": "b"}
-
-    # Track which request_id each worker saw so we can assert
-    # cross-channel isolation.
-    seen: list[str] = []
-
-    async def worker(response: dict[str, Any]) -> None:
-        popped = await cast(Any, client.brpop([INFERENCE_QUEUE_KEY], timeout=5))
-        assert popped is not None
-        _, payload = popped
-        request = json.loads(payload)
-        seen.append(request["request_id"])
-        await asyncio.sleep(0.05)
-        await cast(
-            Any,
-            client.publish(f"ollama:result:{request['request_id']}", json.dumps(response)),
-        )
-
-    worker_a = asyncio.create_task(worker(response_a))
-    worker_b = asyncio.create_task(worker(response_b))
-
-    result_a, result_b = await asyncio.gather(
-        enqueue_inference(client, {"prompt": "a"}, timeout=5.0, progress_interval=10.0),
-        enqueue_inference(client, {"prompt": "b"}, timeout=5.0, progress_interval=10.0),
-    )
-
-    await asyncio.gather(worker_a, worker_b)
-
-    # The two requests had distinct request_ids — channel isolation held.
-    assert len(set(seen)) == 2
-    # Each caller got a result that came back on its own channel. The
-    # specific pairing depends on which worker grabbed which request, so
-    # we just assert both responses appeared exactly once across the two
-    # callers.
-    assert {json.dumps(result_a, sort_keys=True), json.dumps(result_b, sort_keys=True)} == {
-        json.dumps(response_a, sort_keys=True),
-        json.dumps(response_b, sort_keys=True),
-    }
-
-
-async def test_enqueue_inference_progress_callback_fires_against_real_pubsub(
-    client: redis.Redis,
-) -> None:
-    """The progress callback fires while waiting on a real pub/sub subscription."""
-    progress_calls = 0
-
-    async def on_progress() -> None:
-        nonlocal progress_calls
-        progress_calls += 1
-
-    async def slow_worker() -> None:
-        # Sleep long enough to force at least two progress ticks at 0.05s
-        # intervals before publishing.
-        await asyncio.sleep(0.2)
-        popped = await cast(Any, client.brpop([INFERENCE_QUEUE_KEY], timeout=5))
-        assert popped is not None
-        _, payload = popped
-        request = json.loads(payload)
-        await cast(
-            Any,
-            client.publish(f"ollama:result:{request['request_id']}", json.dumps({"ok": True})),
-        )
-
-    worker = asyncio.create_task(slow_worker())
-    try:
-        result = await enqueue_inference(
-            client,
-            {"prompt": "slow"},
-            timeout=5.0,
-            progress_interval=0.05,
-            on_progress=on_progress,
-        )
-    finally:
-        await worker
-
-    assert result == {"ok": True}
-    assert progress_calls >= 2

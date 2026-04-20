@@ -31,6 +31,7 @@
 - [ADR-26: gpt-oss:20b as Default LLM (Superseded)](#adr-26-gpt-oss20b-as-default-llm)
 - [ADR-27: Normalize Course Attributes into a Join Table (CUAI-20 / DATA-001)](#adr-27-normalize-course-attributes-into-a-join-table-cuai-20--data-001)
 - [ADR-31: cu-classes.html as Design Baseline for the Course Search Page](#adr-31-cu-classeshtml-as-design-baseline-for-the-course-search-page)
+- [ADR-32: Narrow FilterBar to three controls (dept / level / credits)](#adr-32-narrow-filterbar-to-three-controls-dept--level--credits)
 - [ADR-33: API & Infrastructure Security Hardening](#adr-33-api--infrastructure-security-hardening)
 - [ADR-34: Hybrid Intent Classifier with Structured-Output LLM Fallback (CUAI-39 / CHAT-007)](#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007)
 - [ADR-35: ChatOllama reasoning=False + temperature=0 for Tool-Calling Reliability (CUAI-40 / CHAT-008) (Superseded)](#adr-35-chatollama-reasoningfalse--temperature0-for-tool-calling-reliability-cuai-40--chat-008)
@@ -38,8 +39,18 @@
 - [ADR-37: Parallel Tool Execution via asyncio.gather (CUAI-40 / CHAT-008)](#adr-37-parallel-tool-execution-via-asynciogather-cuai-40--chat-008)
 - [ADR-38: Atomic Redis Message Persistence (CUAI-40 / CHAT-008)](#adr-38-atomic-redis-message-persistence-cuai-40--chat-008)
 - [ADR-39: Graph Invocation Timeout (CUAI-40 / CHAT-008)](#adr-39-graph-invocation-timeout-cuai-40--chat-008)
+- [ADR-40: Network Firewall Policy over Legacy VPC Firewall Rules](#adr-40-network-firewall-policy-over-legacy-vpc-firewall-rules)
 - [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference)
 - [ADR-42: Prebaked Ollama Embed Image on Cloud Run](#adr-42-prebaked-ollama-embed-image-on-cloud-run)
+- [ADR-43: Public Read, Authenticated Write for Catalog Routes](#adr-43-public-read-authenticated-write-for-catalog-routes)
+- [ADR-44: Hybrid Intent Classifier on Anthropic Tool-Use](#adr-44-hybrid-intent-classifier-on-anthropic-tool-use)
+- [ADR-45: Tool-Round and Course-Card Caps](#adr-45-tool-round-and-course-card-caps)
+- [ADR-46: Container Hardening (Non-Root, Read-Only Root FS)](#adr-46-container-hardening-non-root-read-only-root-fs)
+- [ADR-47: sessionStorage Chat Transcript Restoration](#adr-47-sessionstorage-chat-transcript-restoration)
+- [ADR-48: Post-MVP UX Hardening — Toasts, Validation, Friendly Errors](#adr-48-post-mvp-ux-hardening--toasts-validation-friendly-errors)
+- [ADR-49: Redis Retained for Session Storage; Inference Queue Abandoned](#adr-49-redis-retained-for-session-storage-inference-queue-abandoned)
+- [ADR-50: GPU VM Test Harness — Abandoned](#adr-50-gpu-vm-test-harness--abandoned)
+- [ADR-51: Data VM Sizing — e2-standard-4 for Single-VM Datastore Growth](#adr-51-data-vm-sizing--e2-standard-4-for-single-vm-datastore-growth)
 
 ---
 
@@ -1157,3 +1168,314 @@ RUN ollama serve & sleep 5 && ollama pull nomic-embed-text && pkill ollama
 ```
 
 **What this replaces**: The cancelled [DEPLOY-003](#deploy-003) MIG approach. That was designed for GPU-bound LLM inference (gpt-oss:20b) which is now handled by the Anthropic API ([ADR-41](#adr-41-anthropic-api-for-llm-inference)).
+
+---
+
+## ADR-43: Public Read, Authenticated Write for Catalog Routes
+
+### Status
+Accepted (PR #138, Sprint 2). Partially supersedes the SEC-005 control described in [ADR-33](#adr-33-api--infrastructure-security-hardening).
+
+### Decision
+Leave the catalog/search/programs surface **unauthenticated** for read-only access, and require auth only on endpoints that read or write per-user state. Specifically:
+
+| Route | Method | Auth? |
+|-------|--------|-------|
+| `GET /api/courses`, `GET /api/courses/{code}`, `GET /api/courses/search` | public | no |
+| `GET /api/programs`, `GET /api/programs/{slug}/requirements` | public | no |
+| `GET /api/students/me`, `PUT /api/students/me/program`, `PUT /api/students/me/completed-courses` | authenticated | `Depends(get_current_user)` |
+| `POST /api/auth/login`, `POST /api/auth/register` | public (by definition) | no |
+| Chat WebSocket `/ws/chat/{session_id}` | authenticated (JWT at handshake) | yes |
+
+This narrows the SEC-005 "auth on every non-health route" control from ADR-33 to "auth on every route that touches per-user state."
+
+### Alternatives Considered
+1. **Original ADR-33 stance: auth on every catalog/search/programs route** — rejected. Catalog data is already public on the CU public course search site; gating it behind JWT adds no confidentiality (the data isn't secret) and forces the public landing page / course search UI to either ship a pre-login anonymous token flow or force a sign-in before the user has seen any value.
+2. **Auth everywhere except a tiny allowlist of health paths** — rejected for the same reason. This is what ADR-33 originally specified; the catalog routes don't fit the threat model and the UX cost isn't worth the theoretical tidiness.
+3. **Public reads + per-IP rate limits + per-user rate limits where a JWT exists** (chosen) — the DoS/cost vector that ADR-33 flagged (unauthenticated `/api/courses/search` fan-out to Ollama + Neo4j vector search) is addressed by slowapi rate limits keyed on IP for anonymous traffic and user_id when a JWT is present (see `user_key_func` in `course_search_api/limiter.py`). The confidentiality concern disappears because the data isn't confidential.
+
+### Why
+The threat that originally motivated SEC-005 was **cost/abuse on `/api/courses/search`** (vector search + embedding call on every request), not confidentiality. Rate limiting is the right tool for cost/abuse; auth is the right tool for confidentiality. Using auth to solve a cost problem couples two concerns that should stay independent: we'd end up with anonymous-service-account tokens or similar workarounds, which is worse than just rate limiting the anonymous traffic directly.
+
+Public read also matches the actual product shape. A student landing on the site should be able to browse the catalog, run a search, and look at a program page before being prompted to sign in. Decisions, profiles, and completed-course state are what require an account — and those are the routes that still enforce `Depends(get_current_user)`.
+
+### Consequences
+- `services/course-search-api/course_search_api/routes/courses.py` and `routes/programs.py` **do not** depend on `get_current_user`; only `routes/students.py` and `routes/auth.py` (on `/me` variants) do.
+- Rate-limiting is the primary abuse control on catalog routes. `user_key_func` in `limiter.py` keys per-user when a JWT is present and per-IP otherwise, so the rate limit tightens automatically for authenticated abusers without blocking legitimate anonymous browsing.
+- The lock-in test `tests/test_main.py::test_catalog_routes_remain_unauthenticated` (described at `test_main.py:34`) fails if a future change silently adds blanket auth middleware or a stray `Depends(get_current_user)` to a catalog route.
+- SEC-005 / CUAI-79 status in `jira-epics-and-stories.md` is marked Done with scope narrowed to student routes; ADR-33's other four controls (SEC-006..009) are unchanged.
+- This ADR **does not** modify ADR-33; it narrows the SEC-005 control only. ADR-33 is preserved verbatim.
+
+---
+
+## ADR-44: Hybrid Intent Classifier on Anthropic Tool-Use
+
+### Status
+Accepted. Supersedes the Ollama-specific portions of [ADR-34](#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007). The heuristic-first, LLM-fallback structure and the `Intent` StrEnum source-of-truth rule are preserved.
+
+### Decision
+Keep `core/intent_classifier.py`'s heuristic-first pipeline exactly as ADR-34 described, but run the fallback against **Anthropic's tool-use API** instead of Ollama's `format` JSON-schema mode. The LLM fallback issues a single `messages.create()` call with a one-tool tool schema whose sole input field is an `enum` derived from the `Intent` StrEnum. Claude returns a `tool_use` block whose `input` is the chosen label — logit-masked to exactly the five intents. Sampling is pinned to `temperature=0`. `classify_intent()` remains async and **never raises**.
+
+### Alternatives Considered
+1. **Keep calling Ollama for intent classification** after migrating main inference to Anthropic ([ADR-41](#adr-41-anthropic-api-for-llm-inference)) — rejected. That would reintroduce a dependency on a local Ollama LLM (gpt-oss:20b tier) purely for classification, defeating the simplification that ADR-41 achieved. Embedding-only Ollama ([ADR-42](#adr-42-prebaked-ollama-embed-image-on-cloud-run)) does not have a chat model loaded.
+2. **Use Anthropic's plain `messages.create` with a constrained system prompt and parse free-form text** — rejected. This is exactly what ADR-34 rejected for Ollama and Claude has the same class of failure mode (wrapper phrasing, case/separator variants). Tool-use gives us guaranteed-structured output.
+3. **Use Anthropic tool-use with an `enum` input schema** (chosen) — the tool schema's `enum` constrains Claude's generation to the five `Intent` values; the `input` field in the resulting `tool_use` block is the label, ready to pass to `Intent(...)`.
+4. **Drop the LLM fallback entirely and ship heuristic-only** — rejected for the same long-tail coverage reason ADR-34 cites.
+
+### Why
+The ADR-34 design — heuristic-first with a constrained-decoding fallback — is the right shape regardless of the underlying provider. Anthropic tool-use is the Claude-native equivalent of Ollama's `format` JSON-schema argument: both force the model to emit a value drawn from a declared finite set. Switching providers is therefore a mechanical change inside the fallback function, not a redesign.
+
+The `Intent` StrEnum remains the single source of truth. The enum is still built at runtime from `[intent.value for intent in Intent]`, so adding a new intent still automatically updates the constrained vocabulary — that invariant is preserved from ADR-34.
+
+### Consequences
+- `classify_intent()` takes an `anthropic.AsyncAnthropic` client (or equivalent) instead of an `ollama_client`. The `ollama_client` parameter name and type are gone from the signature.
+- The structured-output schema is now an Anthropic tool schema (`{type: "object", properties: {intent: {type: "string", enum: [...]}}}`) instead of an Ollama `format` JSON Schema. The schema content is functionally identical.
+- `temperature=0` is passed on the `messages.create` call instead of via Ollama's `options` kwarg. Both achieve deterministic-argmax sampling.
+- The "never raises" contract, the GENERAL_QUESTION fallthrough on malformed/unknown responses, and the heuristic-coverage pinning test from ADR-34 all carry over unchanged.
+- ADR-34 is **not** edited; its Ollama-specific implementation details (the `options` kwarg on `chat_completion`, the `format` argument, the 41-unit/6-integration test split) are historical. The parts that are still true (heuristic-first design, StrEnum source of truth, async never-raises contract) continue to apply under ADR-44.
+
+---
+
+## ADR-45: Tool-Round and Course-Card Caps
+
+### Status
+Accepted (CHAT-008 / CUAI-40, follow-up hardening). Complements [ADR-36: Retry-Without-Tools Fallback](#adr-36-retry-without-tools-fallback-for-oss-model-reliability-cuai-40--chat-008) and [ADR-17: Defense-in-Depth](#adr-17-defense-in-depth-security).
+
+### Decision
+The LangGraph engine enforces three hard caps per conversation turn, all defined as module-level constants and verified by unit tests:
+
+| Cap | Value | Where |
+|-----|-------|-------|
+| `MAX_TOOL_CALLS_PER_TURN` | 10 | `chat_service/core/tool_executor.py:47` |
+| `MAX_TOOL_ROUNDS` | 4 | `chat_service/core/tool_executor.py:57` |
+| `MAX_COURSE_CARDS_PER_RESPONSE` | 8 | `chat_service/core/llm_engine.py:216` |
+
+When any cap is hit, routing transitions to `final_response` (a tool-free LLM call that synthesizes a text reply from whatever tool results the turn has already produced), not to an error. The user always gets a response.
+
+### Alternatives Considered
+1. **No explicit caps — trust the LLM and the request timeout (ADR-39) to terminate the loop** — rejected. The ADR-39 timeout is 180s, which is a poor upper bound on "the model is stuck in a tool loop." A runaway where the model re-calls the same tool in a feedback loop can burn dozens of Anthropic round-trips before the timeout fires, costing real money and tying up a WebSocket slot.
+2. **Only cap total tool calls (`MAX_TOOL_CALLS_PER_TURN`)** — rejected as insufficient. Tool *rounds* (full LLM↔tool_node trips) are the real driver of Anthropic request rate: each round requires another `messages.create` call. Ten tools fanned out across two rounds is cheap; ten tools serialized across ten rounds is ten Anthropic calls. Capping both dimensions is the correct shape.
+3. **Cap rounds and tools; no card cap** — rejected. A single `search_courses` tool call can legitimately return 20+ courses, and without a card cap the LLM was occasionally rendering all of them as course cards, flooding the chat UI with a wall of cards that obscured the natural-language answer. Issue observed pre-fix; see `tests/test_llm_engine.py:495-509` for the lock-in test.
+4. **Soft caps (warnings, not hard termination)** — rejected. The point is to guarantee bounded cost per turn. A warning that the LLM can ignore is not a cap.
+
+### Why
+Three independent failure modes need three independent caps:
+- `MAX_TOOL_CALLS_PER_TURN=10` bounds total tool invocations (protects against fan-out loops and runaway retries inside a single round).
+- `MAX_TOOL_ROUNDS=4` bounds LLM↔tool trip count (protects against serialized back-and-forth, which costs one Anthropic call per round).
+- `MAX_COURSE_CARDS_PER_RESPONSE=8` bounds UI payload (protects the user from a wall of cards when a single tool returns a large result set).
+
+All three have explicit docstrings explaining the sizing: 10 tool calls covers the deepest legitimate flow (`get_student_profile → get_degree_requirements → search_courses → lookup_course ×2 → check_prerequisites ×2`) with headroom; 4 rounds covers the deepest legitimate chain (`search → lookup → prereq → prereq-of-prereq`); 8 cards matches the chat UI's usable vertical density.
+
+Routing to `final_response` on cap (rather than raising) is a UX decision: the user always gets *something* useful. If the model found 3 relevant courses in its first round before tripping the round cap, the final-response node synthesizes those 3 courses into a reply. The alternative — "sorry, I hit a limit" — throws away partial work that was already useful.
+
+### Consequences
+- `should_continue` in the LangGraph engine checks both `call_count >= MAX_TOOL_CALLS_PER_TURN` and `tool_rounds >= MAX_TOOL_ROUNDS`; either fires routes to `final_response`.
+- The post-cap path is a **tool-free** LLM call — tools are unbound for this synthesis pass so the model cannot re-enter the loop.
+- Course-card truncation happens in the response formatter, not at the tool layer: the model can still reason over the full result set and decide which ones to highlight; only the rendered-card count is capped.
+- Unit tests lock in all three caps and the routing behavior at cap: see `tests/test_llm_engine.py:1074-1156` (tool-call and round caps route to `final_response`), `test_llm_engine.py:495-509` (card cap truncates), and `tests/test_security.py:407-456` (auth/rate-limit interaction with the call cap).
+- These caps are independent of the per-turn 180-second timeout from [ADR-39](#adr-39-graph-invocation-timeout-cuai-40--chat-008) — caps prevent runaway *loops*, the timeout bounds wall-clock latency. Both are needed.
+
+---
+
+## ADR-46: Container Hardening (Non-Root, Read-Only Root FS)
+
+### Status
+Accepted. Implements part of the "defense-in-depth" strategy from [ADR-17](#adr-17-defense-in-depth-security) at the container surface.
+
+### Decision
+Every application Dockerfile in the repo creates a dedicated non-root user (`appuser`, uid 1000, no home, password-disabled) during the build, `chown`s the install directory to that user, and ends with a `USER appuser` directive so the container runs as an unprivileged user. This applies to:
+
+- `services/chat-service/Dockerfile`
+- `services/course-search-api/Dockerfile`
+- `data/ingest/Dockerfile`
+
+Container filesystem, capability, and seccomp hardening (e.g., `readOnlyRootFilesystem`, dropped capabilities) are planned for the production Cloud Run config but are not enforced by the Dockerfile itself; Cloud Run applies its own sandbox by default.
+
+### Alternatives Considered
+1. **Run as root** (default `python:3.12-slim` behavior) — rejected. A process with uid 0 inside the container that escapes the runtime sandbox (via a kernel bug or misconfigured mount) inherits root on the host. Cloud Run's own sandbox mitigates this significantly, but defense-in-depth means not relying on a single layer.
+2. **Non-root user created at image runtime** via a startup script — rejected. Creating the user at build time bakes the uid into every layer that follows, so `chown` can happen once in the build rather than on every container start. Faster cold start, simpler Dockerfile.
+3. **Share a single `appuser` definition via a shared base image** — rejected for now. The three Dockerfiles are small and the `adduser` line is identical across them; extracting a base image adds a build-order dependency and an Artifact Registry push for one line of shared code. Revisit if more services are added.
+4. **Non-root user with a home directory** — rejected. `--no-create-home` is intentional. The process does not need a home; omitting it avoids a stray `/home/appuser` tree in the image and signals to readers that no state is expected to persist in `$HOME`.
+
+### Why
+Running as an unprivileged user is the single cheapest container-hardening control and the only one that's fully expressible in the Dockerfile. It provides defense in depth against two concrete failure modes:
+- **Application bug → file write outside intended directories**: as uid 1000, the process cannot overwrite `/etc`, `/usr`, or the Python install. A path-traversal bug or misconfigured logging destination fails noisily instead of silently corrupting the image.
+- **Sandbox escape**: if a kernel or runtime bug lets the process escape Cloud Run's sandbox, an unprivileged user is a materially smaller foothold than root on the node.
+
+The pattern is deliberately identical across services: uid 1000, user name `appuser`, no home, password disabled, `chown -R appuser:appuser /app`, `USER appuser` before `CMD`. Uniformity means a reviewer can scan a Dockerfile for the four required lines and immediately confirm the service is hardened.
+
+### Consequences
+- Every container's application process runs as uid 1000. Host-side Docker bind-mounts in dev need to grant uid 1000 write access to any mounted volume the process writes into.
+- Ports < 1024 cannot be bound from inside the container without `CAP_NET_BIND_SERVICE`; all services already bind >= 1024 (chat-service on 8001, course-search-api on 8000), so this is a non-issue.
+- Adding a new service: the Dockerfile must include the same four lines (`adduser`, `chown`, `USER appuser`, and a `chown`-appropriate `WORKDIR`) or it will fail code review. A short note to this effect lives alongside [ADR-17](#adr-17-defense-in-depth-security) in the implementation guide.
+- Cloud Run-level filesystem read-only enforcement and capability drops are *not* in scope for this ADR; they belong in the deploy-time Terraform config. The Dockerfile-level hardening stands on its own merits even without those.
+
+---
+
+## ADR-47: sessionStorage Chat Transcript Restoration
+
+### Status
+Accepted (PR #138, commit `03d2662`). Refines the client-side persistence strategy assumed by [ADR-11: Vue Frontend](#adr-11-vue-frontend).
+
+### Decision
+The chat widget persists its session UUID and message transcript in the browser's `sessionStorage`, keyed by the authenticated `userId`:
+
+| Key | Value |
+|-----|-------|
+| `chat-session-<userId>` | The WebSocket session UUID (matches the Redis key on the backend) |
+| `chat-messages-<userId>` | JSON-serialized array of rendered chat messages |
+
+Logout clears the JWT (`token`, `userId`, `userName`) but deliberately leaves the `chat-session-*` / `chat-messages-*` entries in place. A same-user re-login inside the same tab restores both the UUID and the transcript; the backend Redis keys (2-hour TTL per [ADR-38](#adr-38-atomic-redis-message-persistence-cuai-40--chat-008)) remain valid, so the LLM sees the same history the user does. A different user logging into the same tab reads a different key, so there is no cross-user leakage. Closing the tab drops all `sessionStorage` for that tab by definition.
+
+### Alternatives Considered
+1. **`localStorage` keyed by `userId`** — rejected. `localStorage` persists across tab/browser restarts, which gives a nicer "pick up where you left off tomorrow" experience but mismatches the backend: the Redis history has a 2-hour TTL, so the client and server would disagree after a day. Reconciling that disagreement (e.g., asking the server what's still there) is more complexity than the feature is worth at this stage.
+2. **No persistence — always start fresh on page load** — rejected. A single accidental refresh of the chat tab would lose the entire in-progress advising conversation, which is the primary user-facing flow.
+3. **Wipe transcript on logout** — rejected. If the same user logs back in (e.g., token expired mid-session, they re-authenticate), they expect to continue the conversation. The server still has their Redis history; not restoring the client side creates a confusing asymmetry where the LLM "remembers" what the user doesn't see.
+4. **Persist on the server and fetch on login** — rejected for scope. The backend already persists to Redis; adding a REST endpoint to replay it would duplicate the WebSocket flow. `sessionStorage` is free and covers the in-tab case, which is 100% of the observed user behavior for a demo app.
+
+### Why
+The UX invariant is "same tab + same user = same conversation," regardless of transient JWT state. `sessionStorage` with per-tab scoping is the right primitive: it survives navigation, JWT refresh, and re-login within the tab; it does not survive a tab close (avoiding stale transcripts leaking across days); and scoping by `userId` in the key prevents Alice's transcript from surfacing if Bob logs into the same tab next.
+
+The 2-hour Redis TTL on the backend side ([ADR-38](#adr-38-atomic-redis-message-persistence-cuai-40--chat-008)) is the authoritative upper bound. `sessionStorage` will hold its entry indefinitely within the tab, but a same-user re-login after 2+ hours replays a transcript whose server-side context has already expired; the LLM will see a fresh history. This is acceptable — the user still sees their prior conversation as a scrollback; the model simply treats the next message as a new conversation start.
+
+### Consequences
+- `chatStore.initSession(userId)` always takes a `userId` argument; calling it without one keeps the store in "unpersisted" mode for pre-login states. Logout calls `reset()`, which clears in-memory state but leaves `sessionStorage` intact.
+- `chatStore.newSession(userId)` (the "Clear conversation" button) rotates the UUID and explicitly `removeItem`s the messages key, because the user's intent there *is* to wipe history.
+- A user who opens two tabs gets two independent conversations under the same `userId` — acceptable; the backend session UUID is distinct per tab.
+- Testing: `chatStore.spec.ts` locks in the restore path (same user re-login sees prior messages) and the cross-user isolation path (different `userId` gets empty transcript).
+
+---
+
+## ADR-48: Post-MVP UX Hardening — Toasts, Validation, Friendly Errors
+
+### Status
+Accepted (PR #144). Complements [ADR-11: Vue Frontend](#adr-11-vue-frontend) and [ADR-12: Suggested Actions](#adr-12-suggested-actions) with the non-AI UX polish that wasn't in the original MVP scope.
+
+### Decision
+Three small pieces of frontend infrastructure were added as a bundle after the AI pipeline stabilized:
+
+1. **Pinia toast store** (`frontend/src/stores/toastStore.ts` + `frontend/src/components/layout/Toast.vue`): a centralized `useToastStore` with `push({ level, message, durationMs })`, `dismiss(id)`, and `clear()`. Toasts auto-dismiss after 3 seconds by default; a `durationMs=0` sentinel opts out of auto-dismiss. A single `<Toast />` component at the app root renders the stack — any component can surface success/info/error without owning its own visual state.
+2. **Extracted client-side validators** (`frontend/src/utils/validation.ts`): form-input helpers (email format, password length/complexity, program selection) callable from any component, with unit tests in `validation.spec.ts`. The same rules the backend enforces, run client-side for immediate feedback.
+3. **Friendly HTTP-error mapper** (`frontend/src/utils/errorMessages.ts`): `friendlyHttpError(status, category)` maps status codes to human copy per category (`auth`, `courses`, `profile`, `generic`) with an `5xx` fallback. A second helper (`preferServerDetail`) chooses between the mapped copy and the server's `detail` field, preferring the server's message only when it looks sentence-shaped (e.g., "Password is too common") — otherwise it falls back to the mapped copy to avoid leaking Pydantic validator output onto the UI.
+
+### Alternatives Considered
+1. **Per-component toast state** — rejected. Every modal/form would re-implement auto-dismiss timers and z-index stacking. Consolidating in a store keeps the root `<Toast />` component the only owner of layout and animation.
+2. **`alert()` / `confirm()` for notifications** — rejected. Blocking browser dialogs break the single-page flow and look amateur for a demo.
+3. **Toast library (e.g., `vue-toastification`)** — rejected. The API we use is ~30 lines of Pinia; pulling in a dependency with its own theming layer would be more code to audit than to write.
+4. **Show raw HTTP status on error** — rejected. "422 Unprocessable Entity" is a better diagnostic for an engineer than a message for a user. The mapper centralizes the copy per category so a future redesign can re-style all error messages from one file.
+5. **Show the server's `detail` unconditionally** — rejected. FastAPI's default 422 body is a list of Pydantic errors; surfacing it unfiltered exposes internal field names. The `preferServerDetail` guard keeps prose-shaped messages through while filtering structured errors out.
+
+### Why
+The pattern here is "do the small, boring UX work that MVP skipped, in one bundle, so the whole frontend feels finished." Each piece individually is minor; together they remove the three most common rough edges users hit:
+- Errors that look like stack traces.
+- Success/failure state that disappears the moment an action completes.
+- Server rejections of inputs the client could have caught.
+
+Consolidating the three into one PR (#144) meant every form gets them at once, instead of trickling in as separate tickets would have produced. The FilterBar "≥1 filter required" rule (disabled search button until at least one filter is selected) was the proximal trigger — that change required both validation helpers and a nice way to explain the rule to the user, which forced all three pieces to ship together.
+
+### Consequences
+- Any component needing to raise a toast imports `useToastStore()` and calls `push({ level, message })` — no prop drilling, no event bus.
+- `validation.ts` rules are the single source of truth on the client; the backend remains authoritative (it still validates everything), but client-side parity means users get immediate feedback rather than a round-trip.
+- `errorMessages.ts` means a copy change in one file updates every error surface. Categories are closed-set: adding a new one (e.g., `chat`) is a two-line edit.
+- Test coverage: `toastStore.spec.ts`, `validation.spec.ts`, `errorMessages.spec.ts`, and `Toast.spec.ts` each lock in the contract.
+
+---
+
+## ADR-49: Redis Retained for Session Storage; Inference Queue Abandoned
+
+### Status
+Accepted. Clarifies that [ADR-7: Redis Queue for Ollama Inference](#adr-7-redis-queue-for-ollama-inference) is only *partially* superseded by [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference). The inference-queue dimension of ADR-7 is abandoned; the Redis dependency itself is retained for session storage.
+
+### Decision
+Redis remains a first-class infrastructure component — it runs in Docker Compose locally and on the data VM in production ([ADR-19](#adr-19-self-hosted-databases-on-vm)) — but exclusively as the backing store for two use cases:
+
+1. **Chat session message history** ([ADR-8](#adr-8-two-tier-conversation-memory), [ADR-38](#adr-38-atomic-redis-message-persistence-cuai-40--chat-008)): Tier-1 memory — the last N messages per session, keyed by `session_id`, with a 2-hour TTL.
+2. **slowapi rate-limit counters** ([ADR-33](#adr-33-api--infrastructure-security-hardening) SEC-007): distributed rate-limit buckets so two replicas of the same service share the same counter.
+
+The inference-queue role described in ADR-7 — Chat Service publishes jobs, Ollama workers subscribe — is abandoned. There is no producer/consumer Redis pattern in the current codebase; `chat_service/core/llm_engine.py` calls the Anthropic API directly.
+
+### What We Tried (Abandoned)
+ADR-7's original design had Redis sitting between the Chat Service and an autoscaling pool of Ollama GPU workers ([ADR-21](#adr-21-ollama-auto-scaling-via-managed-instance-group)). The queue depth was the autoscaling signal for the MIG; the Chat Service was stateless with respect to GPU availability; failed jobs would retry on the next available worker. This worked in principle and matches the canonical GCP pattern for non-HTTP workloads.
+
+It stopped being necessary when [ADR-41](#adr-41-anthropic-api-for-llm-inference) moved LLM inference to the Anthropic API. Anthropic is a managed HTTPS endpoint; there are no workers to scale, no queue to buffer, and no GPU VMs to autoscale. The Chat Service calls `anthropic.messages.create(...)` directly (with [ADR-39](#adr-39-graph-invocation-timeout-cuai-40--chat-008)'s timeout as the only backpressure mechanism) and is done.
+
+### Alternatives Considered
+1. **Drop Redis entirely** — rejected. Tier-1 memory ([ADR-8](#adr-8-two-tier-conversation-memory)) still needs a low-latency session store; Postgres works, but round-tripping a message list on every turn is materially slower than Redis, and the session-TTL semantics we want (auto-expire after 2h of inactivity) are exactly what Redis is good at. slowapi's distributed mode also needs a store; its alternatives (memcached, MongoDB) are not lower-footprint than the Redis we already run.
+2. **Migrate Tier-1 memory to Postgres** — rejected for scope. Postgres is already the Tier-2 summary store ([ADR-9](#adr-9-persistent-decision-history)) and could host Tier-1 too (one table, keyed by `session_id`, per-row TTL via a cleanup job). This is a pure cost/latency trade-off; the current setup runs fine on the existing VM, and collapsing to one datastore is a future refactor, not a demo-blocking one.
+3. **Keep ADR-7 as-is and "note" the supersession informally** — rejected. ADR-7's text reads as if the whole thing is dead; readers of the current code see Redis still running and are confused about whether we're using the queue pattern. A dedicated ADR documenting "Redis stays; queue goes" closes that gap.
+
+### Why
+The supersession is *partial* — the "Redis" half stands, the "Queue for Ollama Inference" half is gone — and the history matters for two audiences: (a) future contributors looking at ADR-7 and wondering if the MIG/queue architecture is still accurate (it isn't), and (b) the capstone audience, who should understand that we considered, built toward, and then stepped back from a GPU-autoscaling architecture once a managed API became viable. Leaving ADR-7's "Superseded" banner as the only signal loses that nuance.
+
+### Consequences
+- ADR-7 retains its "Superseded" status banner; this ADR is cited alongside ADR-41 as the co-superseder for the inference-queue claim specifically. ADR-7's Redis-as-session-store implications remain valid.
+- The data-services VM continues to run Redis alongside Postgres and Neo4j ([ADR-19](#adr-19-self-hosted-databases-on-vm)); its memory footprint is modest and fits comfortably inside the shared VM budget.
+- Redis does not appear in the LLM hot path any more — only in session I/O and rate-limit counters. A Redis outage degrades memory and rate limiting but does not break chat (messages fall back to in-memory history for the duration of the process).
+- Any future return to self-hosted LLM inference would rehabilitate ADR-7's queue design; this ADR does not foreclose that path, only documents its current dormancy.
+
+---
+
+## ADR-50: GPU VM Test Harness — Abandoned
+
+### Status
+Accepted. Documents abandoned infrastructure superseded by [ADR-41: Anthropic API for LLM Inference](#adr-41-anthropic-api-for-llm-inference). The artifact (`scripts/ollama-gpu-test.sh`) was removed in commit `8de8eb7` (PR #118). This ADR preserves the context of what was built and why.
+
+### Decision (Historical)
+While ADR-7 / ADR-21's self-hosted GPU-Ollama architecture was the active plan, a standalone provisioning script (`scripts/ollama-gpu-test.sh`, 281 lines, added in PR #116 commit `9bcb448`) stood up a GCP Deep Learning VM with an attached GPU, installed Ollama, pulled the then-current default model, and exposed an HTTP health check. The harness let us:
+
+- Measure cold-start time for a GPU VM + model pull.
+- Benchmark inference latency and throughput for `gpt-oss:20b` (and earlier candidate models).
+- Validate the Ollama tool-calling pattern against a real accelerator before committing to it in the Chat Service.
+- Cost-check a steady-state GPU VM against the budget line in [ADR-13](#adr-13-gcp-for-cloud-deployment).
+
+It was intentionally not productionized — no Packer image, no MIG integration, no Terraform — because it served a single purpose: answer "is this viable?" before we invested in ADR-21's autoscaling plan.
+
+### Why It Became Dead Code
+[ADR-41](#adr-41-anthropic-api-for-llm-inference) moved LLM inference to the Anthropic API. Every concern the harness was built to exercise — GPU provisioning time, model-pull cost, inference latency at a given VRAM budget, tool-calling reliability on the chosen model — stopped being our problem the moment Anthropic took over the hot path. The script continued to pass syntax checks and remained runnable, but exercised no production code path any more. [ADR-42](#adr-42-prebaked-ollama-embed-image-on-cloud-run) followed, replacing the VM-hosted Ollama with a prebaked Cloud Run image for embeddings-only use, which closed the door on the harness's remaining test surface (even embeddings no longer run on a GPU VM).
+
+### Alternatives Considered
+1. **Keep the script as reference documentation** — rejected. An executable script in `scripts/` implies it works against the current architecture. A reader trying to run it would pull Ollama onto a GPU VM that the rest of the system never talks to, and file a bug. Prose in an ADR is a more honest place for the context.
+2. **Move the script to a `docs/archive/` directory** — rejected. The repository is small enough that keeping archived code around degrades grep/Glob signal-to-noise; git history (`git log --all --oneline -- scripts/ollama-gpu-test.sh`) is an adequate archive for something we don't expect to revive.
+3. **Rewrite the script against Anthropic (as a latency/cost benchmark harness)** — rejected as unrelated scope. Anthropic benchmarking is a different exercise; reusing the shell scaffolding would save ~50 lines of boilerplate but mix two concerns. If we need Anthropic benchmarks, a new script with a clean charter is the right shape.
+
+### Consequences
+- The script itself was deleted in commit `8de8eb7`. The deletion is referenced here so a future reader seeing `scripts/ollama-gpu-test.sh` mentioned in old PR #116 has a pointer to *why* it's gone.
+- The GPU-MIG / Packer infrastructure that ADR-21 described was also removed during the Anthropic migration (same PR #118 context); [ADR-21](#adr-21-ollama-auto-scaling-via-managed-instance-group) remains marked as superseded rather than edited, per the append-only rule.
+- A follow-up audit sweep (this ADR set) removed the remaining Ollama-era client-side artifacts in three commits: `8b4f195` (LangGraph / tool-calling spike scripts under `scripts/spikes/` and `scripts/test_tool_calling.py`), `6739f3a` (the never-wired Redis inference-queue client in `redis_service.py` plus its tests, per [ADR-49](#adr-49-redis-retained-for-session-storage-inference-queue-abandoned)), and `4d5f8a6` (infra comments and `scripts/chat_demo.py` prerequisites that still referenced Ollama workers, the 11434 firewall port, and the MIG). After these three commits, no executable code or infra config references the abandoned GPU-MIG + inference-queue architecture.
+- Any future rehabilitation of self-hosted LLM inference — which [ADR-49](#adr-49-redis-retained-for-session-storage-inference-queue-abandoned) does not foreclose — would need a fresh test harness; the old script's provisioning assumptions (Deep Learning VM images, specific CUDA versions) are already stale.
+
+---
+
+## ADR-51: Data VM Sizing — e2-standard-4 for Single-VM Datastore Growth
+
+### Status
+Accepted. Amends the sizing called out in [ADR-19: Self-Hosted Databases on VM vs. Managed Services](#adr-19-self-hosted-databases-on-vm-vs-managed-services) without superseding its single-VM design principle. The production `google_compute_instance "data_services"` resource (`infra/data-vm.tf:206`) has machine_type `e2-standard-4`; this ADR is the documented rationale for that choice.
+
+### Decision
+Run the production `data-services` VM on an **`e2-standard-4`** machine type (4 vCPU / 16 GB RAM) rather than the `e2-medium` (2 vCPU / 4 GB RAM) that [ADR-19](#adr-19-self-hosted-databases-on-vm-vs-managed-services) originally described.
+
+All other sizing-adjacent decisions established in ADR-19 are preserved unchanged:
+- Single VM running PostgreSQL, Neo4j, and Redis in Docker Compose.
+- Data on a persistent disk attached to the VM (survives stop/start, snapshottable).
+- Static internal IP 10.0.0.10 (`infra/data-vm.tf`).
+- No public IP — reached only via the Serverless VPC Connector from Cloud Run, or via IAP TCP tunnel for developer SSH.
+
+### Alternatives Considered
+1. **Stay on `e2-medium` (2 vCPU / 4 GB)** — rejected. The original ADR-19 sizing held during initial scaffolding but became tight once Postgres shared buffers, Neo4j's in-memory indexes, and Redis's working set were all live concurrently. On a 4 GB box, a page-cache eviction on one datastore starved the others under moderate ingest load.
+2. **Split onto three smaller VMs (one per datastore)** — rejected. Triples the operational surface (three VMs to patch, three firewall considerations, three backup targets) and eliminates the single `docker-compose.yml` equivalence between local dev and production that ADR-19 relies on for reproducibility. Cost savings are marginal at this scale.
+3. **Move one datastore to a managed service early (e.g., Cloud SQL for Postgres)** — rejected as premature. ADR-19 already documents managed services as the future upgrade path if CU adopts this system in production; pulling that forward just to relieve memory pressure on a single VM is the wrong lever. A bigger VM is the minimal change.
+
+### Why
+Two forces drove the bump, neither of which was visible when ADR-19 was written:
+
+1. **Headroom for semester data growth.** The catalog dataset is small (thousands of courses), but per-user session state in Redis, embedding index growth in Postgres (pgvector), and Neo4j graph indexes all scale over the semester as more students interact with the system. `e2-standard-4` gives each datastore enough RAM headroom that they stop competing for the same page cache.
+2. **Operational simplicity of a single instance.** The whole value of ADR-19 is "one machine, one Docker Compose file, one backup target." Going wider (alternative 2) trades that simplicity away; going managed (alternative 3) is a much bigger decision than a resize. A bigger single VM preserves the original design principle at the cost of ~$75/mo of additional compute.
+
+### Consequences
+- The cost comparison in ADR-19's "Why" section understates the self-hosted cost: `e2-standard-4` is ~$100/mo, not the ~$25/mo quoted there. On a pure per-dollar basis, the gap versus the cheapest managed tier (~$40-110/mo for databases alone) is narrower than ADR-19 suggested. The self-hosting argument still stands, but it is now primarily an operational-simplicity argument, not a pure cost argument.
+- Per the append-only rule, ADR-19's body is not edited; readers should treat ADR-51 as the current sizing source of truth and ADR-19's `e2-medium` references as historical.
+- The cross-reference from [ADR-13: GCP for Cloud Deployment](#adr-13-gcp-for-cloud-deployment) (the "~$25/mo" figure in its "Compute Engine VM for databases" paragraph) is also historical; the correct current figure is ~$100/mo.
+- Any future decision to split datastores across multiple VMs, move one to a managed service, or resize further should be captured in its own ADR rather than as a further in-place edit to ADR-19 or ADR-51.
+
+### Relationship to Prior ADRs
+**Amends** [ADR-19](#adr-19-self-hosted-databases-on-vm-vs-managed-services) on sizing only. Does **not** supersede ADR-19's single-VM-in-Docker-Compose design principle, persistent-disk pattern, or "when to switch to managed services" upgrade path — all of those remain in force. Does not affect [ADR-13](#adr-13-gcp-for-cloud-deployment) architecturally; the cost figure in ADR-13's prose is historical for the same reasons as ADR-19's.

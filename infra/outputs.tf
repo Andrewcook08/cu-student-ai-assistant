@@ -9,7 +9,7 @@ output "vpc_self_link" {
 }
 
 output "subnet_self_link" {
-  description = "Private subnet self-link (used by Compute Engine VM and MIG)"
+  description = "Private subnet self-link (used by Compute Engine VM)"
   value       = google_compute_subnetwork.private.self_link
 }
 

@@ -248,17 +248,13 @@ def make_tools(
     async def get_student_profile(
         user_id: Annotated[str, InjectedToolArg],
     ) -> dict[str, Any]:
-        """Get the student's declared program, completed courses, and prior decisions.
+        """Student profile (program, completed courses, prior decisions).
 
-        Returns program name, a list of completed courses with grades (for
-        checking prerequisite minimums), and prior planning decisions.
-        The ``user_id`` is injected from the authenticated session — do not
-        include it in your tool call.
-
-        Call this tool EARLY in any advising conversation — before making course
-        recommendations, checking prerequisites, or building schedules.  The
-        student's completed courses and grades are essential for determining
-        prerequisite eligibility and remaining degree requirements.
+        The context builder preloads this data into the ``<user_profile>``
+        block on every turn, so the model already has it before the first
+        token. Do not invoke this tool — the system prompt forbids it.
+        Retained as a schema placeholder for backward compatibility with
+        tool-binding code paths.
         """
         async with postgres_sessionmaker() as session:
             return await postgres_service.get_student_data(session, user_id=int(user_id))

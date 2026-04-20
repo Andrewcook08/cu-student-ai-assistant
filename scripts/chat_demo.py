@@ -2,10 +2,9 @@
 """Interactive chat demo for the CU Student AI Assistant.
 
 Prerequisites:
-  1. Ollama running locally with gpt-oss:20b
-  2. Docker services up: docker compose up -d postgres neo4j redis
-  3. Data ingested (courses, programs, prereqs, embeddings)
-  4. Chat service running:
+  1. Docker services up: docker compose up -d postgres neo4j redis
+  2. Data ingested (courses, programs, prereqs, embeddings)
+  3. Chat service running:
        cd services/chat-service && source ../../.env && source ../../.env.local && \
        uv run uvicorn chat_service.main:app --port 8001
 

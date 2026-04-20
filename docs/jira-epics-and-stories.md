@@ -169,16 +169,15 @@
 ### DATA-006: Validate LLM tool calling with chosen model
 - **Points**: 3
 - **Phase**: 1 (Day 4-5)
-- **Blocked by**: INFRA-001 (Ollama from Docker Compose)
+- **Blocked by**: INFRA-001
 - **Assignee**: Person B
 - **Labels**: `critical-path`
-- **Status**: ✅ Done (Sprint 1)
-- **Description**: Write `scripts/test_tool_calling.py`. Define 7 tool schemas matching the architecture. Write 20+ representative student questions with expected tool names. Test tool calling against the Anthropic API (Claude Sonnet). Report pass rate. If < 80%, test alternative models and document recommendation.
+- **Status**: ✅ Done (Sprint 1, CUAI-32 spike; harness retired post-migration, see [ADR-50](decisions.md#adr-50-gpu-vm-test-harness--abandoned))
+- **Description**: Originally shipped as a standalone tool-calling harness (`scripts/test_tool_calling.py`) that exercised candidate Ollama models against ~20 representative student questions with the seven production tool schemas and reported pass rate per tool. Findings fed directly into the LangGraph conversation engine design (CHAT-008 / CUAI-40). The harness itself was removed after CUAI-87 migrated inference to the Anthropic API — Claude Sonnet's tool-calling reliability is high enough that a dedicated validation script no longer earns its keep; see [ADR-41](decisions.md#adr-41-anthropic-api-for-llm-inference) and [ADR-50](decisions.md#adr-50-gpu-vm-test-harness--abandoned).
 - **Acceptance criteria**:
-  - [x] Test script runs against the Anthropic API and produces pass/fail per question
+  - [x] Tool-calling pass rate measured against ≥ 20 representative student questions
   - [x] Overall pass rate ≥ 80%
-  - [x] If fail: recommendation for alternative model documented
-  - [x] Model choice decision recorded (resolves open question #2)
+  - [x] Model choice decision recorded (resolves open question #2 — Claude Sonnet chosen, ADR-41)
 
 ---
 
@@ -222,7 +221,7 @@
 - **Phase**: 2 (Day 7-8)
 - **Blocked by**: DATA-004 (embeddings + vector index)
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-28, PR #65)
 - **Description**: Accept a text query, generate embedding via Ollama, search Neo4j vector index, return ranked results with similarity scores.
 - **Acceptance criteria**:
   - [ ] `GET /api/courses/search?q=data+science` returns relevant courses
@@ -262,7 +261,7 @@
 - **Phase**: 2 (Sprint 2)
 - **Blocked by**: INFRA-002 (User model), API-005 (GET /me shipped Sprint 1)
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-78, PR #66)
 - **Description**: `PUT /api/students/me/completed-courses` lets an authenticated student update their self-reported completed course list with optional grades. Split out of API-005 so the GET work could close cleanly at the end of Sprint 1. Tracked as CUAI-78.
 - **Acceptance criteria**:
   - [ ] Endpoint requires valid JWT (401 without)
@@ -284,7 +283,7 @@
 - **Phase**: 1 (Day 5-6)
 - **Blocked by**: INFRA-003
 - **Assignee**: Person C
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 1, spike — research folded into CHAT-008)
 - **Description**: Timeboxed spike to de-risk the 8-point CHAT-008. Research LangGraph StateGraph, ReAct pattern, and tool binding. Build a minimal working prototype: single tool (e.g., echo tool), no real data, hardcoded Ollama connection. Document patterns and gotchas for the team.
 - **Acceptance criteria**:
   - [ ] Minimal LangGraph StateGraph with one tool runs end-to-end
@@ -298,7 +297,7 @@
 - **Blocked by**: INFRA-003
 - **Assignee**: Person C
 - **Labels**: `critical-path`
-- **Status**: ✅ Implemented (PR pending)
+- **Status**: ✅ Done (Sprint 1/2, CUAI-33, PR #67)
 - **Description**: Create `routes/chat.py` with WebSocket endpoint at `/ws/chat/{session_id}`. Validate JWT from query param. Accept messages, send typing indicator, echo back. This unblocks Person B's frontend work.
 - **Acceptance criteria**:
   - [x] WebSocket connects with valid JWT
@@ -311,7 +310,7 @@
 - **Phase**: 2 (Day 7-9)
 - **Blocked by**: DATA-001, DATA-002, DATA-003 (data in Neo4j)
 - **Assignee**: Person C
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-34, PR #68)
 - **Description**: Create `services/neo4j_service.py` with async Neo4j driver. Implement: `vector_search()`, `get_prerequisite_chain()`, `get_degree_requirements()`. Use parameterized Cypher queries.
 - **Acceptance criteria**:
   - [ ] `vector_search(embedding)` returns top-10 courses with scores
@@ -326,7 +325,7 @@
 - **Phase**: 2 (Day 7-8)
 - **Blocked by**: INFRA-001 (Ollama from Docker Compose for embeddings)
 - **Assignee**: Person C
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-35, PR #70; Anthropic migration in CUAI-87, PR #120)
 - **Description**: `services/ollama_service.py` handles embeddings via Ollama (nomic-embed-text, 768-dim). A new `services/llm_service.py` (or updated `ollama_service.py`) handles chat completion via the Anthropic SDK — `chat_completion()` calls `anthropic.AsyncAnthropic().messages.create()` instead of Ollama `/api/chat`. Functions: `get_embedding(text)` (still Ollama), `chat_completion(messages, tools)` (Anthropic SDK). Anthropic API has its own timeout handling via SDK configuration.
 - **Acceptance criteria**:
   - [ ] `get_embedding("data science")` returns 768-dim vector
@@ -338,7 +337,7 @@
 - **Phase**: 2 (Day 8-9)
 - **Blocked by**: INFRA-001 (Redis from Docker Compose)
 - **Assignee**: Person C
-- **Status**: ✅ Implemented (PR pending)
+- **Status**: ✅ Done (Sprint 2, CUAI-36, PR #72; inference-queue portion later abandoned per [ADR-49](decisions.md#adr-49-redis-retained-for-session-storage-inference-queue-abandoned) and removed in post-migration cleanup commit `6739f3a`)
 - **Description**: Create `services/redis_service.py`. Async Redis client. Implement: session storage, conversation message caching (RPUSH/LRANGE), inference queue (LPUSH/BRPOP), result pub/sub channel. 120s timeout on queue wait with 30s progress update.
 - **Acceptance criteria**:
   - [x] Messages stored and retrieved by session_id
@@ -354,7 +353,7 @@
 - **Phase**: 2 (Day 9-10)
 - **Blocked by**: CHAT-002, CHAT-003
 - **Assignee**: Person C
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-37, PR #76)
 - **Description**: Create `core/tools.py`. Define 7 tools with `@tool` decorator: search_courses, lookup_course, check_prerequisites, get_degree_requirements, get_student_profile, find_schedule_conflicts, save_decision. Each tool has a clear docstring for the LLM and calls the appropriate service layer. The search_courses/lookup_course split (fuzzy search by name → exact lookup by code) was validated by the CUAI-32 LangGraph spike.
 - **Acceptance criteria**:
   - [ ] All 7 tools defined with typed parameters and descriptive docstrings
@@ -368,7 +367,7 @@
 - **Blocked by**: CHAT-005
 - **Assignee**: Person C
 - **Labels**: `security`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-38, PR #78)
 - **Description**: Create `core/tool_executor.py`. Wraps all tool calls: always overrides `user_id` with JWT value, validates parameters via Pydantic, rate limits at 10 calls per turn, retries once on malformed JSON, logs to `tool_audit_log`.
 - **Acceptance criteria**:
   - [ ] `user_id` in params is ALWAYS replaced with JWT-authenticated value
@@ -382,7 +381,7 @@
 - **Phase**: 2 (Day 10-11)
 - **Blocked by**: CHAT-003
 - **Assignee**: Person C
-- **Status**: ✅ Implemented (shipped PR #79, commit 50f9bb5)
+- **Status**: ✅ Done (Sprint 2, CUAI-39, PR #79)
 - **Description**: Create `core/intent_classifier.py` with a hybrid heuristic-first + optional LLM fallback design. The heuristic regex/keyword pass resolves first (deterministic, no Ollama dependency, catches all five AC examples). If it returns `GENERAL_QUESTION` and an `ollama_client` is supplied, a single `ollama_service.chat_completion` call fires as a fallback using Ollama's structured-output mode — a JSON-schema enum built from the `Intent` StrEnum is passed as `format`, so the model is logit-masked to exactly the five labels. Temperature pinned to 0 via the new `options` kwarg for deterministic argmax. `classify_intent()` is async and never raises — every failure collapses to `GENERAL_QUESTION`. See [ADR-34](decisions.md#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007).
 - **Acceptance criteria**:
   - [x] "What CS electives are there?" → `course_search`
@@ -419,7 +418,7 @@
 - **Phase**: 2 (Day 8)
 - **Blocked by**: INFRA-002
 - **Assignee**: Person C
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-41, PR #74)
 - **Description**: Create `services/postgres_service.py`. Functions: `get_student_data(user_id)` — returns profile + completed courses with grades + prior decisions. `save_student_decision(user_id, course_code, decision_type, notes)`. `get_schedule_conflicts(course_codes)` — join sections, parse meeting times, find overlaps.
 - **Acceptance criteria**:
   - [ ] `get_student_data` returns program, completed courses (with grades), decisions
@@ -450,7 +449,7 @@
 - **Phase**: 2-3 (Day 12-13)
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-43, PR #89)
 - **Description**: Write pytest tests for the chat service. Test: tool executor auth enforcement (user_id override), tool calling with mock LLM responses, Neo4j service queries, Redis session storage, WebSocket connect/disconnect, intent classification accuracy. Mock LLM responses so tests run without API calls.
 - **Acceptance criteria**:
   - [ ] `uv run pytest services/chat-service/tests/ -v` passes
@@ -567,7 +566,7 @@
 - **Phase**: 1 (Day 4)
 - **Blocked by**: FE-001
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 1, bundled in CUAI-47, PR #58)
 - **Description**: ChatWindow component. Floating panel in bottom-right corner. Click to expand/collapse. Scrollable message area. Styled with CU branding.
 - **Acceptance criteria**:
   - [ ] Chat icon visible in bottom-right corner
@@ -582,7 +581,7 @@
 - **Phase**: 1 (Day 4-5)
 - **Blocked by**: FE-006
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 1, bundled in CUAI-47, PR #58)
 - **Description**: ChatMessage component (user vs. AI styling). Markdown rendering via markdown-it. StructuredResponse component renders CourseCard lists. SuggestedActions component renders buttons/dropdowns from Action objects.
 - **Acceptance criteria**:
   - [ ] User messages right-aligned, AI messages left-aligned
@@ -597,7 +596,7 @@
 - **Phase**: 2 (Day 8-12)
 - **Blocked by**: CHAT-001 (stub WebSocket), FE-007
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-51, PR #86)
 - **Description**: Create `useChat.ts` composable. WebSocket connection with JWT auth. Handle message types: typing, chat_response, error, progress. Auto-reconnect with exponential backoff (1s, 2s, 4s, max 30s). Show "Reconnecting..." during retry. Create `chatStore.ts` for state management.
 - **Acceptance criteria**:
   - [ ] WebSocket connects with JWT token
@@ -606,7 +605,6 @@
   - [ ] Error messages shown inline in chat
   - [ ] Auto-reconnect works on disconnect (verify by stopping chat-service, restarting)
   - [ ] "Reconnecting..." message shown during retry
-  - [ ] 30s progress message rendered when received
   - [ ] *(security ADR-33)* On WS close codes 4001/4002/1008/1009 surface a distinct user-facing error message; do not auto-reconnect on auth failures.
   - [ ] *(security ADR-33)* Never put the JWT in a log line or visible URL (note: token is in query string until the P1 subprotocol upgrade).
 
@@ -615,7 +613,7 @@
 - **Phase**: 1-2 (Day 5, then wire in Day 9)
 - **Blocked by**: FE-006
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 1, bundled in CUAI-47, PR #58)
 - **Description**: ChatInput component. Text input + send button. Enter key sends. Input disabled while AI is responding. Character count indicator (max 2000).
 - **Acceptance criteria**:
   - [ ] Enter key sends message
@@ -636,7 +634,7 @@
 - **Phase**: 3 (Day 13)
 - **Blocked by**: INFRA-002 (User model)
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-53, PR #100)
 - **Description**: `POST /api/auth/register` — accepts email, password, name, program_id. Hashes password with bcrypt. Returns JWT. Validates email uniqueness.
 - **Acceptance criteria**:
   - [ ] Successful registration returns JWT + user_id
@@ -655,7 +653,7 @@
 - **Phase**: 3 (Day 13)
 - **Blocked by**: AUTH-001
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-54, PR #105)
 - **Description**: `POST /api/auth/login` — accepts email, password. Verifies against hash. Returns JWT.
 - **Acceptance criteria**:
   - [ ] Valid credentials return JWT
@@ -673,7 +671,7 @@
 - **Phase**: 3 (Day 13-14)
 - **Blocked by**: AUTH-001, API-004 (programs list)
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, PR #109)
 - **Description**: RegisterModal component. Fields: email, password, name, program dropdown (fetched from API), completed courses checklist (filtered by program). On submit: register → store JWT → update auth state.
 - **Acceptance criteria**:
   - [ ] Modal opens from header login button
@@ -690,7 +688,7 @@
 - **Phase**: 3 (Day 14)
 - **Blocked by**: AUTH-002
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-56, PR #121)
 - **Description**: LoginModal component. `useAuth.ts` composable + `authStore.ts` Pinia store. JWT stored in localStorage. Auth header automatically added to API calls. Protected routes redirect to login.
 - **Acceptance criteria**:
   - [ ] Login modal with email + password
@@ -716,7 +714,7 @@
 - **Phase**: 3 (Day 13)
 - **Blocked by**: CHAT-004
 - **Assignee**: Person A
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-57, PR #96)
 - **Description**: Create `core/memory.py`. Store last 20 messages per session in Redis (RPUSH). Load on new WebSocket connection. 2-hour TTL per session. Messages include role, content, tool calls, and tool results.
 - **Acceptance criteria**:
   - [ ] Messages persist across WebSocket reconnects (same session_id)
@@ -729,7 +727,7 @@
 - **Phase**: 3 (Day 14-15)
 - **Blocked by**: MEM-001
 - **Assignee**: Person A
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-58, PR #102)
 - **Description**: When message count exceeds 20, trigger LLM summarization. Summary captures: student's major, completed courses, decisions made, preferences, courses being considered. Summary stored in Redis, prepended to every LLM call. After summarization, trim to last 10 messages.
 - **Acceptance criteria**:
   - [ ] Summary generated when message count > 20
@@ -743,7 +741,7 @@
 - **Phase**: 3 (Day 15-16)
 - **Blocked by**: CHAT-005 (save_decision tool), API-005 (student endpoints)
 - **Assignee**: Person A
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-59, PR #104)
 - **Description**: Wire `save_decision` tool end-to-end. On new session, `get_student_profile` loads prior decisions. LLM references them: "Last time you were interested in CSCI 3104 — still planning on that?"
 - **Acceptance criteria**:
   - [ ] Student says "I want to take CSCI 3104" → LLM calls save_decision → stored in PostgreSQL
@@ -764,7 +762,7 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person C
 - **Labels**: `security`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-60, PR #99)
 - **Description**: Write the production system prompt with behavioral boundaries: only academic advising, never reveal internals, never access other users' data. Wrap all context in delimiter tags. Add the "flagged for injection" internal warning pattern.
 - **Acceptance criteria**:
   - [ ] System prompt defines behavioral boundaries
@@ -779,7 +777,7 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
 - **Labels**: `security`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-61, PR #97)
 - **Description**: Create `core/input_sanitizer.py`. Max 2000 characters. Strip zero-width characters and control characters. Flag known injection patterns ("ignore previous", "system:", "you are now") — don't block, but add internal warning to LLM context.
 - **Acceptance criteria**:
   - [ ] Messages > 2000 chars are truncated
@@ -793,7 +791,7 @@
 - **Blocked by**: CHAT-008
 - **Assignee**: Person B
 - **Labels**: `security`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-62, PR #98)
 - **Description**: Create `core/output_validator.py`. Validate `structured_data` and `suggested_actions` against Pydantic schemas before sending to frontend. Strip if invalid. PII pattern scan (email addresses, student IDs). Scope check (filter non-academic content).
 - **Acceptance criteria**:
   - [ ] Invalid structured_data stripped (only text reply sent)
@@ -806,7 +804,7 @@
 - **Blocked by**: SEC-001, SEC-002, SEC-003, CHAT-006
 - **Assignee**: Person C
 - **Labels**: `security`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-63, PR #101)
 - **Description**: Write `tests/test_security.py`. Test: injection attempts (direct prompt, tool abuse, context tampering), auth enforcement (user_id override), rate limiting, output validation, PII scanning.
 - **Acceptance criteria**:
   - [ ] "Ignore your instructions" doesn't change LLM behavior
@@ -824,7 +822,7 @@
 - **Blocks**: CUAI-56 follow-up — frontend must attach tokens before this lands in a shared environment
 - **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-79, PR #85; scope narrowed in PR #138 per [ADR-43](decisions.md#adr-43-public-read-authenticated-write-for-catalog-routes))
 - **Description**: Add `Depends(get_current_user)` to every non-health route in `services/course-search-api/course_search_api/routes/courses.py` (`list_courses`, `search_courses`, `get_course`) and `routes/programs.py` (`list_programs`, `get_program_requirements`). Update affected tests to pass the existing `auth_headers` fixture (the same pattern used in `tests/test_students.py`). The acute gap is `/api/courses/search`, which currently triggers an Ollama embedding + Neo4j vector search per unauthenticated request — a cost/DoS vector. Health endpoints (`/api/health`, `/api/chat/health`) stay public for load balancer probes.
 - **Acceptance criteria**:
   - [ ] All five routes return 401 without a Bearer token
@@ -838,7 +836,7 @@
 - **Blocked by**: Nothing
 - **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-80, PR #77)
 - **Description**: Add an `environment: str = "development"` field and a `validate_production()` method to `shared/shared/config.py`. The validator raises `RuntimeError` when `environment == "production"` AND any of: `jwt_secret_key` contains `"local-development"` or is shorter than 32 chars; `neo4j_password` ∈ {"development", "neo4j", ""}; `cors_origins_list` contains `"*"` or any localhost entry or is empty; `database_url` contains the default compose password. Call the validator from each service's lifespan (course-search-api and chat-service). Scrub `.env.example` of literal secret defaults. This is the first ticket to add Python tests under `shared/`, so the same PR must also add `shared/tests` to `[tool.pytest.ini_options].testpaths` in the root `pyproject.toml` — otherwise CI's `uv run pytest` from the repo root will silently skip the new tests. See `docs/development-workflow.md` § How CI Discovers Tests for the rule.
 - **Acceptance criteria**:
   - [ ] Starting either service with `ENVIRONMENT=production` and any default secret raises at boot
@@ -867,7 +865,7 @@
 - **Blocked by**: SEC-006 (the override sets `ENVIRONMENT=production`)
 - **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`, `infra`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-82, PR #93)
 - **Description**: New `docker-compose.prod.yml` override with: cleared `ports:` mapping on `postgres`, `neo4j`, `redis`, and `ollama` (services still reach each other by service name on the internal bridge); `NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD required}` and `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}` so the stack fails fast when secrets are unset; `ENVIRONMENT=production` on the app services to trip the SEC-006 validator. Update `.env.example` to list the new required prod vars (commented optional for local dev). This complements ADR-23 (cloud VPC) for the local prod-simulation path and the self-hosted Data VM described in ADR-19. **No new documentation file is created** — deployment instructions live in `docs/local-development.md` and the new architecture section.
 - **Acceptance criteria**:
   - [ ] `docker compose -f docker-compose.yml -f docker-compose.prod.yml config` validates
@@ -882,7 +880,7 @@
 - **Blocked by**: Nothing
 - **Assignee**: Person A (Scott)
 - **Labels**: `security`, `phase-3`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-83, PR #95)
 - **Description**: Layer four enforcement points on the merged `/ws/chat/{session_id}` stub at `services/chat-service/chat_service/routes/chat.py`. After `accept()` and JWT validation: validate `session_id` shape as UUID v4 (close 4002 on bad shape); enforce 4096-byte max per message frame (`{type:"error",code:"message_too_large"}` and close 1009); per-connection token bucket of 20 messages per rolling 10 s window (`{type:"error",code:"rate_limit"}` and close 1008); capture `user_id` from JWT `sub` and include it in every server-side log line as prep for the CUAI-38 tool executor user-id override (ADR-14). Add a `TODO(P1)` comment about query-string token delivery.
 - **Acceptance criteria**:
   - [ ] Oversized message closes with 1009
@@ -899,7 +897,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocked by**: Nothing
 - **Assignee**: Person C (Andrew)
 - **Labels**: `security`, `phase-3`
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-86, PR #108)
 - **Description**: Add a security headers middleware to both FastAPI services (`course-search-api/main.py` and `chat-service/main.py`). Headers: `Content-Security-Policy: default-src 'self'`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security` (production only, gated on `ENVIRONMENT` env var). The architecture doc already lists these headers as planned (line 1262) — this ticket implements them. DOMPurify on the frontend already handles XSS sanitization; these headers add defense-in-depth at the browser level.
 - **Acceptance criteria**:
   - [ ] Both services return all five security headers on every response
@@ -918,7 +916,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Phase**: 4 (Day 20)
 - **Blocked by**: Nothing (infrastructure only)
 - **Assignee**: Person A
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-64, PR #110)
 - **Description**: Create `infra/network.tf`. VPC, private subnet (10.0.0.0/24), Network Firewall Policy (`cu-assistant-fw-policy`) containing 4 rules (allow-vpc-connector @ priority 1000, allow-internal @ 1100, allow-iap-ssh @ 1200, default-deny @ 65534) attached via `google_compute_network_firewall_policy_association`, Serverless VPC Connector. Create `infra/main.tf` (provider, GCS backend), `infra/variables.tf`, `infra/outputs.tf`, `infra/terraform.tfvars.example`, `infra/infra.sh` (local test harness: `./infra.sh plan|up|down`).
 - **Acceptance criteria**:
   - [ ] `terraform plan` succeeds
@@ -932,8 +930,8 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Phase**: 4 (Day 20-21)
 - **Blocked by**: DEPLOY-001
 - **Assignee**: Person A
-- **Status**: 📋 Planned
-- **Description**: Create `infra/data-vm.tf`. e2-medium Compute Engine VM. Startup script installs Docker Compose, starts PostgreSQL + Neo4j + Redis. Persistent disk for data. Static internal IP (10.0.0.10). Create `infra/scripts/data-vm-startup.sh`.
+- **Status**: ✅ Done (Sprint 2, CUAI-65, PR #117)
+- **Description**: Create `infra/data-vm.tf`. `e2-standard-4` Compute Engine VM (4 vCPU / 16 GB RAM — sized for Postgres + Neo4j + Redis on one box with headroom for semester data growth). Startup script installs Docker Compose, starts PostgreSQL + Neo4j + Redis. Persistent disk for data. Static internal IP (10.0.0.10). Create `infra/scripts/data-vm-startup.sh`.
 - **Acceptance criteria**:
   - [ ] VM boots and runs startup script
   - [ ] `gcloud compute ssh data-services --tunnel-through-iap` works
@@ -941,7 +939,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
   - [ ] Data persists across VM stop/start (persistent disk)
   - [ ] *(security ADR-33)* VM deploys the compose stack using the `docker-compose.prod.yml` override from SEC-008.
   - [ ] *(security ADR-33)* All required secrets (`JWT_SECRET_KEY`, `NEO4J_PASSWORD`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`) pulled from GCP Secret Manager at boot, never committed to Terraform state.
-  - [ ] *(security ADR-33)* Firewall rules block ingress to 5432/6379/7474/7687/11434 from anywhere except the VPC connector.
+  - [ ] *(security ADR-33)* Firewall rules block ingress to 5432/6379/7474/7687 from anywhere except the VPC connector.
 
 ### DEPLOY-003: Terraform — Ollama MIG + auto-scaling
 - **Points**: 5
@@ -968,7 +966,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Phase**: 4 (Day 21-22)
 - **Blocked by**: DEPLOY-001, DEPLOY-005 (Artifact Registry)
 - **Assignee**: Person A
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-67, PR #123)
 - **Description**: Create `infra/cloud-run.tf`. 3 Cloud Run services (course-search-api, chat-service, frontend). VPC connector attached. Env vars from Terraform. Chat service has min_instances=1. Create `infra/iam.tf` (service accounts).
 - **Acceptance criteria**:
   - [ ] All 3 Cloud Run services deploy
@@ -986,7 +984,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Phase**: 4 (Day 20)
 - **Blocked by**: DEPLOY-001
 - **Assignee**: Person A
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, bundled in DEPLOY-004 CUAI-67, PR #123)
 - **Description**: Create `infra/artifact-registry.tf`. Docker repository for container images.
 - **Acceptance criteria**:
   - [ ] Registry created
@@ -997,7 +995,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Phase**: 4 (Day 22)
 - **Blocked by**: DEPLOY-002, DATA-005
 - **Assignee**: Person A
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-69, PR #134)
 - **Description**: SSH to data VM via IAP tunnel with port forwarding. Run data ingestion against GCP databases. Verify data counts.
 - **Acceptance criteria**:
   - [ ] All courses, programs, requirements in GCP databases
@@ -1011,7 +1009,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Blocked by**: DEPLOY-001, DEPLOY-005 (Artifact Registry)
 - **Assignee**: Person A
 - **Jira**: [CUAI-88](https://andrewcode8.atlassian.net/browse/CUAI-88)
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-88, PR #125)
 - **Description**: Build a custom Docker image extending `ollama/ollama` with `nomic-embed-text` prebaked at build time. Deploy as a Cloud Run service with native autoscaling. Eliminates model download on cold start. See [ADR-42](../docs/decisions.md#adr-42-prebaked-ollama-embed-image-on-cloud-run).
 - **Acceptance criteria**:
   - [ ] Custom Dockerfile bakes `nomic-embed-text` into the image at build time
@@ -1028,7 +1026,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Phase**: 4 (Day 22-23)
 - **Blocked by**: DEPLOY-004, DEPLOY-006
 - **Assignee**: Person A
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-70, PR #139)
 - **Description**: Test the full flow on GCP. Course search, chat with AI, auth, memory, decisions.
 - **Acceptance criteria**:
   - [ ] Frontend loads at Cloud Run URL
@@ -1060,7 +1058,6 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
   - [x] Status check shown on PR page
   - [x] Branch protection on main requires CI green before merge
   - [x] Python job commands run from repo root (not from a service dir) so `uv run pytest` auto-discovers all workspace test directories
-  - [x] Does NOT gate CI on scripts that need external services (e.g. `scripts/test_tool_calling.py` which needs an Anthropic API key) — those stay as manual QA
   - [x] Documented in `docs/development-workflow.md § How CI Discovers Tests` (this is the maintenance reference for future service additions)
 
 ### CICD-002: GitHub Actions deploy pipeline
@@ -1068,7 +1065,7 @@ All five SEC-005..009 are Sprint 2 retrofit tickets that fill security gaps in a
 - **Phase**: 4 (Day 21-22)
 - **Blocked by**: DEPLOY-004, DEPLOY-005
 - **Assignee**: Person B
-- **Status**: 📋 Planned
+- **Status**: ✅ Done (Sprint 2, CUAI-72, PR #127; WIF auth in CUAI-89, PR #126)
 - **Description**: Create `.github/workflows/deploy.yml`. On push to main: build Docker images, push to Artifact Registry, deploy new revisions to Cloud Run.
 - **Acceptance criteria**:
   - [ ] Pushing to main triggers build + deploy
