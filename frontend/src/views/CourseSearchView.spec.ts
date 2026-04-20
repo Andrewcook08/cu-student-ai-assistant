@@ -44,6 +44,7 @@ describe('CourseSearchView', () => {
     })
 
     const wrapper = mountView()
+    await wrapper.find('select#filter-dept').setValue('CSCI')
     // Trigger search via FilterBar's submit event
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -67,6 +68,7 @@ describe('CourseSearchView', () => {
     })
 
     const wrapper = mountView()
+    await wrapper.find('select#filter-dept').setValue('CSCI')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -88,6 +90,7 @@ describe('CourseSearchView', () => {
     })
 
     const wrapper = mountView()
+    await wrapper.find('select#filter-dept').setValue('CSCI')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -144,6 +147,7 @@ describe('CourseSearchView', () => {
     })
 
     const wrapper = mountView()
+    await wrapper.find('select#filter-dept').setValue('CSCI')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -175,6 +179,7 @@ describe('CourseSearchView', () => {
     vi.spyOn(courseApi, 'fetchCourses').mockRejectedValueOnce(new Error('API unavailable'))
 
     const wrapper = mountView()
+    await wrapper.find('select#filter-dept').setValue('CSCI')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 

@@ -85,9 +85,14 @@ describe('authApi', () => {
       await expect(login('a@b.com', 'wrong')).rejects.toThrow('Invalid credentials')
     })
 
-    it('falls back to status-based message when detail is missing', async () => {
+    it('falls back to friendly message when detail is missing', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 500 }))
-      await expect(login('a@b.com', 'p')).rejects.toThrow('Login failed: 500')
+      await expect(login('a@b.com', 'p')).rejects.toThrow(/something went wrong/i)
+    })
+
+    it('returns friendly 401 copy when detail is missing', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 401 }))
+      await expect(login('a@b.com', 'p')).rejects.toThrow('Invalid email or password.')
     })
   })
 
@@ -118,9 +123,9 @@ describe('authApi', () => {
       await expect(fetchPrograms()).rejects.toThrow('Unauthorized')
     })
 
-    it('falls back to a status-based error when detail is missing', async () => {
+    it('falls back to a friendly error when detail is missing', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 503 }))
-      await expect(fetchPrograms()).rejects.toThrow('Failed to fetch programs: 503')
+      await expect(fetchPrograms()).rejects.toThrow(/saving your profile/i)
     })
   })
 

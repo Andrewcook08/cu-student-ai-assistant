@@ -7,23 +7,9 @@ import type {
   ProgramRequirementsResponse,
 } from '@/types/index'
 import { apiFetch } from '@/services/api'
+import { extractApiError } from '@/utils/errorMessages'
 
 const API_BASE = '/api'
-
-async function getErrorMessage(response: Response, fallback: string): Promise<string> {
-  const errorBody: unknown = await response.json().catch(() => null)
-
-  if (
-    errorBody !== null &&
-    typeof errorBody === 'object' &&
-    'detail' in errorBody &&
-    typeof errorBody.detail === 'string'
-  ) {
-    return errorBody.detail
-  }
-
-  return `${fallback}: ${response.status}`
-}
 
 export async function register(data: RegisterFormData): Promise<AuthRegisterResponse> {
   const res = await fetch(`${API_BASE}/auth/register`, {
@@ -32,7 +18,7 @@ export async function register(data: RegisterFormData): Promise<AuthRegisterResp
     body: JSON.stringify(data),
   })
   if (!res.ok) {
-    throw new Error(await getErrorMessage(res, 'Registration failed'))
+    throw new Error(await extractApiError(res, 'auth'))
   }
   return res.json()
 }
@@ -44,14 +30,14 @@ export async function login(email: string, password: string): Promise<AuthLoginR
     body: JSON.stringify({ email, password }),
   })
   if (!res.ok) {
-    throw new Error(await getErrorMessage(res, 'Login failed'))
+    throw new Error(await extractApiError(res, 'auth'))
   }
   return res.json()
 }
 
 export async function fetchPrograms(): Promise<Program[]> {
   const res = await apiFetch(`${API_BASE}/programs`)
-  if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to fetch programs'))
+  if (!res.ok) throw new Error(await extractApiError(res, 'profile'))
   return res.json()
 }
 
@@ -59,7 +45,7 @@ export async function fetchProgramRequirements(
   programId: number,
 ): Promise<ProgramRequirementsResponse> {
   const res = await apiFetch(`${API_BASE}/programs/${programId}/requirements`)
-  if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to fetch requirements'))
+  if (!res.ok) throw new Error(await extractApiError(res, 'profile'))
   return res.json()
 }
 
@@ -68,7 +54,7 @@ export async function updateProgram(programId: number | null): Promise<void> {
     method: 'PUT',
     body: JSON.stringify({ program_id: programId }),
   })
-  if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to update program'))
+  if (!res.ok) throw new Error(await extractApiError(res, 'profile'))
 }
 
 export async function updateCompletedCourses(
@@ -78,5 +64,5 @@ export async function updateCompletedCourses(
     method: 'PUT',
     body: JSON.stringify(courses),
   })
-  if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to update completed courses'))
+  if (!res.ok) throw new Error(await extractApiError(res, 'profile'))
 }

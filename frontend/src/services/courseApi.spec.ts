@@ -131,14 +131,21 @@ describe('courseApi', () => {
       expect(result.total).toBe(1)
     })
 
-    it('throws on 500 response', async () => {
+    it('throws friendly 5xx copy without exposing the status code', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('', { status: 500 }))
-      await expect(fetchCourses()).rejects.toThrow('Failed to fetch courses: 500')
+      let caught: unknown
+      try {
+        await fetchCourses()
+      } catch (e) {
+        caught = e
+      }
+      expect((caught as Error).message).toMatch(/loading courses/i)
+      expect((caught as Error).message).not.toMatch(/500/)
     })
 
-    it('throws on 403 response', async () => {
+    it('throws friendly 403 copy', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('', { status: 403 }))
-      await expect(fetchCourses()).rejects.toThrow('Failed to fetch courses: 403')
+      await expect(fetchCourses()).rejects.toThrow(/not allowed/i)
     })
 
     it('attaches Authorization header when store has a token', async () => {
@@ -161,7 +168,7 @@ describe('courseApi', () => {
       const store = useAuthStore()
       store.setAuth('expired-token', 1, 'Alice')
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(null, { status: 401 }))
-      await expect(fetchCourses()).rejects.toThrow('Failed to fetch courses: 401')
+      await expect(fetchCourses()).rejects.toThrow(/log in/i)
       expect(store.isAuthenticated).toBe(false)
     })
   })
@@ -195,19 +202,26 @@ describe('courseApi', () => {
       expect(result.title).toBe('CS 1')
     })
 
-    it('throws "not found" error on 404', async () => {
+    it('throws "not found" friendly copy on 404', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('', { status: 404 }))
-      await expect(fetchCourse('FAKE 999')).rejects.toThrow("Course 'FAKE 999' not found")
+      await expect(fetchCourse('FAKE 999')).rejects.toThrow(/couldn't find that course/i)
     })
 
-    it('throws generic error on 500', async () => {
+    it('throws friendly 5xx copy without the status code', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('', { status: 500 }))
-      await expect(fetchCourse('CSCI 1300')).rejects.toThrow('Failed to fetch course: 500')
+      let caught: unknown
+      try {
+        await fetchCourse('CSCI 1300')
+      } catch (e) {
+        caught = e
+      }
+      expect((caught as Error).message).toMatch(/loading courses/i)
+      expect((caught as Error).message).not.toMatch(/500/)
     })
 
-    it('throws generic error on 403', async () => {
+    it('throws friendly 403 copy', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('', { status: 403 }))
-      await expect(fetchCourse('CSCI 1300')).rejects.toThrow('Failed to fetch course: 403')
+      await expect(fetchCourse('CSCI 1300')).rejects.toThrow(/not allowed/i)
     })
 
     it('attaches Authorization header for fetchCourse when authenticated', async () => {

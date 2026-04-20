@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { X } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
+import { validateLoginForm, hasErrors, type LoginFieldErrors } from '@/utils/validation'
 
 const emit = defineEmits<{
   close: []
@@ -12,8 +13,21 @@ const { login, loading, error } = useAuth()
 
 const email = ref('')
 const password = ref('')
+const touched = reactive({ email: false, password: false })
+
+const fieldErrors = computed<LoginFieldErrors>(() =>
+  validateLoginForm({ email: email.value, password: password.value }),
+)
+const canSubmit = computed(() => !hasErrors(fieldErrors.value) && !loading.value)
+
+function showError(field: 'email' | 'password'): string | undefined {
+  return touched[field] ? fieldErrors.value[field] : undefined
+}
 
 async function handleSubmit() {
+  touched.email = true
+  touched.password = true
+  if (hasErrors(fieldErrors.value)) return
   try {
     await login({ email: email.value, password: password.value })
     emit('close')
@@ -46,8 +60,18 @@ async function handleSubmit() {
             type="email"
             class="form-control"
             autocomplete="email"
+            :disabled="loading"
+            :aria-invalid="!!showError('email')"
+            aria-describedby="login-email-error"
             required
+            @blur="touched.email = true"
           />
+          <p
+            v-if="showError('email')"
+            id="login-email-error"
+            data-testid="email-error"
+            class="field-error"
+          >{{ showError('email') }}</p>
         </div>
 
         <div class="form-group">
@@ -58,8 +82,18 @@ async function handleSubmit() {
             type="password"
             class="form-control"
             autocomplete="current-password"
+            :disabled="loading"
+            :aria-invalid="!!showError('password')"
+            aria-describedby="login-password-error"
             required
+            @blur="touched.password = true"
           />
+          <p
+            v-if="showError('password')"
+            id="login-password-error"
+            data-testid="password-error"
+            class="field-error"
+          >{{ showError('password') }}</p>
         </div>
 
         <p
@@ -81,7 +115,8 @@ async function handleSubmit() {
           <button
             type="submit"
             class="btn btn--full"
-            :disabled="loading"
+            data-testid="submit-btn"
+            :disabled="!canSubmit"
           >
             {{ loading ? 'Logging in…' : 'Log In' }}
           </button>
@@ -182,6 +217,22 @@ async function handleSubmit() {
 .form-control:focus {
   outline: 2px solid #CFB87C;
   outline-offset: 1px;
+}
+
+.form-control[aria-invalid='true'] {
+  border-color: #c0392b;
+}
+
+.form-control:disabled {
+  background: #f5f5f5;
+  color: #777;
+  cursor: not-allowed;
+}
+
+.field-error {
+  color: #c0392b;
+  font-size: 12px;
+  margin: 4px 0 0;
 }
 
 .modal__error {

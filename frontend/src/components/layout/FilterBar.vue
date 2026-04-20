@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { FilterValues } from '@/types/index'
 
 const emit = defineEmits<{
@@ -10,7 +10,10 @@ const dept = ref('')
 const level = ref('')
 const credits = ref('')
 
+const hasAnyFilter = computed(() => !!(dept.value || level.value || credits.value))
+
 function handleSearch() {
+  if (!hasAnyFilter.value) return
   emit('search', {
     dept: dept.value,
     level: level.value,
@@ -67,10 +70,33 @@ function handleSearch() {
             </select>
           </div>
           <div class="form-group">
-            <button type="submit" class="btn btn--full">SEARCH CLASSES</button>
+            <button
+              type="submit"
+              class="btn btn--full"
+              data-testid="search-btn"
+              :disabled="!hasAnyFilter"
+            >
+              SEARCH CLASSES
+            </button>
+            <p v-if="!hasAnyFilter" class="filter-hint" data-testid="filter-hint">
+              Pick at least one filter to search.
+            </p>
           </div>
         </div>
       </div>
     </form>
   </div>
 </template>
+
+<style scoped>
+.btn--full:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.filter-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #777;
+}
+</style>

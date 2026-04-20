@@ -1,5 +1,6 @@
 import type { Course, PaginatedResponse } from '@/types/index'
 import { apiFetch } from '@/services/api'
+import { extractApiError } from '@/utils/errorMessages'
 
 const API_BASE = '/api'
 
@@ -28,13 +29,12 @@ export async function fetchCourses(
   if (filters.limit !== undefined) params.set('limit', String(filters.limit))
 
   const res = await apiFetch(`${API_BASE}/courses?${params.toString()}`)
-  if (!res.ok) throw new Error(`Failed to fetch courses: ${res.status}`)
+  if (!res.ok) throw new Error(await extractApiError(res, 'courses'))
   return res.json()
 }
 
 export async function fetchCourse(code: string): Promise<Course> {
   const res = await apiFetch(`${API_BASE}/courses/${encodeURIComponent(code)}`)
-  if (res.status === 404) throw new Error(`Course '${code}' not found`)
-  if (!res.ok) throw new Error(`Failed to fetch course: ${res.status}`)
+  if (!res.ok) throw new Error(await extractApiError(res, 'courses'))
   return res.json()
 }
