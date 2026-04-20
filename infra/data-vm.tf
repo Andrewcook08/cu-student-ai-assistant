@@ -77,7 +77,7 @@ resource "google_compute_disk_resource_policy_attachment" "data_vm_backup" {
 resource "google_service_account" "data_vm" {
   account_id   = "data-vm-sa"
   display_name = "Data Services VM"
-  description  = "Reads secrets at boot; writes queue-depth metrics to Cloud Monitoring"
+  description  = "Reads secrets at boot"
 }
 
 # Ops agent needs these to ship metrics + logs. Without metricWriter the

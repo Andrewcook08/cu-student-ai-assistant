@@ -51,7 +51,7 @@ resource "google_compute_network_firewall_policy_association" "main" {
   attachment_target = google_compute_network.vpc.id
 }
 
-# Cloud Run → data-services VM + ollama workers (database + inference ports only)
+# Cloud Run → data-services VM (database ports only)
 # Note: Neo4j HTTP browser (7474) is intentionally excluded — clients use Bolt (7687).
 # Port 7474 is blocked from all sources by the default-deny rule at priority 65534.
 resource "google_compute_network_firewall_policy_rule" "allow_vpc_connector" {
@@ -66,12 +66,12 @@ resource "google_compute_network_firewall_policy_rule" "allow_vpc_connector" {
     src_ip_ranges = [var.vpc_connector_range]
     layer4_configs {
       ip_protocol = "tcp"
-      ports       = ["5432", "7687", "6379", "11434"]
+      ports       = ["5432", "7687", "6379"]
     }
   }
 }
 
-# VM-to-VM traffic within the private subnet (data VM ↔ ollama workers, exporters)
+# VM-to-VM traffic within the private subnet (data VM ↔ exporters)
 resource "google_compute_network_firewall_policy_rule" "allow_internal" {
   firewall_policy = google_compute_network_firewall_policy.main.name
   rule_name       = "allow-internal"
