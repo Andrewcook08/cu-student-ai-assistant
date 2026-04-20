@@ -142,6 +142,14 @@ watch(
       </div>
 
       <div v-if="store.isReconnecting" class="chat-reconnecting">Reconnecting...</div>
+      <div
+        v-else-if="store.connectionError"
+        class="chat-connection-error"
+        role="alert"
+        data-testid="chat-connection-error"
+      >
+        {{ store.connectionError }}
+      </div>
 
       <div ref="messagesEl" class="chat-panel__messages">
         <ChatMessage
@@ -252,6 +260,17 @@ watch(
   text-align: center;
   padding: 4px 12px;
   border-bottom: 1px solid #ffe082;
+  flex-shrink: 0;
+}
+
+/* Connection error banner */
+.chat-connection-error {
+  background: #fff5f5;
+  color: #c53030;
+  font-size: 12px;
+  text-align: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid #fc8181;
   flex-shrink: 0;
 }
 

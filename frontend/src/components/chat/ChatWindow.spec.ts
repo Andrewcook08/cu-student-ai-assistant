@@ -105,6 +105,29 @@ describe('ChatWindow', () => {
     expect(input.props('disabled')).toBe(true)
   })
 
+  it('renders the connection-error banner when connectionError is set', async () => {
+    const { wrapper, store } = mountWindow(true)
+    await wrapper.find('.chat-bubble').trigger('click')
+    expect(wrapper.find('[data-testid="chat-connection-error"]').exists()).toBe(false)
+
+    store.setError('Authentication failed. Please log in again.')
+    await wrapper.vm.$nextTick()
+
+    const banner = wrapper.find('[data-testid="chat-connection-error"]')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('Authentication failed')
+  })
+
+  it('hides the connection-error banner while reconnecting (avoids duplicate banners)', async () => {
+    const { wrapper, store } = mountWindow(true)
+    await wrapper.find('.chat-bubble').trigger('click')
+    store.setError('Connection closed.')
+    store.setReconnecting(true)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.chat-reconnecting').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="chat-connection-error"]').exists()).toBe(false)
+  })
+
   it('disables ChatInput when isTyping is true', async () => {
     const { wrapper, store } = mountWindow(true)
     await wrapper.find('.chat-bubble').trigger('click')

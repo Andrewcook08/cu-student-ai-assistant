@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { X } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
 import type { CompletedCoursePayload, Program, Requirement } from '@/types/index'
+import { useToastStore } from '@/stores/toastStore'
+import { GRADE_OPTIONS } from '@/utils/grades'
+import {
+  hasErrors,
+  validateRegisterStep1,
+  type RegisterStep1FieldErrors,
+} from '@/utils/validation'
 
 const emit = defineEmits<{
   close: []
@@ -11,12 +18,15 @@ const emit = defineEmits<{
 
 const { loading, error, register, fetchPrograms, fetchRequirements, updateProgram, updateCompletedCourses } =
   useAuth()
+const toasts = useToastStore()
 const dialogTitleId = 'register-modal-title'
 
 const email = ref('')
 const password = ref('')
+const confirmPassword = ref('')
 const name = ref('')
 const step = ref<1 | 2>(1)
+const touched = reactive({ name: false, email: false, password: false, confirmPassword: false })
 
 const programs = ref<Program[]>([])
 const selectedProgramId = ref<number | null>(null)
@@ -53,6 +63,20 @@ const selectableRequirements = computed(() =>
     typeof requirement.course_code === 'string' && requirement.course_code.length > 0,
   ),
 )
+
+const step1Errors = computed<RegisterStep1FieldErrors>(() =>
+  validateRegisterStep1({
+    name: name.value,
+    email: email.value,
+    password: password.value,
+    confirmPassword: confirmPassword.value,
+  }),
+)
+const canSubmitStep1 = computed(() => !hasErrors(step1Errors.value) && !loading.value)
+
+function showStep1Error(field: keyof RegisterStep1FieldErrors): string | undefined {
+  return touched[field] ? step1Errors.value[field] : undefined
+}
 
 function focusActiveStepField() {
   void nextTick(() => {
@@ -116,6 +140,12 @@ onBeforeUnmount(() => {
 })
 
 async function submitStep1() {
+  touched.name = true
+  touched.email = true
+  touched.password = true
+  touched.confirmPassword = true
+  if (hasErrors(step1Errors.value)) return
+
   try {
     await register({
       email: email.value,
@@ -148,6 +178,7 @@ async function submitStep2() {
     if (courses.length > 0) {
       await updateCompletedCourses(courses)
     }
+    toasts.push({ level: 'success', message: 'Account created. Welcome!' })
     closeModal()
   } catch {
     // useAuth exposes the error message for the active step
@@ -186,9 +217,15 @@ async function submitStep2() {
               type="text"
               class="form-control"
               autocomplete="name"
+              :disabled="loading"
+              :aria-invalid="!!showStep1Error('name')"
               required
               placeholder="Jane Smith"
+              @blur="touched.name = true"
             />
+            <p v-if="showStep1Error('name')" data-testid="name-error" class="field-error">
+              {{ showStep1Error('name') }}
+            </p>
           </div>
           <div class="form-group">
             <label for="reg-email">Email</label>
@@ -198,9 +235,15 @@ async function submitStep2() {
               type="email"
               class="form-control"
               autocomplete="email"
+              :disabled="loading"
+              :aria-invalid="!!showStep1Error('email')"
               required
               placeholder="jane@colorado.edu"
+              @blur="touched.email = true"
             />
+            <p v-if="showStep1Error('email')" data-testid="email-error" class="field-error">
+              {{ showStep1Error('email') }}
+            </p>
           </div>
           <div class="form-group">
             <label for="reg-password">Password</label>
@@ -210,8 +253,11 @@ async function submitStep2() {
               type="password"
               class="form-control"
               autocomplete="new-password"
+              :disabled="loading"
+              :aria-invalid="!!showStep1Error('password')"
               required
               placeholder="12+ characters"
+              @blur="touched.password = true"
             />
             <div
               v-if="password"
@@ -221,7 +267,33 @@ async function submitStep2() {
             >
               {{ strength.label }}
             </div>
-            <p class="field-hint">Minimum 12 characters. Server validates final strength.</p>
+            <p v-if="showStep1Error('password')" data-testid="password-error" class="field-error">
+              {{ showStep1Error('password') }}
+            </p>
+            <p v-else class="field-hint">Minimum 12 characters. Server validates final strength.</p>
+          </div>
+          <div class="form-group">
+            <label for="reg-confirm-password">Confirm Password</label>
+            <input
+              id="reg-confirm-password"
+              v-model="confirmPassword"
+              type="password"
+              class="form-control"
+              autocomplete="new-password"
+              name="confirmPassword"
+              :disabled="loading"
+              :aria-invalid="!!showStep1Error('confirmPassword')"
+              required
+              placeholder="Re-enter password"
+              @blur="touched.confirmPassword = true"
+            />
+            <p
+              v-if="showStep1Error('confirmPassword')"
+              data-testid="confirm-password-error"
+              class="field-error"
+            >
+              {{ showStep1Error('confirmPassword') }}
+            </p>
           </div>
 
           <p v-if="error" data-testid="error-msg" class="error-text" aria-live="polite">{{ error }}</p>
@@ -236,7 +308,12 @@ async function submitStep2() {
             >
               Cancel
             </button>
-            <button type="submit" class="btn btn--full" :disabled="loading">
+            <button
+              type="submit"
+              class="btn btn--full"
+              data-testid="submit-btn"
+              :disabled="!canSubmitStep1"
+            >
               {{ loading ? 'Creating\u2026' : 'Create Account' }}
             </button>
           </div>
@@ -281,15 +358,16 @@ async function submitStep2() {
                   - {{ requirement.description }}
                 </span>
               </label>
-              <input
+              <select
                 v-if="isChecked(requirement.course_code)"
                 v-model="checkedCourses[requirement.course_code]"
-                type="text"
-                class="grade-input form-control"
+                class="grade-select form-control"
                 :aria-label="`Grade for ${requirement.course_code}`"
-                placeholder="Grade (e.g. A)"
-                maxlength="3"
-              />
+                :data-testid="`grade-select-${requirement.course_code}`"
+              >
+                <option value="">No grade</option>
+                <option v-for="grade in GRADE_OPTIONS" :key="grade" :value="grade">{{ grade }}</option>
+              </select>
             </li>
           </ul>
         </div>
@@ -479,11 +557,27 @@ async function submitStep2() {
 .course-code { font-weight: 600; color: #000; }
 .course-desc { color: #555; }
 
-.grade-input {
+.grade-select {
   margin-top: 6px;
   width: 120px;
   font-size: 12px;
   padding: 4px 8px;
+}
+
+.form-control[aria-invalid='true'] {
+  border-color: #c53030;
+}
+
+.form-control:disabled {
+  background: #f5f5f5;
+  color: #777;
+  cursor: not-allowed;
+}
+
+.field-error {
+  color: #c53030;
+  font-size: 12px;
+  margin-top: 4px;
 }
 
 .modal__switch {
