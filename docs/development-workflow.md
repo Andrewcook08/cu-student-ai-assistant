@@ -247,7 +247,6 @@ CI (CUAI-71, `.github/workflows/ci.yml`) runs from the repo root and auto-discov
 
 **What NOT to gate CI on:**
 
-- `scripts/test_tool_calling.py` — requires an Anthropic API key; manual validation only.
 - Anything that needs a live external service (production database, real LLM, paid API). These belong in manual QA scripts, not CI.
 - E2E tests that need the full stack up — if/when we add these, they go in a separate nightly workflow, not the PR gate.
 
@@ -424,7 +423,7 @@ You: Write tests for the parser. Test all 5 patterns plus edge cases:
      Put tests in data/tests/test_prerequisites.py.
 
 You: Run it against the real data. How many courses parsed successfully
-     out of the 2,830 with prerequisites?
+     out of the 2,588 unique courses with prerequisites?
 ```
 
 **For LangGraph (implemented — CHAT-008 / CUAI-40, merged):**
@@ -445,7 +444,7 @@ You: Add a new tool to the conversation engine. Define it in
 | Phase | Person C Focus | Key Prompt Patterns |
 |-------|---------------|-------------------|
 | 1 | Repo skeleton + Docker Compose (INFRA-001), then JSON parsing, DB writes, embeddings, LangGraph spike | "Parse cu_classes.json. The structure is {dept_code: [array_of_course_objects]}. Write to PostgreSQL and Neo4j." |
-| 2 | Neo4j queries, tools, ~~LangGraph engine~~ (done — CHAT-008), Redis queue | "Write a Cypher query that traverses the prerequisite chain for a course. Use variable-length paths." |
+| 2 | Neo4j queries, tools, ~~LangGraph engine~~ (done — CHAT-008), ~~Redis queue~~ (abandoned — ADR-49, now sessions + rate limit only) | "Write a Cypher query that traverses the prerequisite chain for a course. Use variable-length paths." |
 | 3 | System prompt, security hardening | "Write the production system prompt with behavioral boundaries and delimiter tags. Implement input sanitizer." |
 | 4 | Prompt tuning, demo prep | "Test these 10 conversation scenarios and tell me which ones fail. Adjust the system prompt." |
 
@@ -456,8 +455,6 @@ You: Add a new tool to the conversation engine. Define it in
 - Use Claude Sonnet (Anthropic API) for tool calling — reliable tool calling and response generation. Set `ANTHROPIC_MODEL=claude-sonnet-4-20250514` in `.env`.
 - Add a max-iterations guard to the tool loop to prevent infinite cycles
 - The `search_courses` → `lookup_course` two-tool pattern is critical: fuzzy search resolves names to codes, then exact lookup gets full details
-- For the Redis queue, start with the simple pattern: LPUSH to enqueue, BRPOP to dequeue, pub/sub for results
-- When testing tool calling, use `scripts/test_tool_calling.py` — run it after any tool description changes
 - The tool executor retry logic is critical — make sure Claude Code implements the "retry once on ValidationError" pattern
 
 ### Debugging LLM Issues

@@ -106,10 +106,10 @@ The backend is split into **two services**. This is the only microservice bounda
 - **Scales independently**: 1 instance handles most load
 
 ### Chat Service
-- Stateful AI orchestration via a compiled LangGraph `StateGraph` with 5 nodes: `classify_intent` → `build_context` → `call_llm` ←→ `tool_node` → `respond`
+- Stateful AI orchestration via a compiled LangGraph `StateGraph` with 7 nodes: `classify_intent` → `build_context` → `call_llm` ←→ (`tool_node` → `call_llm` | `final_response` on cap) → `respond` → `validate_output`
 - Holds long-lived WebSocket connections for streaming
 - Slow responses (seconds — waiting on Anthropic API inference)
-- Owns: intent classification, context building (Graph RAG + student profile), tool calling (7 tools via `ToolExecutor`), conversation history (Redis), input sanitization
+- Owns: intent classification (hybrid heuristic-first classifier — see [ADR-44](decisions.md#adr-44-hybrid-intent-classifier-on-anthropic-tool-use)), context building (Graph RAG + student profile), tool calling (7 tools via `ToolExecutor`), conversation history (Redis), input sanitization
 - Graph compiled once at startup on `app.state.conversation_graph`; each `ainvoke()` operates on an independent state copy (concurrent WebSocket sessions are safe)
 - **Scales independently**: add instances as chat demand grows, without affecting course search
 
@@ -293,8 +293,8 @@ Prerequisites are natural language strings in the course data. This is the most 
 
 (:Program {name, type, total_credits})
   -- type: "BA", "BS", "Minor", "Certificate", etc.
-  -[:HAS_REQUIREMENT]-> (:Requirement {name, credits, group_label,
-                                        requirement_type, raw_text})
+  -[:HAS_REQUIREMENT]-> (:Requirement {name, credits, requirement_type,
+                                        raw_text, course_code})
     -- requirement_type: "required", "choose_n", "elective_text"
     -[:SATISFIED_BY]-> (:Course)
     -[:OR_ALTERNATIVE]-> (:Requirement)
@@ -526,7 +526,7 @@ The architecture includes several safeguards for reliable tool calling:
 
 2. **Strict Pydantic validation**: Every tool call is validated against its schema by `ToolExecutor` before execution. Bad parameters never reach the database. The executor also enforces JWT `user_id` override (the LLM cannot access another user's data), parameter whitelisting, and audit logging.
 
-3. **Tool call rate limiting**: The `should_continue` edge checks `call_count >= MAX_TOOL_CALLS_PER_TURN` (10). If the limit is reached, the graph routes to `respond` instead of continuing the tool loop. This prevents runaway loops from manipulated or confused models.
+3. **Tool call rate limiting**: The `should_continue` edge checks `call_count >= MAX_TOOL_CALLS_PER_TURN` (10). If the limit is reached, the graph routes to `respond` instead of continuing the tool loop. This prevents runaway loops from manipulated or confused models. The cap value (and the paired course-card flood cap in the response path) is set per [ADR-45](decisions.md#adr-45-tool-round-and-course-card-caps).
 
 4. **Parallel tool execution**: When the LLM emits multiple tool calls in a single `AIMessage`, the `tool_node` executes them concurrently via `asyncio.gather()` to reduce latency.
 
@@ -547,7 +547,7 @@ The architecture includes several safeguards for reliable tool calling:
 
 ## Conversation Memory
 
-**Status**: Redis session history implemented (CHAT-008 / CUAI-40). Summary compression and cross-session memory are planned (Epic 8 MEM-*).
+**Status**: Fully implemented. Redis session history (CHAT-008 / CUAI-40, MEM-001 / CUAI-57), summary compression (MEM-002 / CUAI-58), and cross-session decision persistence (MEM-003 / CUAI-59) all shipped.
 
 See [ADR-8](decisions.md#adr-8-two-tier-conversation-memory) and [ADR-9](decisions.md#adr-9-persistent-decision-history) for why this design.
 
@@ -562,11 +562,14 @@ The Chat Service sets a **180-second timeout** on each LangGraph invocation via 
 - The frontend clears the typing indicator and re-enables the input field
 
 ### Within a Session (Redis)
+
+Redis backs session storage and the conversation message cache only; an earlier plan for a Redis-hosted Ollama inference queue was abandoned during the Anthropic migration ([ADR-49](decisions.md#adr-49-redis-retained-for-session-storage-inference-queue-abandoned)).
+
 - **Short-term**: Last 20 messages stored in Redis, passed directly to LLM. History is loaded from Redis at the start of each message, converted to LangChain `HumanMessage`/`AIMessage` objects (tool messages from prior turns are excluded — they are ephemeral to the tool-calling loop).
 - **Atomic persist**: After each turn, `redis_service.append_messages()` persists both the user message and assistant reply in a single Redis pipeline (all RPUSHes + EXPIRE in one round-trip), so either both are saved or neither is — no partial history.
 - **Graceful degradation**: If Redis is unavailable, the handler proceeds with empty history (logs a warning) and still attempts to persist after the response (failure is also logged but non-fatal).
 - **Session TTL**: 2 hours in Redis
-- **Compression** (planned — MEM-001): When buffer exceeds threshold, the LLM generates a running summary capturing: selected major, completed courses, decisions made, preferences. Summary prepended as system context.
+- **Compression** (implemented — MEM-002 / CUAI-58): When the message buffer exceeds 20 messages, `memory.save_summary()` runs as a background task after the turn, generating a running summary of selected major, completed courses, decisions, and preferences. The Redis pipeline atomically writes the summary and trims the message buffer to the last 10 (`_POST_SUMMARY_KEEP = 10`). Subsequent turns load the summary as a system-level prefix plus up to 10 recent messages.
 
 ### Across Sessions (PostgreSQL)
 - The student's profile (program + completed courses) persists across all sessions
@@ -630,7 +633,7 @@ The Course Search page is the home page and visually mirrors CU Boulder's class 
 
 **What the page actually has (functional scope — unchanged from original FE-002/003/004):**
 - **Header** (from `cu-classes.html` lines 449-470): black `.banner` with CU gold `CLASS SEARCH` title, help icon, cart icon, login/logout link
-- **Left filter sidebar** (`.panel`, 370px): a single `.section` titled "Search Classes" with four `<select>`/input controls — **Department**, **Level**, **Time**, **Credit Hours** — plus a **SEARCH CLASSES** primary button styled with `.btn--full`
+- **Left filter sidebar** (`.panel`, 370px): a single `.section` titled "Search Classes" with three `<select>`/input controls — **Department**, **Level**, **Credit Hours** (Time dropped per ADR-32) — plus a **SEARCH CLASSES** primary button styled with `.btn--full`
 - **Right pane** (`.empty-space`): shows a welcome `.glass` card (ported from `cu-classes.html` lines 1114-1138) on initial load; replaced by `CourseTable.vue` + `CourseRow.vue` + `CourseDetail.vue` after a search runs
 - **Chat widget** floating bottom-right (Epic 6) — the primary product
 
@@ -681,6 +684,16 @@ These tokens live in `frontend/src/assets/cu-classes.css` (the verbatim port of 
 | `src/components/course-search/CourseRow.vue` | Individual row |
 | `src/components/course-search/CourseDetail.vue` | Expanded detail panel (CRN, time, instructor, status, prerequisites, description) shown when a row is clicked |
 
+### UX Hardening (PR #144)
+
+Shipped as part of the frontend UX-hardening pass:
+
+- `frontend/src/utils/validation.ts` — form-input validation helpers
+- `frontend/src/utils/errorMessages.ts` — user-facing error-message mapping
+- `frontend/src/stores/toastStore.ts` — Pinia store for toast notifications
+- `frontend/src/components/layout/Toast.vue` — toast UI component
+- FilterBar rule: **≥1 filter required** — the SEARCH CLASSES button is disabled until at least one filter (Department, Level, or Credit Hours) is selected
+
 ### Chat Widget
 - Floating panel in bottom-right corner (like Intercom/Drift)
 - Expands on click, supports:
@@ -688,7 +701,7 @@ These tokens live in `frontend/src/assets/cu-classes.css` (the verbatim port of 
   - Course cards when the AI returns `structured_data`
   - Interactive prompts (dropdowns, selectable lists) when the AI returns `suggested_actions`
   - Typing indicator during LLM streaming (WebSocket)
-- Session persists via JWT in localStorage
+- Session persists via JWT in sessionStorage (per-tab; chat transcript also persisted under chat-messages-<userId> so same-user re-login restores the transcript — see [ADR-47](decisions.md#adr-47-sessionstorage-chat-transcript-restoration))
 
 ### Auth
 - Login/register modal
@@ -927,25 +940,38 @@ cu-student-ai-assistant/
 │       │       ├── ChatInput.spec.ts
 │       │       ├── StructuredResponse.vue
 │       │       └── SuggestedActions.vue
-│       │   # auth/    — PLANNED (AUTH-003/004): LoginModal.vue, RegisterModal.vue
-│       │   # profile/ — PLANNED: CompletedCourses.vue (API-005b)
+│       │   ├── auth/
+│       │   │   ├── LoginModal.vue
+│       │   │   ├── LoginModal.spec.ts
+│       │   │   ├── RegisterModal.vue
+│       │   │   └── RegisterModal.spec.ts
+│       │   └── layout/
+│       │       ├── FilterBar.vue
+│       │       ├── FilterBar.spec.ts
+│       │       └── Toast.vue                # Global toast renderer (toastStore)
 │       ├── views/
 │       │   ├── CourseSearchView.vue
 │       │   └── CourseSearchView.spec.ts
 │       ├── composables/
-│       │   ├── useCourses.ts       # Course search API calls + filter state
-│       │   └── useCourses.spec.ts
-│       │   # useChat.ts  — PLANNED (Epic 6 CHAT-*)
-│       │   # useAuth.ts  — PLANNED (Epic 7 AUTH-*)
+│       │   ├── useCourses.ts               # Course search API calls + filter state
+│       │   ├── useCourses.spec.ts
+│       │   ├── useChat.ts                  # WebSocket lifecycle + chatStore wiring
+│       │   ├── useChat.spec.ts
+│       │   ├── useAuth.ts                  # Login/logout, session-storage restore
+│       │   └── useAuth.spec.ts
 │       ├── services/
-│       │   └── courseApi.ts        # REST client → Course Search API
-│       │   # chatApi.ts    — PLANNED (CHAT-001)
-│       │   # studentApi.ts — PLANNED (AUTH/profile work)
-│       ├── stores/                  # Pinia stores
-│       │   ├── courseStore.ts       # filters, search results, selected course
-│       │   └── authStore.ts         # user, JWT token, isAuthenticated (token plumbing only;
-│       │                            #   live login wiring lands with AUTH-003/004)
-│       │   # chatStore.ts — PLANNED (Epic 6)
+│       │   ├── courseApi.ts                # REST client → Course Search API
+│       │   ├── authApi.ts                  # Auth + student profile (register, login, program)
+│       │   └── api.ts                      # Axios base + interceptors
+│       ├── stores/                          # Pinia stores
+│       │   ├── courseStore.ts               # filters, search results, selected course
+│       │   ├── authStore.ts                 # user, JWT token, isAuthenticated (sessionStorage)
+│       │   ├── chatStore.ts                 # messages, session UUID, per-user transcript restore
+│       │   └── toastStore.ts                # toast stack, auto-dismiss
+│       ├── utils/
+│       │   ├── validation.ts                # email/password/form validators
+│       │   ├── errorMessages.ts             # HTTP status → friendly message
+│       │   └── grades.ts
 │       ├── mocks/
 │       │   ├── chat.ts             # Static mock chat responses for UI development
 │       │   └── courses.ts          # Static mock course payloads for tests + dev
@@ -967,10 +993,8 @@ cu-student-ai-assistant/
 └── scripts/
     ├── dev.sh                      # Day-to-day dev entry point: brings up the stack
     ├── check.sh                    # Local mirror of CI: ruff + mypy + pytest + vitest
-    ├── seed_db.sh                  # Runs data ingestion: uv run --package data-ingest
-    │                               #   python -m data.ingest.run_all
-    ├── test_tool_calling.py        # Standalone tool-calling smoke test (CUAI-32 spike)
-    └── spikes/                     # One-off exploration scripts
+    └── seed_db.sh                  # Runs data ingestion: uv run --package data-ingest
+                                    #   python -m data.ingest.run_all
 ```
 
 ---
@@ -1066,22 +1090,24 @@ When course descriptions or degree path data is retrieved and injected as contex
 
 ## API & Infrastructure Security
 
-**Status**: Partially implemented. SEC-007 rate limiting (CUAI-81) shipped. Remaining items (SEC-005/006/008/009 / CUAI-79/80/82/83) are planned for Phase 3.
+**Status**: Partially implemented. SEC-007 rate limiting (CUAI-81) and SEC-010 security headers middleware (CUAI-86) shipped. Remaining items (SEC-005/006/008/009 / CUAI-79/80/82/83) are planned for Phase 3.
 
-This section covers the security controls that sit between the LLM defenses above and the network defenses below — the FastAPI surface itself: route-level auth enforcement, startup secret validation, rate limiting, hardened compose configuration, and WebSocket frame controls. See [ADR-33](decisions.md#adr-33-api--infrastructure-security-hardening) for the decision rationale behind this control set.
+This section covers the security controls that sit between the LLM defenses above and the network defenses below — the FastAPI surface itself: route-level auth enforcement, startup secret validation, rate limiting, hardened compose configuration, and WebSocket frame controls. See [ADR-33](decisions.md#adr-33-api--infrastructure-security-hardening) for the decision rationale behind this control set. Image-level hardening (non-root UID, read-only root filesystem) is covered separately by [ADR-46](decisions.md#adr-46-container-hardening-non-root-read-only-root-fs).
 
-### Auth Enforcement on Every Route
+### Auth Enforcement — Public Reads, Authenticated Writes
 
-Every non-health FastAPI route will depend on `get_current_user`. Currently the merged catalog, search, and programs routes do not carry this dependency, which is a deploy blocker for production. Health routes (`/api/health`, `/api/chat/health`) remain intentionally public so load balancer probes can reach them without credentials.
+Read endpoints for the course catalog and programs (`GET /api/courses`, `GET /api/courses/{code}`, `GET /api/courses/search`, `GET /api/programs`, `GET /api/programs/{slug}/requirements`) are **intentionally anonymous**. The underlying data is already public on classes.colorado.edu, so gating our copy behind auth only hurts discoverability without adding security. IP-keyed rate limiting replaces auth as the abuse backstop on these routes.
 
-The pattern is already established in `services/course-search-api/course_search_api/routes/students.py` and will be applied uniformly across all other route modules:
+All **write** endpoints and student-scoped reads require `Depends(get_current_user)`: `POST /api/auth/*`, `POST/PUT /api/students/*`, `POST /api/students/me/decisions`, and every chat-service WebSocket/LLM path. Health routes (`/api/health`, `/api/chat/health`) stay public so load balancer probes can reach them without credentials.
+
+This is a deliberate narrowing of the original SEC-005 / CUAI-79 control set — see [ADR-43](decisions.md#adr-43-public-read-authenticated-write-for-catalog-routes) for the rationale. The authenticated-write pattern still follows the shape established in `services/course-search-api/course_search_api/routes/students.py`:
 
 ```python
 from course_search_api.dependencies import get_current_user
 from shared.models import User
 
-@router.get("/courses")
-def list_courses(_user: User = Depends(get_current_user), ...):
+@router.post("/students/me/decisions")
+def save_decision(_user: User = Depends(get_current_user), ...):
     ...
 ```
 
@@ -1103,7 +1129,7 @@ JWT_SECRET_KEY=
 
 ### Rate Limiting
 
-`slowapi` will be added to both services, with a module-level `Limiter(key_func=get_remote_address)` initialized alongside the CORS middleware. Per-route limits are keyed on IP for unauthenticated endpoints and on authenticated `user_id` for protected endpoints:
+`slowapi` will be added to both services, with a module-level `Limiter(key_func=get_remote_address)` initialized alongside the CORS middleware. Per-route limits are keyed on IP for unauthenticated endpoints and on authenticated `user_id` for protected endpoints. Concretely: IP-keyed limits come from `@limiter.limit(...)` without `key_func`; user-keyed limits use `key_func=user_key_func`. The `user_key_func` function always tries JWT→IP, but per-route behavior is selected by the decorator argument:
 
 | Route | Limit | Key |
 |-------|-------|-----|
@@ -1142,7 +1168,6 @@ The token is currently delivered in the query string (`?token=...`). This is a k
 ### Deferred to P1
 
 - Refresh tokens and shorter access token TTL.
-- Security headers middleware (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy).
 - CI security scanning (pip-audit, bandit, gitleaks, Dependabot).
 - WebSocket token delivery via subprotocol or httpOnly cookie (replacing the current query-string approach).
 - Password reset flow and account lockout policy.
@@ -1157,46 +1182,64 @@ The token is currently delivered in the query string (`?token=...`). This is a k
 
 All backend infrastructure runs in a private VPC subnet with no public IPs. The only internet-facing components are Cloud Run services, which GCP manages and terminates TLS for. See [ADR-23](decisions.md#adr-23-network-security-private-subnet--iap-over-bastion) for the rationale.
 
+Cloud Run services are reached directly via their default `*.run.app` URLs; no load balancer is provisioned because TLS, autoscaling, and global ingress are handled by Cloud Run itself. Keeping the control plane to "Cloud Run + VPC connector + one VM" is a deliberate design choice — adding a Cloud Load Balancer would buy custom domains and Cloud Armor at the cost of more Terraform, more moving parts, and no benefit for a class project.
+
 ### Network Architecture
 
 ```
-┌─────────────────────────── Internet ────────────────────────────┐
-│                                                                  │
-│   Users (browsers)          Anthropic API (external)            │
-│       │                           ▲                              │
-│       ▼ HTTPS only (TLS           │ HTTPS (Claude Sonnet)        │
-│         terminated by GCP)        │                              │
-│   ┌─────────────────────────────────────────────────────────┐    │
-│   │  Cloud Run (public endpoints, GCP-managed TLS)          │    │
-│   │  ├── frontend           (HTTPS → nginx)                 │    │
-│   │  ├── course-search-api  (HTTPS → FastAPI)               │    │
-│   │  └── chat-service  ─────────────────────────────────────┼──► │
-│   │      (HTTPS/WSS → FastAPI)                              │    │
-│   └────────────────────┬────────────────────────────────────┘    │
-│                        │                                         │
-│                        │ Serverless VPC Connector                 │
-│                        │ (private, no public IP)                  │
-│                        ▼                                         │
-│   ┌──────────────────────────────────────────────────────────┐   │
-│   │  VPC Private Subnet (10.0.0.0/24)                        │   │
-│   │  NO public IPs — unreachable from internet               │   │
-│   │                                                          │   │
-│   │  ┌──────────────────────────────────────────────────┐    │   │
-│   │  │ data-services VM (10.0.0.10)                     │    │   │
-│   │  │ • PostgreSQL :5432                               │    │   │
-│   │  │ • Neo4j :7687                                    │    │   │
-│   │  │ • Redis :6379                                    │    │   │
-│   │  │ • Ollama :11434 (embeddings only)                │    │   │
-│   │  └──────────────────────────────────────────────────┘    │   │
-│   │                                                          │   │
-│   └──────────────────────────────────────────────────────────┘   │
-│                        ▲                                         │
-│                        │ IAP TCP Tunnel (SSH)                     │
-│                        │ (authenticated via Google account,       │
-│                        │  audit-logged, no public IP needed)      │
-│                    Developers                                    │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────── Internet ─────────────────────────────────┐
+│                                                                            │
+│   Users (browsers)                                 Anthropic API (external)│
+│       │                                                    ▲               │
+│       │ HTTPS (TLS terminated by Cloud Run)                │ HTTPS          │
+│       │ direct to *.run.app — no load balancer             │ (Claude Sonnet)│
+│       ▼                                                    │               │
+│   ┌──────────────────────── Cloud Run (public) ─────────────────────────┐  │
+│   │ INGRESS_TRAFFIC_ALL  +  roles/run.invoker → allUsers                 │  │
+│   │                                                                      │  │
+│   │  frontend            :8080   (Nuxt SSR; proxies API/WS calls)        │  │
+│   │  course-search-api   :8000   (FastAPI — public reads, authed writes) │  │
+│   │  chat-service        :8001   (FastAPI — WebSocket /ws/chat/{id})    ─┼─►│
+│   └──────────────────┬───────────────────────────────────────────────────┘  │
+│                      │ Serverless VPC Connector (private, no public IP)     │
+│                      ▼                                                      │
+│   ┌──────────────── Cloud Run (internal) ────────┐                          │
+│   │ INGRESS_TRAFFIC_INTERNAL_ONLY                │                          │
+│   │  ollama-embed       :11434  (embeddings —    │                          │
+│   │                              nomic-embed-text) │                         │
+│   └──────────────────┬───────────────────────────┘                          │
+│                      │                                                      │
+│                      ▼ (same VPC connector path for DB traffic)             │
+│   ┌──────────── VPC Private Subnet (10.0.0.0/24) ────────────┐              │
+│   │ No public IPs — unreachable from internet                │              │
+│   │                                                          │              │
+│   │  ┌──────────── data-services VM (10.0.0.10) ─────────┐   │              │
+│   │  │ e2-standard-4, Docker Compose stack:              │   │              │
+│   │  │ • PostgreSQL :5432                                │   │              │
+│   │  │ • Neo4j      :7687                                │   │              │
+│   │  │ • Redis      :6379 (sessions + rate limit only)   │   │              │
+│   │  └───────────────────────────────────────────────────┘   │              │
+│   └──────────────────────────────────────────────────────────┘              │
+│                      ▲                                                      │
+│                      │ IAP TCP Tunnel (SSH)                                 │
+│                      │ (Google-account-authenticated, audit-logged)         │
+│                  Developers                                                 │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Diagram sources.** Every box and arrow above traces to a concrete file:line in the repo:
+
+- `frontend` Cloud Run service: `infra/cloud-run.tf:156` (`google_cloud_run_v2_service "frontend"`), ingress `INGRESS_TRAFFIC_ALL` at `infra/cloud-run.tf:159`, container port 8080 at `infra/cloud-run.tf:174`, public invoker binding at `infra/cloud-run.tf:201`.
+- `course-search-api` Cloud Run service: `infra/cloud-run.tf:215`, ingress `INGRESS_TRAFFIC_ALL` at `infra/cloud-run.tf:218`, container port 8000 at `infra/cloud-run.tf:243`, public invoker binding at `infra/cloud-run.tf:363`. Public reads vs. authed writes per [ADR-43](decisions.md#adr-43-public-read-authenticated-write-on-course-search-api): public endpoints at `services/course-search-api/course_search_api/routes/auth.py:117` (`/login`), `:155` (`/register`), `routes/courses.py:33,104,141`, `routes/programs.py:10,26`; JWT-gated endpoints at `routes/students.py:41,83,102` via `Depends(get_current_user)`.
+- `chat-service` Cloud Run service: `infra/cloud-run.tf:381`, ingress `INGRESS_TRAFFIC_ALL` at `infra/cloud-run.tf:384`, container port 8001 at `infra/cloud-run.tf:410`, public invoker binding at `infra/cloud-run.tf:539`. WebSocket endpoint at `services/chat-service/chat_service/routes/chat.py:121`.
+- `ollama-embed` Cloud Run service: `infra/ollama-embed.tf:36` (`google_cloud_run_v2_service "ollama_embed"`), ingress `INGRESS_TRAFFIC_INTERNAL_ONLY` at `infra/ollama-embed.tf:41`, container port 11434 at `infra/ollama-embed.tf:64`. No public invoker binding — reached only via the VPC connector. See [ADR-42](decisions.md#adr-42-move-ollama-embeddings-to-cloud-run).
+- Serverless VPC Connector: `infra/network.tf:25` (`google_vpc_access_connector "connector"`).
+- data-services VM: `infra/data-vm.tf:206` (`google_compute_instance "data_services"`, `e2-standard-4`), no `access_config` block at `infra/data-vm.tf:230-234` (therefore no public IP), network tag `data-services` at `infra/data-vm.tf:255`.
+- Firewall policy and rules: policy `cu-assistant-fw-policy` at `infra/network.tf:41`; `allow_vpc_connector` at `infra/network.tf:57-72` (priority 1000, ports `["5432", "7687", "6379"]` at `infra/network.tf:69`); `allow_internal` at `infra/network.tf:75-89` (priority 1100); `allow_iap_ssh` at `infra/network.tf:94-110` (priority 1200, src `35.235.240.0/20`, port 22); `default_deny` at `infra/network.tf:113+` (priority 65534).
+- Anthropic API egress: `services/chat-service/chat_service/core/intent_classifier.py:228` and `core/llm_engine.py` (`ChatAnthropic` via `langchain_anthropic`).
+- Redis scope ("sessions + rate limit only"): [ADR-49](decisions.md#adr-49-redis-retained-for-sessions-and-rate-limiting-only) — inference queue abandoned with the move to Anthropic.
+
+No load balancer resource exists in `infra/` — grep for `google_compute_(url_map|target_https_proxy|global_forwarding_rule|backend_service)` returns nothing. If that changes, update this section.
 
 ### Firewall Rules
 
@@ -1206,16 +1249,18 @@ Default deny all ingress, then allow only what's needed:
 
 | Rule (resource) | Priority | Source | Destination | Ports | Purpose |
 |-----------------|----------|--------|-------------|-------|---------|
-| `allow_vpc_connector` | 1000 | Serverless VPC Connector IP range | data-services VM | 5432, 7687, 6379, 11434 | Cloud Run → databases + Ollama (embeddings) |
+| `allow_vpc_connector` | 1000 | Serverless VPC Connector IP range | data-services VM | 5432, 7687, 6379 | Cloud Run → Postgres, Neo4j, Redis |
 | `allow_internal` | 1100 | VPC subnet (10.0.0.0/24) | VPC subnet | All | data VM internal traffic |
 | `allow_iap_ssh` | 1200 | Google IAP IP range (35.235.240.0/20) | All VMs | 22 | Developer SSH access via IAP tunnel |
 | `default_deny` | 65534 | 0.0.0.0/0 | All VMs | All | Block everything else |
+
+Ollama embeddings do **not** appear in this table: `ollama-embed` runs as a separate Cloud Run service (`infra/ollama-embed.tf`), not on the data VM, and is gated by `INGRESS_TRAFFIC_INTERNAL_ONLY` at the Cloud Run layer instead of a VPC firewall rule. See [ADR-42](decisions.md#adr-42-move-ollama-embeddings-to-cloud-run).
 
 All four rules are `google_compute_network_firewall_policy_rule` resources inside `cu-assistant-fw-policy`.
 
 ### Key Security Properties
 
-1. **No public IPs on any VM.** The data-services VM and ollama workers have only internal IPs (10.0.0.x). They are unreachable from the internet — no open database ports, no exposed Ollama API.
+1. **No public IPs on any VM.** The data-services VM has only an internal IP (10.0.0.10 per `infra/data-vm.tf`). It is unreachable from the internet — no open database ports.
 
 2. **No bastion host.** Developer SSH access goes through **GCP Identity-Aware Proxy (IAP)** TCP tunneling instead:
    ```bash
@@ -1267,26 +1312,25 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 │  │ course-search-api│ │ chat-service │ │   frontend    │  │
 │  │ (container)      │ │ (container)  │ │ (nginx+static)│  │
 │  └────────┬─────────┘ └──────┬───────┘ └───────────────┘  │
-│           │                  │ │                           │
-│           ▼                  ▼ └──► Anthropic API          │
+│           │ │                │ │                           │
+│           │ └──► ollama-embed│ └──► Anthropic API          │
+│           │      (Cloud Run, │     (external HTTPS)        │
+│           │      prebaked    │                             │
+│           │      nomic-embed)│                             │
+│           ▼                  ▼                             │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │  VPC Network (private)           (external HTTPS)   │   │
+│  │  VPC Network (private)                              │   │
 │  │                                                     │   │
 │  │  Compute Engine VM: "data-services"                 │   │
-│  │  (e2-medium, ~$25/mo)                               │   │
+│  │  (e2-standard-4, ~$100/mo)                          │   │
 │  │  ┌────────────┐ ┌──────────┐ ┌───────────────┐     │   │
 │  │  │ PostgreSQL │ │  Neo4j   │ │    Redis      │     │   │
 │  │  │ (Docker)   │ │ (Docker) │ │  (Docker)     │     │   │
 │  │  └────────────┘ └──────────┘ └───────────────┘     │   │
-│  │  ┌──────────────────────────┐                       │   │
-│  │  │ Ollama (Docker)          │                       │   │
-│  │  │ embeddings only          │                       │   │
-│  │  │ (nomic-embed-text)       │                       │   │
-│  │  └──────────────────────────┘                       │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                            │
 │  Artifact Registry                                         │
-│  (Docker images for all 3 Cloud Run services)              │
+│  (Docker images for all 4 Cloud Run services)              │
 │                                                            │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -1295,9 +1339,10 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 
 | Resource | Type | Purpose | Cost |
 |----------|------|---------|------|
-| `data-services` VM | `e2-medium` (2 vCPU, 4GB) | PostgreSQL + Neo4j + Redis + Ollama (embeddings) in Docker Compose | ~$25/mo |
+| `data-services` VM | `e2-standard-4` (4 vCPU, 16GB) | PostgreSQL + Neo4j + Redis in Docker Compose — sized for headroom across three datastores over the semester | ~$100/mo |
 | `course-search-api` | Cloud Run (0-5 instances, concurrency 80) | Stateless REST API container | ~$0-2/mo (scale-to-zero) |
 | `chat-service` | Cloud Run (0-5 instances, concurrency 15) | Chat engine container | ~$0-3/mo (scale-to-zero) |
+| `ollama-embed` | Cloud Run (0-3 instances, concurrency 50) | Embedding-only Ollama (prebaked nomic-embed-text) — CPU-only, scale-to-zero. See [ADR-42](decisions.md#adr-42-prebaked-ollama-embed-image-on-cloud-run). | ~$0-1/mo (scale-to-zero) |
 | `frontend` | Cloud Run (0-3 instances, concurrency 200) | nginx serving static Vue build | ~$0-1/mo (scale-to-zero) |
 | Artifact Registry | Docker repo | Stores container images for Cloud Run | ~$1/mo |
 | VPC + Connector | Networking | Private subnet (no public IPs), Network Firewall Policy (`cu-assistant-fw-policy`) with default-deny + allow rules, Serverless VPC Connector | ~$7/mo |
@@ -1305,7 +1350,7 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 | GCS Bucket | Storage | Terraform state backend (versioned, access-restricted) | ~$0/mo |
 | Anthropic API | External API | Claude Sonnet for LLM inference — pay-per-token | ~$5-15/mo (usage-dependent) |
 
-**Estimated total for 3.5 weeks: ~$15-25** out of $150 budget (infra) plus Anthropic API usage (~$5-15/mo depending on chat volume). Cloud Run and the data VM are the main infrastructure costs. No GPU VM costs.
+**Estimated total for 3.5 weeks: ~$85-110** out of $150 budget (infra) plus Anthropic API usage (~$5-15/mo depending on chat volume). The `e2-standard-4` data VM is the dominant fixed cost; Cloud Run services scale to zero. No GPU VM costs.
 
 ### Infrastructure-as-Code (Terraform)
 
@@ -1474,7 +1519,7 @@ GCP deployment and presentation prep.
 
 1. ~~**Dataset structure**~~: Resolved — analyzed both JSON files. `cu_classes.json`: 152 depts, 3,410 courses (deduplicated), 9,470 sections (deduplicated by course+CRN; topics courses share sections) with 15 fields per course. `cu_degree_requirements.json`: 203 programs as flat requirement lists with implicit or-groups and choose-N patterns. Prerequisites are natural language strings in the course data (2,830 courses have them). Schemas updated to match. See [Data Architecture](#data-architecture).
 3. ~~**Authentication scope**~~: Resolved — JWT + email/password for now, CU SSO later ([ADR-10](decisions.md#adr-10-jwt-authentication)).
-4. ~~**Graph complexity**~~: Resolved — prerequisites ARE in the course data as natural language strings (~80% parseable via regex). 2,830 of 3,410 courses have prerequisite data. Graph traversal is very useful. Degree requirements connect 203 programs to ~2,497 unique course codes. The graph is rich enough to power "what can I take next?" queries.
+4. ~~**Graph complexity**~~: Resolved — prerequisites ARE in the course data as natural language strings (~80% parseable via regex). 2,588 of 3,410 unique courses have prerequisite data (76%); 2,830 of 3,735 raw entries before deduplication. Graph traversal is very useful. Degree requirements connect 203 programs to ~2,497 unique course codes. The graph is rich enough to power "what can I take next?" queries.
 6. ~~**Budget**~~: Resolved — $50 GCP coupon per person × 3 people = $150. Estimated spend ~$15-25 for 3.5 weeks. Self-hosted databases on VM to conserve credits ([ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm)).
 7. ~~**Team assignment**~~: Resolved — Person A = Scott (shared package, memory, deploy), Person B = Rohan (frontend, Course Search API, auth, CI/CD, security), Person C = Andrew (repo skeleton, data ingestion, chat/AI engine).
 12. ~~**CORS configuration**~~: Resolved — both backend services use the same CORS config via `shared/config.py`. Local development: allow `http://localhost:5173` (Vite dev server). GCP: allow only the Cloud Run frontend URL (set via `CORS_ORIGINS` env var in Terraform). Both services read `settings.cors_origins_list` and configure `CORSMiddleware` identically in their `main.py`. Never use `allow_origins=["*"]` — even in development, pin to the frontend origin.

@@ -662,169 +662,7 @@ The LLM uses the Anthropic API (Claude Sonnet). Set `ANTHROPIC_API_KEY` in `.env
 
 The embedding model (nomic-embed-text) is pre-provisioned on disk — no runtime pull needed. `scripts/dev.sh` verifies embedding model presence before seeding.
 
-Create a test script `scripts/test_tool_calling.py`:
-```python
-"""Test if the chosen model can reliably call tools."""
-import anthropic
-import json
-
-ANTHROPIC_API_KEY = None  # reads from env by default
-
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_courses",
-            "description": "Search for courses by keyword, department, or filters.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search keyword"},
-                    "department": {"type": "string", "description": "Department code like CSCI"},
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_prerequisites",
-            "description": "Get the full prerequisite chain for a course.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "course_code": {"type": "string", "description": "Course code like CSCI 3104"},
-                },
-                "required": ["course_code"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lookup_course",
-            "description": "Get full details for a specific course by its exact code (e.g. CSCI 2270). Use search_courses first if you only have a name.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "course_code": {"type": "string", "description": "Exact course code like CSCI 2270"},
-                },
-                "required": ["course_code"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_degree_requirements",
-            "description": "Get all requirements for a degree program.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "program": {"type": "string", "description": "Program name"},
-                },
-                "required": ["program"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_student_profile",
-            "description": "Get a student's declared program and completed courses with grades.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "user_id": {"type": "string", "description": "Student user ID"},
-                },
-                "required": ["user_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "find_schedule_conflicts",
-            "description": "Check for time conflicts between selected courses.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "course_codes": {"type": "array", "items": {"type": "string"}, "description": "List of course codes"},
-                },
-                "required": ["course_codes"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "save_decision",
-            "description": "Save a student's course planning decision for future reference.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "user_id": {"type": "string", "description": "Student user ID"},
-                    "course_code": {"type": "string", "description": "Course code"},
-                    "decision_type": {"type": "string", "description": "planned, interested, or not_interested"},
-                },
-                "required": ["user_id", "course_code", "decision_type"],
-            },
-        },
-    },
-]
-
-TEST_QUERIES = [
-    ("What CS electives are available?", "search_courses"),
-    ("What are the prerequisites for CSCI 3104?", "check_prerequisites"),
-    ("What do I need for a CS BA?", "get_degree_requirements"),
-    ("Show me data science classes", "search_courses"),
-    ("Can I take algorithms?", "check_prerequisites"),
-    ("What classes does the math department offer?", "search_courses"),
-    ("Tell me about CSCI 2270", "lookup_course"),
-    ("What's in PHYS 1110?", "lookup_course"),
-    # Add 15+ more representative student questions
-]
-
-def test_tool_call(query: str, expected_tool: str) -> bool:
-    client = anthropic.Anthropic()
-    resp = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        tools=TOOLS,
-        messages=[{"role": "user", "content": query}],
-    )
-    tool_calls = [b for b in resp.content if b.type == "tool_use"]
-    if not tool_calls:
-        print(f"  FAIL: No tool call for '{query}'")
-        return False
-    called = tool_calls[0].name
-    if called != expected_tool:
-        print(f"  FAIL: Expected {expected_tool}, got {called} for '{query}'")
-        return False
-    # Validate JSON parameters parse correctly
-    try:
-        params = tool_calls[0].input
-        if isinstance(params, str):
-            json.loads(params)
-    except (json.JSONDecodeError, KeyError):
-        print(f"  FAIL: Malformed params for '{query}'")
-        return False
-    print(f"  PASS: {called}({tool_calls[0].input})")
-    return True
-
-if __name__ == "__main__":
-    passed = sum(test_tool_call(q, t) for q, t in TEST_QUERIES)
-    total = len(TEST_QUERIES)
-    print(f"\n{passed}/{total} passed ({passed/total*100:.0f}%)")
-    if passed / total < 0.8:
-        print("WARNING: Tool calling reliability below 80%. Investigate tool docstring clarity.")
-```
-
-Run it:
-```bash
-uv run python scripts/test_tool_calling.py
-```
+Sprint 1 included a standalone tool-calling validation script (`scripts/test_tool_calling.py`) that exercised candidate Ollama models end-to-end against ~20 representative student questions and reported pass rate per tool. It was removed after CUAI-87 migrated inference to the Anthropic API, where tool calling is reliable enough not to need a dedicated harness (see [ADR-41](decisions.md#adr-41-anthropic-api-for-llm-inference) and [ADR-50](decisions.md#adr-50-gpu-vm-test-harness--abandoned)).
 
 **Decision point**: Claude Sonnet is the production model (CUAI-87 migration). Tool calling reliability is consistently high. If issues arise, investigate tool docstring clarity.
 
@@ -1129,11 +967,11 @@ sections.append(f"<retrieved_context>\n{results}\n</retrieved_context>")
 
 The `build_context()` function takes `intent`, `user_id`, optional `query_embedding`, and optional `conversation_summary`. It routes to different retrieval strategies based on intent (`course_search` uses vector search, `degree_planning` fetches program requirements).
 
-`services/chat-service/chat_service/core/intent_classifier.py` is implemented in CUAI-39 / CHAT-007. The module exports an `Intent` `StrEnum` (`course_search`, `prereq_check`, `degree_planning`, `schedule_help`, `general_question`) and a single public `async def classify_intent(message, *, ollama_client=None) -> Intent`. The design is hybrid: a pure regex + keyword `_heuristic_classify` pass runs first and catches all five Jira acceptance examples with no Ollama dependency (deterministic, ~microseconds, trivially unit-tested). If the heuristic returns `GENERAL_QUESTION` and an `ollama_client` is supplied, a single `ollama_service.chat_completion` call fires as a fallback using Ollama's structured-output mode — a JSON-schema enum built from the `Intent` members themselves is passed as `format`, so the model is logit-masked to exactly the five labels. `options={"temperature": 0}` pins sampling for deterministic argmax. A lenient text parser (`_parse_llm_label`) handles the small mutations gpt-oss-tier models add even when the system prompt asks for a bare label (wrapper phrasing like `"Intent: course_search"`, trailing punctuation, `-`/space separator variants). **`classify_intent()` never raises** — every failure path (`OllamaError`, `JSONDecodeError`, unknown label, empty content) collapses to `Intent.GENERAL_QUESTION` so a downstream exception cannot drop a chat request. See [ADR-34](decisions.md#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007).
+`services/chat-service/chat_service/core/intent_classifier.py` is implemented in CUAI-39 / CHAT-007 and migrated to Anthropic in CUAI-87 (see [ADR-41](decisions.md#adr-41-migrate-to-anthropic-api-for-llm-inference)). The module exports an `Intent` `StrEnum` (`course_search`, `prereq_check`, `degree_planning`, `schedule_help`, `general_question`) and a single public `async def classify_intent(message, *, anthropic_client=None) -> Intent`. The design is hybrid: a pure regex + keyword `_heuristic_classify` pass runs first and catches all five Jira acceptance examples with no LLM dependency (deterministic, ~microseconds, trivially unit-tested). If the heuristic returns `GENERAL_QUESTION` and an `anthropic_client` is supplied, a single `anthropic_client.messages.create` call fires as a fallback. Label constraint is enforced via Anthropic's tool-use API: an `_INTENT_TOOL` whose `input_schema.properties.intent.enum` is built from the `Intent` members themselves, passed with `tool_choice={"type": "tool", "name": "classify_intent"}` so the model is forced to emit exactly one of the five labels through that tool call. `temperature=0` pins sampling for deterministic argmax. A lenient text parser (`_parse_llm_label`) handles wrapper phrasing like `"Intent: course_search"`, trailing punctuation, and `-`/space separator variants. **`classify_intent()` never raises** — every failure path (`APITimeoutError`, `APIError`, malformed tool block, unknown label, empty content) collapses to `Intent.GENERAL_QUESTION` so a downstream exception cannot drop a chat request. See [ADR-34](decisions.md#adr-34-hybrid-intent-classifier-with-structured-output-llm-fallback-cuai-39--chat-007).
 
-This ticket also extended `ollama_service.chat_completion` with two optional kwarg-only parameters, `format` and `options`, forwarded to the Ollama request body only when non-`None` to preserve back-compat with existing callers (embeddings path). Integration tests for the classifier live at `services/chat-service/tests/test_intent_classifier_integration.py` and are gated behind `pytest -m integration` (excluded from CI via the pyproject default `addopts`); they hit Claude Sonnet via the Anthropic API with paraphrases deliberately crafted to bypass every heuristic keyword. A parametrized unit test pins each integration paraphrase against the heuristic path (asserting `classify_intent(..., llm_client=None)` returns `GENERAL_QUESTION`) so a future heuristic tweak cannot silently degrade the integration test into hitting the heuristic instead of the LLM.
+Integration tests for the classifier live at `services/chat-service/tests/test_intent_classifier_integration.py` and are gated behind `pytest -m integration` (excluded from CI via the pyproject default `addopts`); they hit Claude Sonnet via the Anthropic API with paraphrases deliberately crafted to bypass every heuristic keyword. A parametrized unit test pins each integration paraphrase against the heuristic path (asserting `classify_intent(..., anthropic_client=None)` returns `GENERAL_QUESTION`) so a future heuristic tweak cannot silently degrade the integration test into hitting the heuristic instead of the LLM.
 
-`services/chat-service/chat_service/core/llm_engine.py` is implemented in CUAI-40 / CHAT-008, updated in CUAI-87 to use the Anthropic API. The module is a LangGraph `StateGraph` with 5 nodes (`classify_intent → build_context → call_llm → execute_tools → respond`). `ChatAnthropic` from `langchain_anthropic` is configured with `temperature=0` for tool-calling reliability. All 7 tools are bound via `llm.bind_tools()`. Key implementation details:
+`services/chat-service/chat_service/core/llm_engine.py` is implemented in CUAI-40 / CHAT-008, updated in CUAI-87 to use the Anthropic API. The module is a LangGraph `StateGraph` with 7 nodes: `classify_intent → build_context → call_llm ←→ (tool_node → call_llm | final_response on cap) → respond → validate_output`. `ChatAnthropic` from `langchain_anthropic` is configured with `temperature=0` for tool-calling reliability. All 8 tools are bound via `llm.bind_tools()`. Key implementation details:
 
 - **Retry-without-tools fallback**: When the LLM emits a malformed tool call, the engine strips tool bindings and retries the same prompt so the user still gets a natural-language answer instead of an error. See [ADR-36](decisions.md#adr-36-retry-without-tools-fallback-on-malformed-tool-calls-cuai-40--chat-008).
 - **Parallel tool execution**: Multiple tool calls in a single LLM turn are dispatched concurrently via `asyncio.gather` for lower latency. See [ADR-37](decisions.md#adr-37-parallel-tool-execution-via-asynciogather-cuai-40--chat-008).
@@ -1150,7 +988,6 @@ What the module exposes (downstream stories should treat this as the public surf
 
 - **Session storage**: `store_session(client, *, user_id, session_id, data)` / `get_session(...)` — `SETEX` / `GET` with a 2-hour TTL, keyed `session:{user_id}:{session_id}` so user_id scoping prevents cross-user leakage if a `session_id` is guessed.
 - **Conversation cache**: `append_messages(...)` (batch) / `append_message(...)` (single) / `get_messages(..., limit=20)` — `RPUSH` + `EXPIRE` / `LRANGE -limit -1`, keyed `messages:{user_id}:{session_id}` (same user-scoped key shape). The WebSocket handler uses `append_messages()` to atomically persist the user message and assistant response via a Redis pipeline.
-- **Inference queue**: `enqueue_inference(client, request, *, timeout=120.0, progress_interval=30.0, on_progress=None)` — subscribes to `ollama:result:{request_id}` **before** LPUSHing to `ollama:inference_queue` (pub/sub has no backlog, so subscribing after the push would race a fast worker), uses a wall-clock deadline with a per-tick budget of `min(progress_interval, remaining_total)` so `on_progress` fires roughly every ~30s while the hard 120s `timeout` is still enforced, raises `RedisTimeoutError` on expiry, and tears the pubsub down in a `finally` block on every exit path. Never silently retried.
 - **Error family**: `RedisError` / `RedisTimeoutError` / `RedisServiceError`, mirroring `OllamaError` / `OllamaTimeoutError` / `OllamaServiceError` from `ollama_service.py` (embeddings). Note: the LLM error family was renamed to `LLMError` / `LLMTimeoutError` / `LLMServiceError` as part of the Anthropic API migration (CUAI-87).
 
 The chat service already reads `shared.config.settings.redis_password` and passes it to `build_redis_client`, so SEC-008 (CUAI-82) can wire `REDIS_PASSWORD` through the prod compose override without touching this module.
@@ -1393,13 +1230,20 @@ gcloud compute ssh data-services --tunnel-through-iap --zone=us-central1-a
 # Inside VM: docker ps (should show postgres, neo4j, redis)
 
 # 5. Run data ingestion against GCP databases
-# (from local machine, using IAP tunnel for port forwarding)
-gcloud compute ssh data-services --tunnel-through-iap --zone=us-central1-a -- -L 5432:localhost:5432 -L 7687:localhost:7687 -L 11434:localhost:11434
-# In another terminal:
+# Preferred path: run the ingest Cloud Run Job defined in infra/ingest-job.tf.
+# It runs inside the VPC, so it can reach Postgres/Neo4j on the data VM
+# and ollama-embed (INGRESS_TRAFFIC_INTERNAL_ONLY) without any tunnel.
+gcloud run jobs execute data-ingest --region=us-central1 --wait
+
+# Fallback (from a developer laptop): tunnel Postgres + Neo4j via IAP and
+# point OLLAMA_URL at a locally-running Ollama, because ollama-embed is
+# internal-only and not reachable from the laptop.
+gcloud compute ssh data-services --tunnel-through-iap --zone=us-central1-a -- -L 5432:localhost:5432 -L 7687:localhost:7687
+# In another terminal (requires `ollama serve` + `ollama pull nomic-embed-text:v1.5` locally):
 DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/cu_assistant \
 NEO4J_URI=bolt://localhost:7687 \
 OLLAMA_URL=http://localhost:11434 \
-ANTHROPIC_API_KEY=<your-key> \
+OLLAMA_EMBED_MODEL=nomic-embed-text:v1.5 \
 uv run --package data-ingest python -m data.ingest.run_all
 
 # Note: OLLAMA_URL is used for embeddings (nomic-embed-text) only.
