@@ -35,7 +35,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await app.state.neo4j_driver.close()
 
 
-app = FastAPI(title="CU Course Search API", lifespan=lifespan)
+app = FastAPI(
+    title="CU Course Search API",
+    lifespan=lifespan,
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
+    openapi_url="/openapi.json" if settings.enable_docs else None,
+)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, make_rate_limit_handler(limiter))  # type: ignore[arg-type]
@@ -44,8 +50,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 app.add_middleware(SecurityHeadersMiddleware, environment=settings.environment)
 

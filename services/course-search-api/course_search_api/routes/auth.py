@@ -1,3 +1,5 @@
+import html
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, field_validator
 from shared.auth import create_access_token, hash_password, verify_password
@@ -83,7 +85,7 @@ class RegisterRequest(BaseModel):
             raise ValueError("Name must not be empty")
         if len(stripped) > 200:
             raise ValueError("Name must be 200 characters or fewer")
-        return stripped
+        return html.escape(stripped)
 
     @field_validator("password")
     @classmethod

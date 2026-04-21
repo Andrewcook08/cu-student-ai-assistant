@@ -248,6 +248,82 @@ async def test_lookup_course_not_found_returns_error_dict() -> None:
     assert result == {"error": "Course not found", "course_code": "XXXX 9999"}
 
 
+# ─── SYN-033: lookup_course error-path sanitization ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_lookup_course_long_code_truncated_in_error() -> None:
+    """A course_code longer than 20 chars must be truncated to 20 in the error dict.
+
+    Prevents the LLM-controlled input from being reflected at arbitrary length
+    in downstream responses or logs.
+    """
+    long_code = "ABCDEFGHIJ1234567890EXTRA30"  # 27 chars of valid [A-Z0-9] characters
+    session = MagicMock()
+
+    with patch(
+        "chat_service.core.tools.postgres_service.lookup_course",
+        new=AsyncMock(return_value=None),
+    ):
+        toolset = make_tools(
+            neo4j_driver=_make_neo4j_driver(),
+            postgres_sessionmaker=_make_postgres_sessionmaker(session),
+            ollama_client=_make_ollama_client(),
+        )
+        result = await toolset.registry["lookup_course"].ainvoke({"course_code": long_code})
+
+    reflected = result["course_code"]
+    assert len(reflected) <= 20, (
+        f"Reflected course_code has {len(reflected)} chars — expected ≤20 after truncation"
+    )
+    assert reflected == long_code[:20], (
+        f"Reflected code {reflected!r} is not the first 20 chars of the input"
+    )
+
+
+@pytest.mark.asyncio
+async def test_lookup_course_special_chars_stripped_in_error() -> None:
+    """Special characters in course_code must be stripped before appearing in the error dict.
+
+    Ensures that an angle-bracket injection payload cannot be reflected verbatim.
+    Valid [A-Z0-9 ] characters (uppercase + digits + space) must survive the filter
+    while HTML/script special chars are removed.
+
+    Input: "<b>CSCI 1300" — angle-bracket tag is stripped, leaving "BCSCI 1300"
+    after uppercasing.  The safe course code fragment "CSCI 1300" is present in
+    the 20-char window and must appear in the reflected value.
+    """
+    # "<b>CSCI 1300" → upper: "<B>CSCI 1300" → strip non-[A-Z0-9 ]: "BCSCI 1300"
+    raw_input = "<b>CSCI 1300"
+    session = MagicMock()
+
+    with patch(
+        "chat_service.core.tools.postgres_service.lookup_course",
+        new=AsyncMock(return_value=None),
+    ):
+        toolset = make_tools(
+            neo4j_driver=_make_neo4j_driver(),
+            postgres_sessionmaker=_make_postgres_sessionmaker(session),
+            ollama_client=_make_ollama_client(),
+        )
+        result = await toolset.registry["lookup_course"].ainvoke({"course_code": raw_input})
+
+    reflected = result["course_code"]
+
+    # Dangerous characters must be absent.
+    for bad_char in ("<", ">", "(", ")", "/", '"'):
+        assert bad_char not in reflected, (
+            f"Dangerous character {bad_char!r} survived sanitization in {reflected!r}"
+        )
+    # Lowercase letters must be absent (uppercased then filtered).
+    assert reflected == reflected.upper(), f"Lowercase chars survived in {reflected!r}"
+
+    # Safe alphanumeric content must survive the filter.
+    assert "CSCI 1300" in reflected, (
+        f"Expected 'CSCI 1300' to survive sanitization, got {reflected!r}"
+    )
+
+
 # ─── check_prerequisites ──────────────────────────────────────────────────
 
 

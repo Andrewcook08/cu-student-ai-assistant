@@ -1,6 +1,7 @@
 """Tests for Settings.validate_production() — each failure branch."""
 
 import pytest
+from pydantic import ValidationError
 from shared.config import Settings
 
 
@@ -124,3 +125,31 @@ def test_multiple_errors_reported_together() -> None:
     msg = str(exc_info.value)
     assert "JWT_SECRET_KEY" in msg
     assert "NEO4J_PASSWORD" in msg
+
+
+# ─── SYN-004: jwt_algorithm Literal enforcement ───────────────────────────
+
+
+def test_jwt_algorithm_none_rejected_by_pydantic() -> None:
+    """Literal["HS256"] prevents algorithm-confusion attack at construction time.
+
+    Passing jwt_algorithm="none" must raise a pydantic ValidationError before
+    validate_production() is even called — the type system is the first line
+    of defence.
+    """
+    with pytest.raises((ValidationError, ValueError)):
+        _prod_settings(jwt_algorithm="none")  # type: ignore[arg-type]
+
+
+def test_jwt_algorithm_must_be_hs256_in_production() -> None:
+    """Post-construction corruption of jwt_algorithm is caught by validate_production.
+
+    The Literal type prevents setting jwt_algorithm to a non-HS256 value via
+    the constructor, so we bypass pydantic with object.__setattr__ to simulate
+    a future schema widening or direct attribute mutation — then verify that
+    validate_production() raises RuntimeError mentioning JWT_ALGORITHM.
+    """
+    s = _prod_settings()
+    object.__setattr__(s, "jwt_algorithm", "RS256")
+    with pytest.raises(RuntimeError, match="JWT_ALGORITHM"):
+        s.validate_production()

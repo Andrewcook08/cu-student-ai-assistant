@@ -116,7 +116,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         await app.state.postgres_engine.dispose()
 
 
-app = FastAPI(title="CU Chat Service", lifespan=lifespan)
+app = FastAPI(
+    title="CU Chat Service",
+    lifespan=lifespan,
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
+    openapi_url="/openapi.json" if settings.enable_docs else None,
+)
 
 app.include_router(chat.router)
 
@@ -124,8 +130,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 app.add_middleware(SecurityHeadersMiddleware, environment=settings.environment)
 

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_COMPOSE_DB_PASSWORD = "postgres"
@@ -32,11 +34,14 @@ class Settings(BaseSettings):
 
     # Auth
     jwt_secret_key: str
-    jwt_algorithm: str = "HS256"
+    jwt_algorithm: Literal["HS256"] = "HS256"
     jwt_expire_minutes: int = 60 * 24  # 24 hours
 
     # CORS
     cors_origins: str
+
+    # Docs (OpenAPI UI) — disabled by default so production never exposes /docs
+    enable_docs: bool = False
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -67,6 +72,9 @@ class Settings(BaseSettings):
             errors.append(
                 "DATABASE_URL contains the default compose password — set a strong password"
             )
+
+        if self.jwt_algorithm != "HS256":
+            errors.append("JWT_ALGORITHM must be 'HS256' in production")
 
         if not self.ollama_url:
             errors.append(
