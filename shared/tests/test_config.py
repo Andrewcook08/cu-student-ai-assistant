@@ -138,7 +138,7 @@ def test_jwt_algorithm_none_rejected_by_pydantic() -> None:
     of defence.
     """
     with pytest.raises((ValidationError, ValueError)):
-        _prod_settings(jwt_algorithm="none")  # type: ignore[arg-type]
+        _prod_settings(jwt_algorithm="none")
 
 
 def test_jwt_algorithm_must_be_hs256_in_production() -> None:
