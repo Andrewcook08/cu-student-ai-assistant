@@ -12,7 +12,6 @@ and test_security_headers.py in this directory.
 
 from __future__ import annotations
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

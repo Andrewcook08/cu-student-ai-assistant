@@ -167,9 +167,8 @@ def make_tools(
             result = await postgres_service.lookup_course(session, course_code=course_code)
 
         if result is None:
-            _safe_code = course_code.upper()
-            _safe_code = "".join(c for c in _safe_code if c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ")
-            _safe_code = _safe_code[:20]
+            _allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
+            _safe_code = "".join(c for c in course_code.upper() if c in _allowed)[:20]
             return {"error": "Course not found", "course_code": _safe_code}
 
         # Trim the result to reduce context window usage.  The LLM needs
