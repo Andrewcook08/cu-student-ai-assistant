@@ -1,7 +1,7 @@
 # CU Student AI Assistant — Architecture Design
 
 > **Status**: Active — iterating as implementation progresses
-> **Team**: 3 people, Big Data Architecture class (CU Boulder)
+> **Team**: 3 people (CU Boulder)
 > **Goal**: Production-grade AI assistant that helps students plan degree paths and semester schedules
 
 ---
@@ -157,11 +157,11 @@ LLM inference is handled by the **Anthropic API** (external). The Chat Service c
 
 ## Scaling Strategy
 
-Every layer of the system scales independently. For our class demo, everything runs at minimum scale (1 instance / scale-to-zero). The architecture is designed so that scaling any layer requires only configuration changes — no code changes. See [ADR-20](decisions.md#adr-20-scaling-strategy) for the rationale behind these choices.
+Every layer of the system scales independently. At minimum scale, everything runs at 1 instance / scale-to-zero. The architecture is designed so that scaling any layer requires only configuration changes — no code changes. See [ADR-20](decisions.md#adr-20-scaling-strategy) for the rationale behind these choices.
 
 ### Overview — What Scales and How
 
-| Layer | Demo Scale | Auto-Scaling Mechanism | Production Scale |
+| Layer | Minimum Scale | Auto-Scaling Mechanism | Production Scale |
 |-------|-----------|----------------------|-----------------|
 | **Frontend** | 0-1 Cloud Run instances | Cloud Run built-in (HTTP request count) | 0-10 instances |
 | **Course Search API** | 0-1 Cloud Run instances | Cloud Run built-in (HTTP request count) | 0-20 instances |
@@ -221,7 +221,7 @@ For our demo, all databases run in Docker on a single Compute Engine VM ([ADR-19
 
 | Scenario | Concurrent Users | Cloud Run Instances | Estimated Cost |
 |----------|-----------------|--------------------|--------------------|
-| **Class demo** | 5-10 | 0-1 per service | ~$15-25 total (3.5 weeks) + Anthropic API (~$0.01/turn) |
+| **Minimum deployment** | 5-10 | 0-1 per service | ~$15-25/mo + Anthropic API (~$0.01/turn) |
 | **Department pilot** (100 students) | 20-30 | 1-2 per service | ~$50-100/mo infra + Anthropic API costs |
 | **University-wide** (10K students) | 500-1000 | 5-10 per service | ~$500-1K/mo infra + Anthropic API costs |
 
@@ -1339,7 +1339,7 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 
 | Resource | Type | Purpose | Cost |
 |----------|------|---------|------|
-| `data-services` VM | `e2-standard-4` (4 vCPU, 16GB) | PostgreSQL + Neo4j + Redis in Docker Compose — sized for headroom across three datastores over the semester | ~$100/mo |
+| `data-services` VM | `e2-standard-4` (4 vCPU, 16GB) | PostgreSQL + Neo4j + Redis in Docker Compose — sized for headroom across three datastores | ~$100/mo |
 | `course-search-api` | Cloud Run (0-5 instances, concurrency 80) | Stateless REST API container | ~$0-2/mo (scale-to-zero) |
 | `chat-service` | Cloud Run (0-5 instances, concurrency 15) | Chat engine container | ~$0-3/mo (scale-to-zero) |
 | `ollama-embed` | Cloud Run (0-3 instances, concurrency 50) | Embedding-only Ollama (prebaked nomic-embed-text) — CPU-only, scale-to-zero. See [ADR-42](decisions.md#adr-42-prebaked-ollama-embed-image-on-cloud-run). | ~$0-1/mo (scale-to-zero) |
@@ -1350,7 +1350,7 @@ See [ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.m
 | GCS Bucket | Storage | Terraform state backend (versioned, access-restricted) | ~$0/mo |
 | Anthropic API | External API | Claude Sonnet for LLM inference — pay-per-token | ~$5-15/mo (usage-dependent) |
 
-**Estimated total for 3.5 weeks: ~$85-110** out of $150 budget (infra) plus Anthropic API usage (~$5-15/mo depending on chat volume). The `e2-standard-4` data VM is the dominant fixed cost; Cloud Run services scale to zero. No GPU VM costs.
+**Estimated monthly total: ~$115-130** (infra) plus Anthropic API usage (~$5-15/mo depending on chat volume). The `e2-standard-4` data VM is the dominant fixed cost; Cloud Run services scale to zero. No GPU VM costs.
 
 ### Infrastructure-as-Code (Terraform)
 
@@ -1423,35 +1423,19 @@ GitHub Actions (deploy.yml)
 
 ## Implementation Phases
 
-> **Timeline: 3.5 weeks** (2026-03-25 → 2026-04-17 presentation).
-> **Budget: ~$150** ($50 GCP coupon × 3 people). Estimated spend: ~$15-25.
-> **Strategy**: Build and test everything locally first. Only deploy to GCP in the final week.
+> **Budget**: Estimated infra spend: ~$15-25/mo at minimum scale.
+> **Strategy**: Build and test everything locally first. Deploy to GCP once the core feature set is stable.
 
-> **Status as of Sprint 2 (2026-04-09)**: Phase 1 complete (INFRA-001/002/003 + DATA-001..006). API-001/002/004/005 and FE-001..004 complete from Phase 2 — course search works end-to-end. CI pipeline (CUAI-71) live. **Chat engine (Epic 4 CHAT-*) is implemented**: CHAT-001..008 shipped — LangGraph conversation engine with tool calling, intent classification, context building, Redis conversation history, input sanitization, and WebSocket integration. SEC-007 rate limiting middleware also shipped. **Next up**: auth endpoints + UI (Epic 7 AUTH-*), API-003 semantic search, `PUT /api/students/me/completed-courses` (API-005b), conversation memory (MEM-*), remaining security hardening (SEC-*), and GCP deployment (DEPLOY-*).
+> **Status**: Phase 1 complete (INFRA-001/002/003 + DATA-001..006). API-001/002/004/005 and FE-001..004 complete from Phase 2 — course search works end-to-end. CI pipeline (CUAI-71) live. **Chat engine (Epic 4 CHAT-*) is implemented**: CHAT-001..008 shipped — LangGraph conversation engine with tool calling, intent classification, context building, Redis conversation history, input sanitization, and WebSocket integration. SEC-007 rate limiting middleware also shipped. **Next up**: auth endpoints + UI (Epic 7 AUTH-*), API-003 semantic search, `PUT /api/students/me/completed-courses` (API-005b), conversation memory (MEM-*), remaining security hardening (SEC-*), and GCP deployment (DEPLOY-*).
 
 ### Critical Path
 
 Person C's data work is the bottleneck — most Phase 2 work depends on Phase 1 data being ingested. The dependency chain:
 
-```
-Day 1-2:  Person C (Andrew) → Repo skeleton + Docker Compose (INFRA-001)
-          Person A (Scott) → shared/ package (INFRA-002)
-              │
-Day 2-5:  Person C (Andrew) → Data ingestion scripts (DATA-001 through DATA-006)
-          Person A (Scott) → Wire services to shared package (INFRA-003)
-              │
-Day 6-9:  Person B (Rohan) → Course Search API endpoints (needs schema + data)
-              │
-Day 9-12: Person B (Rohan) → Frontend course search integration (needs API)
-
-Day 6-7:  Person C (Andrew) → Stub Chat Service WebSocket endpoint
-              │
-Day 7-12: Person B (Rohan) → Chat UI WebSocket integration (needs endpoint to connect to)
-```
 
 Person B (Rohan, frontend + API) is independent in Phase 1 and mostly independent in Phase 2 (can build chat UI components against mock data until the stub WebSocket is ready).
 
-### Phase 1: Foundation + Data (Days 1-5, Mar 25-29)
+### Phase 1: Foundation + Data
 
 All hands on repo setup, Docker Compose, and getting data flowing.
 
@@ -1466,7 +1450,7 @@ All hands on repo setup, Docker Compose, and getting data flowing.
 
 **Milestone**: `docker compose up -d` starts all services. Data ingestion completes. Course data visible in PostgreSQL and Neo4j browser.
 
-### Phase 2: Core Features (Days 6-12, Mar 30 - Apr 5)
+### Phase 2: Core Features
 
 Build the two main user-facing features in parallel.
 
@@ -1481,7 +1465,7 @@ Build the two main user-facing features in parallel.
 
 **Milestone**: Course search works end-to-end. Chat sends a message and gets an LLM response with tool-retrieved data.
 
-### Phase 3: Integration + Polish (Days 13-19, Apr 6-12)
+### Phase 3: Integration + Polish
 
 Wire everything together, add memory, harden. Phase 2 should be substantially complete — this phase is collaborative, less person-to-person blocking.
 
@@ -1494,20 +1478,20 @@ Wire everything together, add memory, harden. Phase 2 should be substantially co
 
 **Milestone**: Full local demo works — search courses, chat with AI, AI remembers context, decisions persist.
 
-### Phase 4: Deploy + Demo Prep (Days 20-24, Apr 13-17)
+### Phase 4: Deploy
 
-GCP deployment and presentation prep.
+GCP deployment and demo preparation.
 
 - **Person A (Scott)**: Terraform — VPC, data VM, Cloud Run services, data ingestion on GCP, end-to-end GCP verification
   ([ADR-13](decisions.md#adr-13-gcp-for-cloud-deployment), [ADR-18](decisions.md#adr-18-terraform-for-iac))
   - Mostly independent — needs service configs but not working code
 - **Person B (Rohan)**: GitHub Actions CI + deploy pipelines, CU branding polish, responsive design fixes
   - Needs Dockerfiles to exist (done in Phase 1)
-- **Person C (Andrew)**: Prompt engineering refinement, demo script preparation
+- **Person C (Andrew)**: Prompt engineering refinement, demo scenario preparation
   - Needs full system running (done in Phase 3)
-- **Everyone**: Practice demo, prepare presentation slides
+- **Everyone**: Practice demo scenarios, prepare demo materials
 
-**Milestone**: Live on GCP. Demo rehearsed. Presentation ready.
+**Milestone**: Live on GCP. Demo scenarios validated. Deployment verified end-to-end.
 
 ---
 
@@ -1520,7 +1504,7 @@ GCP deployment and presentation prep.
 1. ~~**Dataset structure**~~: Resolved — analyzed both JSON files. `cu_classes.json`: 152 depts, 3,410 courses (deduplicated), 9,470 sections (deduplicated by course+CRN; topics courses share sections) with 15 fields per course. `cu_degree_requirements.json`: 203 programs as flat requirement lists with implicit or-groups and choose-N patterns. Prerequisites are natural language strings in the course data (2,830 courses have them). Schemas updated to match. See [Data Architecture](#data-architecture).
 3. ~~**Authentication scope**~~: Resolved — JWT + email/password for now, CU SSO later ([ADR-10](decisions.md#adr-10-jwt-authentication)).
 4. ~~**Graph complexity**~~: Resolved — prerequisites ARE in the course data as natural language strings (~80% parseable via regex). 2,588 of 3,410 unique courses have prerequisite data (76%); 2,830 of 3,735 raw entries before deduplication. Graph traversal is very useful. Degree requirements connect 203 programs to ~2,497 unique course codes. The graph is rich enough to power "what can I take next?" queries.
-6. ~~**Budget**~~: Resolved — $50 GCP coupon per person × 3 people = $150. Estimated spend ~$15-25 for 3.5 weeks. Self-hosted databases on VM to conserve credits ([ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm)).
+6. ~~**Budget**~~: Resolved — Estimated monthly infra spend ~$15-25 at minimum scale. Self-hosted databases on VM to conserve cloud spend ([ADR-19](decisions.md#adr-19-self-hosted-databases-on-vm)).
 7. ~~**Team assignment**~~: Resolved — Person A = Scott (shared package, memory, deploy), Person B = Rohan (frontend, Course Search API, auth, CI/CD, security), Person C = Andrew (repo skeleton, data ingestion, chat/AI engine).
 12. ~~**CORS configuration**~~: Resolved — both backend services use the same CORS config via `shared/config.py`. Local development: allow `http://localhost:5173` (Vite dev server). GCP: allow only the Cloud Run frontend URL (set via `CORS_ORIGINS` env var in Terraform). Both services read `settings.cors_origins_list` and configure `CORSMiddleware` identically in their `main.py`. Never use `allow_origins=["*"]` — even in development, pin to the frontend origin.
 

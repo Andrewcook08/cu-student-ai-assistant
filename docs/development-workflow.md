@@ -96,7 +96,7 @@ The automation handles status transitions, but these things are still on you:
 
 ### What About CI Checks?
 
-The CI pipeline (lint, format, typecheck, tests) runs on every PR automatically — that's CUAI-71 (CICD-001), scheduled for Sprint 1 Day 2 so every feature PR is CI-gated from the start. Even so, run checks locally before pushing so you don't burn CI cycles on obvious failures:
+The CI pipeline (lint, format, typecheck, tests) runs on every PR automatically — that's CUAI-71 (CICD-001), prioritized early so every feature PR is CI-gated from the start. Even so, run checks locally before pushing so you don't burn CI cycles on obvious failures:
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run pytest
 ```
@@ -376,7 +376,7 @@ You: Implement FE-008: WebSocket integration with useChat composable.
 
 | Phase | Person B Focus | Key Prompt Patterns |
 |-------|---------------|-------------------|
-| 1 | CICD-001 first (Day 2), then Vue setup, layout (visual shell from cu-classes.html), mock components — each component PR ships with Vitest tests | "Create [Component].vue with Tailwind styling. Use mock data. Match the panel/section/form-control styling from cu-classes.html (ADR-31). Then write Vitest tests covering the component's behavior per the ticket's acceptance criteria." |
+| 1 | CICD-001 first (early Phase 1), then Vue setup, layout (visual shell from cu-classes.html), mock components — each component PR ships with Vitest tests | "Create [Component].vue with Tailwind styling. Use mock data. Match the panel/section/form-control styling from cu-classes.html (ADR-31). Then write Vitest tests covering the component's behavior per the ticket's acceptance criteria." |
 | 2 | Course Search API endpoints, WebSocket integration, wire frontend to API | "Implement GET /api/courses with filters. Use SQLAlchemy queries against the Course model." |
 | 3 | Auth backend (register/login) + Auth UI, structured responses | "Implement POST /api/auth/register. Hash password with shared/auth.py. Return JWT." |
 | 4 | Deploy pipeline (CICD-002), branding polish, bug fixes | "Create .github/workflows/deploy.yml that builds Docker images and deploys to Cloud Run." |
