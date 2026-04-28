@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-> This document explains the **why** behind every major architecture decision. Each entry follows the format: what we decided, what alternatives we considered, and why we chose this path. Useful for team alignment, class presentation, and future contributors.
+> This document explains the **why** behind every major architecture decision. Each entry follows the format: what we decided, what alternatives we considered, and why we chose this path. Useful for team alignment and future contributors.
 
 ---
 
@@ -618,7 +618,7 @@ If CU were to adopt this system for production use, the first upgrade would be m
 ## ADR-20: Scaling Strategy
 
 ### Decision
-Design every layer to scale independently via configuration changes only — no code changes required to scale any component. For the class demo, everything runs at minimum scale (0-1 instances). Auto-scaling infrastructure is in place but dormant.
+Design every layer to scale independently via configuration changes only — no code changes required to scale any component. For the initial deployment, everything runs at minimum scale (0-1 instances). Auto-scaling infrastructure is in place but dormant.
 
 ### Alternatives Considered
 1. **No scaling design** — build a single-instance system, worry about scaling later
@@ -635,7 +635,7 @@ Option 3 uses the simplest GCP primitive for each layer:
 - **MIG + custom metric** for GPU workers — the standard GCP pattern for non-HTTP workloads that scale on a queue (eliminated by ADR-41; LLM inference now uses the Anthropic API)
 - **Managed services** (Cloud SQL, Memorystore) as the database scaling path — swappable via connection strings
 
-This gives us a scaling story for the presentation without adding operational complexity during the 3.5-week build.
+This gives us a scaling story without adding operational complexity.
 
 ---
 
@@ -838,7 +838,7 @@ The Course Search page must look and feel like CU's class search to be useful to
 - **No functional scope is added** by adopting this baseline — FE-001/002/003/004 retain their original filter set, course table, detail panel, pagination, and API-wiring behavior. Only the visual chrome changes
 - See [architecture.md § Frontend](architecture.md#frontend) for the exact "What IS ported" and "What is NOT ported" tables
 
-> **Amended by ADR-32** (2026-04-07): the filter set in this ADR's Decision ("Department, Level, Time, Credit Hours") was narrowed to three controls — Department, Level, Credit Hours — post-Sprint-1. The Time range control and the Law/Non-Credit level options were removed. The rest of ADR-31 (visual baseline, brand tokens, ported markup) stands.
+> **Amended by ADR-32** (2026-04-07): the filter set in this ADR's Decision ("Department, Level, Time, Credit Hours") was narrowed to three controls — Department, Level, Credit Hours — post-Phase-1. The Time range control and the Law/Non-Credit level options were removed. The rest of ADR-31 (visual baseline, brand tokens, ported markup) stands.
 
 ---
 
@@ -865,7 +865,7 @@ The original FilterBar scope (ADR-31, FE-002) matched CU's own class search at a
 - `GET /api/courses` backend does not accept a time/meeting filter. It does accept a `level` filter (undergrad-lower / undergrad-upper / graduate) that translates to a SQL range on the numeric portion of `Course.code`. Invalid values return 400.
 - `CourseTable.spec.ts` no longer covers a time filter case.
 - ADR-31 "Consequences" bullet naming "four controls (department, level, time, credits)" is amended — see the note appended to ADR-31 above.
-- Historical PRs and Sprint 1 story descriptions that reference the four-control set remain as-is; the Jira ticket descriptions (CUAI-45/46/47) were updated to reflect the new scope.
+- Historical PRs and Phase-1 story descriptions that reference the four-control set remain as-is; the Jira ticket descriptions (CUAI-45/46/47) were updated to reflect the new scope.
 - Shipped in PR #62 alongside the backend `level` filter and aggregate `status` field.
 
 ---
@@ -874,7 +874,7 @@ The original FilterBar scope (ADR-31, FE-002) matched CU's own class search at a
 
 ### Decision
 
-Adopt a **five-control hardening layer** at the API and infrastructure surface that fills the gap between ADR-14 (tool-level auth) / ADR-17 (defense-in-depth strategy) above and ADR-23 (network/VPC isolation) below. All five controls are planned scope (Sprint 2); none is implemented yet.
+Adopt a **five-control hardening layer** at the API and infrastructure surface that fills the gap between ADR-14 (tool-level auth) / ADR-17 (defense-in-depth strategy) above and ADR-23 (network/VPC isolation) below. All five controls are planned scope (Phase 3); none is implemented yet.
 
 | Control | Ticket | What it enforces |
 |---------|--------|-----------------|
@@ -892,7 +892,7 @@ Health endpoints (`/api/health`, `/api/chat/health`) remain public for load bala
 
 2. **A single FastAPI middleware that requires auth on all paths** with an allowlist for health endpoints — rejected. Per-route `Depends(get_current_user)` is more explicit, survives router re-mounting, and shows up in the OpenAPI schema. An allowlist approach has real drift risk: every new public endpoint requires a manual allowlist update.
 
-3. **Defer all controls until after Sprint 2** — rejected. `/api/courses/search` triggers a local Ollama embedding call (nomic-embed-text, not GPU inference) plus a Neo4j vector search on every unauthenticated request. Unauthenticated + unrate-limited is a cost/DoS vector, not a polish item.
+3. **Defer all controls until after Phase 3** — rejected. `/api/courses/search` triggers a local Ollama embedding call (nomic-embed-text, not GPU inference) plus a Neo4j vector search on every unauthenticated request. Unauthenticated + unrate-limited is a cost/DoS vector, not a polish item.
 
 4. **Centralize rate limiting at a reverse proxy (nginx / Cloud Armor)** — rejected for Phase 3. Per-user limits require the JWT subject (application context the proxy doesn't have). Cloud Armor is Phase 4 scope. `slowapi` is one decorator per route and survives the eventual move to a reverse proxy without code changes.
 
@@ -910,7 +910,7 @@ ADR-14 and ADR-17 secure the LLM/tool layer. ADR-23 secures the network perimete
 
 ### Consequences
 
-- Five new Sprint 2 tickets: SEC-005..009 (CUAI-79..83). Label `security`, label `phase-3`. No epic parent (cross-cutting hardening).
+- Five new Phase-3 tickets: SEC-005..009 (CUAI-79..83). Label `security`, label `phase-3`. No epic parent (cross-cutting hardening).
 - Thirteen existing tickets receive appended security ACs: CHAT-002, CHAT-004, CHAT-009, CHAT-010, CHAT-011, FE-008, AUTH-001..004, DEPLOY-002, DEPLOY-004, CICD-002. No scope or status change; amendments are recorded in `jira-epics-and-stories.md`.
 - `slowapi` added as a dependency on both services.
 - `ENVIRONMENT` env var required on every deployment surface (`development` by default; `production` activates the secret validator).
@@ -1174,7 +1174,7 @@ RUN ollama serve & sleep 5 && ollama pull nomic-embed-text && pkill ollama
 ## ADR-43: Public Read, Authenticated Write for Catalog Routes
 
 ### Status
-Accepted (PR #138, Sprint 2). Partially supersedes the SEC-005 control described in [ADR-33](#adr-33-api--infrastructure-security-hardening).
+Accepted (PR #138, Phase 3). Partially supersedes the SEC-005 control described in [ADR-33](#adr-33-api--infrastructure-security-hardening).
 
 ### Decision
 Leave the catalog/search/programs surface **unauthenticated** for read-only access, and require auth only on endpoints that read or write per-user state. Specifically:
