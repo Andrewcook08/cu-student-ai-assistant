@@ -1,132 +1,59 @@
 # CU Student AI Assistant
 
-An AI-powered course scheduling and degree-planning assistant for CU Boulder students. Built for the Big Data Architecture class — a production-grade system that helps students explore courses, plan their degree path, and build personalized semester schedules through natural-language chat.
+A class project for CSCI Big Data Architecture at CU Boulder (Spring 2026).
+
+## The problem
+
+Picking classes at CU is harder than it should be. The course catalog is a static website. Degree requirements live in PDFs. Prerequisite chains are buried in dropdowns. The only personalized help is your advisor — and advisors are overloaded with hundreds of students.
+
+So most students plan their schedule the hard way: by spending an afternoon flipping between catalog tabs, requirement sheets, and RateMyProfessor, trying to keep it all in their head at once.
+
+## The idea
+
+What if you could just *ask*?
+
+> *"I'm a CS major, I've finished my intro sequence, and I want a lighter semester next spring with at least one upper-division CS class. What should I take?"*
+
+That's what this project is: an AI assistant that knows the CU catalog, understands degree requirements, and can actually have a conversation about your schedule — not just spit back search results.
 
 ## What it does
 
-CU Boulder has no personalized tool for degree planning — just static catalog pages and overloaded advisors. This assistant fills the gap:
+- **Search the catalog** by department, level, keywords, time of day, instructor
+- **Chat with an AI** that has read the entire CU course catalog (3,400+ courses, 200+ degree programs, the full prerequisite graph)
+- **Get personalized recommendations** grounded in real courses you can actually register for — no hallucinated class numbers
+- **Remember your decisions** across sessions so you don't have to re-explain your situation every time
 
-1. **Understands** what a student has taken and what they need
-2. **Reasons** over degree requirements, prerequisites, and scheduling constraints
-3. **Recommends** courses and semester schedules grounded in the real catalog
-4. **Remembers** decisions across sessions
+The chat side is the interesting part. It uses Claude as the language model, but the answers are grounded in our own database — so when it tells you to take CSCI 3104, that's a real class, with a real prereq chain, taught by a real instructor next semester.
 
-The chat is grounded in a real ingest of the CU course catalog — 3,410 courses, 9,470 sections, 203 degree programs, and the full prerequisite graph.
+## Why we built it this way
 
-## Architecture
+The class is called Big Data Architecture, so the goal isn't just "ship a chatbot." It's to build something that looks like how a real production system would be put together if a small team had to ship it.
 
-Two backend services behind a Vue frontend, all on GCP Cloud Run, with the data tier on a single Compute Engine VM.
+That meant making real architectural decisions and living with them:
 
-```
-Frontend (Vue 3 + Vite)
-   │
-   ├── REST ──► Course Search API (FastAPI)  ──► PostgreSQL
-   │
-   └── WebSocket ──► Chat Service (FastAPI + LangGraph)
-                          │
-                          ├──► Anthropic API (Claude Sonnet)
-                          ├──► PostgreSQL  (courses, users, decisions)
-                          ├──► Neo4j       (prereq graph + vector index)
-                          ├──► Redis       (sessions, rate limits)
-                          └──► Ollama      (nomic-embed-text, 768-dim)
-```
+- **Two backend services, not one.** A fast REST API for course search, a separate streaming service for chat. They scale differently, fail differently, and shouldn't share a process.
+- **A graph database, not just SQL.** Prerequisites are a graph. Trying to model "what classes does CSCI 3104 transitively unlock?" in pure SQL is painful. Neo4j makes it natural.
+- **A real ingest pipeline.** The catalog comes in as messy JSON, gets cleaned, embedded, and loaded into two databases. It runs as a Cloud Run Job, not a script someone forgot to run.
+- **Fully ephemeral infrastructure.** The whole stack on GCP can be torn down to $0 and brought back up from scratch in 20 minutes. No "don't touch that, it's been running since October."
 
-| Service | Role |
-|---|---|
-| **frontend** | Vue 3 + TypeScript + Tailwind. Course search page + chat widget. |
-| **course-search-api** | Stateless REST over Postgres. Auth (JWT), course/program lookups, student decision history. |
-| **chat-service** | LangGraph `StateGraph` orchestrating intent classification → Graph RAG context → Claude tool-calling → output validation. WebSocket streaming. |
-| **data-ingest** | Cloud Run Job that loads the CU catalog into Postgres + Neo4j and generates embeddings. |
-| **ollama-embed** | Prebaked Cloud Run service serving `nomic-embed-text` for query-time embeddings. |
+We wrote down every non-obvious decision as an ADR (50+ of them) so a future teammate — or grader — can see *why* a choice was made, not just *what* was chosen.
 
-Full design docs are in [`docs/architecture.md`](docs/architecture.md). Architectural decisions are recorded in [`docs/decisions.md`](docs/decisions.md).
+## The team
 
-## Tech stack
-
-- **Backend**: Python 3.12, FastAPI, LangChain + LangGraph, Anthropic SDK
-- **Frontend**: Vue 3, TypeScript, Vite, Tailwind, shadcn-vue
-- **Data**: PostgreSQL 16, Neo4j (with native vector indexes), Redis
-- **LLM**: Claude Sonnet via the Anthropic API
-- **Embeddings**: Ollama (`nomic-embed-text`, 768-dim, cosine)
-- **Infra**: GCP (Cloud Run + Compute Engine + Artifact Registry + Secret Manager), Terraform, GitHub Actions
-- **Tooling**: uv workspaces, ruff, mypy (strict), pytest
-
-## Repo layout
-
-```
-.
-├── frontend/                Vue app
-├── services/
-│   ├── course-search-api/   FastAPI REST service
-│   └── chat-service/        FastAPI + LangGraph chat service
-├── shared/                  Shared Python config, models, auth, db helpers
-├── data/                    Course catalog + ingest pipeline
-├── infra/                   Terraform + ./infra.sh wrapper for GCP
-├── scripts/                 Local dev helpers (dev.sh, check.sh, seed_db.sh)
-├── docs/                    Architecture, ADRs, runbooks, workflow
-└── docker-compose.yml       Local dev stack (Postgres, Neo4j, Redis, Ollama)
-```
-
-## Local development
-
-```bash
-# 1. Install Python deps (single workspace lockfile)
-uv sync
-
-# 2. Bring up data services + Ollama
-docker compose up -d
-
-# 3. Seed the databases
-./scripts/seed_db.sh
-
-# 4. Start backend + frontend
-./scripts/dev.sh
-```
-
-Then open `http://localhost:5173`. Detailed setup notes, env vars, and troubleshooting live in [`docs/local-development.md`](docs/local-development.md).
-
-### Quality gates
-
-```bash
-./scripts/check.sh          # ruff + mypy + pytest across the whole workspace
-```
-
-CI runs the same checks on every PR.
-
-## Deployment
-
-The full stack is **fully ephemeral** — `./infra.sh up` provisions everything from scratch in ~20 minutes, `./infra.sh down` reaches $0 in residual cost.
-
-```bash
-cd infra/
-./infra.sh up               # Terraform apply + secret population + VM bootstrap
-gh workflow run deploy.yml  # Build images, push to AR, update Cloud Run revisions
-./infra.sh ingest           # Load the course catalog (~5 min)
-./infra.sh down             # Tear it all down
-```
-
-See [`infra/README.md`](infra/README.md) for the runbook, the responsibility split between Terraform / shell / operator / deploy pipeline, and ingest-pipeline modes.
-
-## Documentation
-
-| File | What it covers |
-|---|---|
-| [`docs/architecture.md`](docs/architecture.md) | System design, service boundaries, scaling, data model, security |
-| [`docs/decisions.md`](docs/decisions.md) | ADRs (51 and counting) — every non-obvious technical decision and why |
-| [`docs/local-development.md`](docs/local-development.md) | Local dev setup, env vars, common issues |
-| [`docs/development-workflow.md`](docs/development-workflow.md) | Branch / PR / review conventions |
-| [`docs/implementation-guide.md`](docs/implementation-guide.md) | How features are wired end-to-end |
-| [`docs/example-conversation.md`](docs/example-conversation.md) | Annotated transcript of a real chat session |
-| [`infra/README.md`](infra/README.md) | Infra runbook — spin-up, teardown, ingest, drift |
-
-## Team
-
-Three-person team for CSCI Big Data Architecture (CU Boulder, Spring 2026):
-
-- **Andrew** — data ingest, AI/chat service, infra
-- **Rohan** — frontend + course-search API
+- **Andrew** — data ingest, AI / chat service, GCP infra
+- **Rohan** — frontend, course search API
 - **Scott** — shared infrastructure, deploy pipeline, cross-cutting concerns
+
+## Where to look next
+
+| If you want to… | Read this |
+|---|---|
+| See the design and the tradeoffs | [`docs/architecture.md`](docs/architecture.md) |
+| Understand *why* things are the way they are | [`docs/decisions.md`](docs/decisions.md) |
+| See the assistant in action | [`docs/example-conversation.md`](docs/example-conversation.md) |
+| Run it locally | [`docs/local-development.md`](docs/local-development.md) |
+| Stand it up on GCP (or tear it down) | [`infra/README.md`](infra/README.md) |
 
 ## Status
 
-This is a class project — built to demonstrate production-grade architecture, not run as a live service. The Cloud Run stack is ephemeral and torn down between demos to keep cost at zero.
+This is a class project, not a live service. The cloud stack is ephemeral and torn down between demos to keep cost at zero. Code is on `main`; ongoing work happens in `docs/*` and `feat/*` branches and lands through PRs.
